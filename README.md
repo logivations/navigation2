@@ -14,12 +14,11 @@ ROS2 Navigation System
 
 ## How to launch
 
-- compile docker image `custom_env.Dockerfile`
-- run image (see dockerfile for run command)
+- download `logivations/ros2` docker image, or compile it locally `custom_env.Dockerfile`
+- run image (see `custom_env.Dockerfile` for run command)
 - connect to image, run `tmux` inside
 
-- launch the following things, each in a new tab/terminal
-
+- launch the following things, each in a new tab/terminal:
 
 1. gazebo: `gazebo --verbose -s libgazebo_ros_init.so /opt/ros2_ws/install/turtlebot3_gazebo/share/turtlebot3_gazebo/worlds/turtlebot3_worlds/waffle.model`
 
@@ -27,13 +26,16 @@ ROS2 Navigation System
     `ros2 launch turtlebot3_bringup turtlebot3_state_publisher.launch.py use_sim_time:=True` 
 
 3. navigation with nav2
-`ros2 launch nav2_bringup nav2_bringup_launch.py map:=/opt/ros2_ws/install/nav2_bringup/share/nav2_bringup/maps/turtlebot3_world.yaml use_sim_time:=True autostart:=False` 
+`ros2 launch nav2_bringup nav2_bringup_launch.py map:=/opt/ros2_ws/install/nav2_bringup/share/nav2_bringup/maps/turtlebot3_world.yaml use_sim_time:=True autostart:=True` 
 
 or nav2 with TEB
 `ros2 launch teb_local_planner teb_nav2_bringup_launch.py map:=/opt/ros2_ws/install/nav2_bringup/share/nav2_bringup/maps/turtlebot3_world.yaml`
 
 4. rviz2
 `ros2 run rviz2 rviz2 -d $(ros2 pkg prefix nav2_bringup)/share/nav2_bringup/rviz/nav2_default_view.rviz`
+
+- go to rviz, give a 2D Pose Estimate (check gazebo for position)
+- send robot to goal using Navigation2 Goal
 
 
 # Overview
