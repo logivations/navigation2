@@ -106,7 +106,7 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time},
                     {'autostart': autostart},
                     {'node_names': ['map_server',
-                                    'amcl',
+                                   # 'amcl',
                                     'controller_server',
                                     'planner_server',
                                     'recoveries_server',

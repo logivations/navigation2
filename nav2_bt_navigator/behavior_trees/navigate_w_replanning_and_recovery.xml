@@ -6,7 +6,7 @@
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <RateController hz="1.0">
+        <RateController hz="0.1">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
             <ClearEntireCostmap service_name="global_costmap/clear_entirely_global_costmap"/>
