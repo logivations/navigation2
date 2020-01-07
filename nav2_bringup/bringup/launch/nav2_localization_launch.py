@@ -97,7 +97,6 @@ def generate_launch_description():
             parameters=[configured_params],
             use_remappings=IfCondition(use_remappings),
             remappings=remappings),
-
         Node(
             package='nav2_amcl',
             node_executable='amcl',
@@ -115,5 +114,5 @@ def generate_launch_description():
             output='screen',
             parameters=[{'use_sim_time': use_sim_time},
                         {'autostart': autostart},
-                        {'node_names': ['map_server','amcl']}])
+                        {'node_names': ['map_server', 'amcl']}])
     ])

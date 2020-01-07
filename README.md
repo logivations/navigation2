@@ -10,6 +10,34 @@ ROS2 Navigation System
 
 [![codecov](https://codecov.io/gh/ros-planning/navigation2/branch/master/graph/badge.svg)](https://codecov.io/gh/ros-planning/navigation2)
 
+# LV changes
+
+## How to launch
+
+- download `logivations/ros2` docker image, or compile it locally `custom_env.Dockerfile`
+- run image (see `custom_env.Dockerfile` for run command)
+- connect to image, run `tmux` inside
+
+- launch the following things, each in a new tab/terminal:
+
+1. gazebo: `gazebo --verbose -s libgazebo_ros_init.so /opt/ros2_ws/install/turtlebot3_gazebo/share/turtlebot3_gazebo/worlds/turtlebot3_worlds/waffle.model`
+
+2. turtlebot
+    `ros2 launch turtlebot3_bringup turtlebot3_state_publisher.launch.py use_sim_time:=True` 
+
+3. navigation with nav2
+`ros2 launch nav2_bringup nav2_bringup_launch.py map:=/opt/ros2_ws/install/nav2_bringup/share/nav2_bringup/maps/turtlebot3_world.yaml use_sim_time:=True autostart:=True` 
+
+or nav2 with TEB
+`ros2 launch teb_local_planner teb_nav2_bringup_launch.py map:=/opt/ros2_ws/install/nav2_bringup/share/nav2_bringup/maps/turtlebot3_world.yaml`
+
+4. rviz2
+`ros2 run rviz2 rviz2 -d $(ros2 pkg prefix nav2_bringup)/share/nav2_bringup/rviz/nav2_default_view.rviz`
+
+- go to rviz, give a 2D Pose Estimate (check gazebo for position)
+- send robot to goal using Navigation2 Goal
+
+
 # Overview
 The ROS 2 Navigation System is the control system that enables a robot to autonomously reach a goal state, such as a specific position and orientation relative to a specific map. Given a current pose, a map, and a goal, such as a destination pose, the navigation system generates a plan to reach the goal, and outputs commands to autonomously drive the robot, respecting any safety constraints and avoiding obstacles encountered along the way.
 
