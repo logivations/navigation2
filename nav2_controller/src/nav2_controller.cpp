@@ -250,7 +250,7 @@ void ControllerServer::computeControl()
     return;
   }
 
-  RCLCPP_DEBUG(get_logger(), "DWB succeeded, setting result");
+  RCLCPP_INFO(get_logger(), "DWB succeeded, setting result");
 
   publishZeroVelocity();
 
@@ -260,7 +260,7 @@ void ControllerServer::computeControl()
 
 void ControllerServer::setPlannerPath(const nav_msgs::msg::Path & path)
 {
-  RCLCPP_DEBUG(get_logger(),
+  RCLCPP_INFO(get_logger(),
     "Providing path to the controller %s", current_controller_);
   if (path.poses.empty()) {
     throw nav2_core::PlannerException("Invalid path, Path is empty.");
@@ -269,7 +269,7 @@ void ControllerServer::setPlannerPath(const nav_msgs::msg::Path & path)
 
   auto end_pose = *(path.poses.end() - 1);
 
-  RCLCPP_DEBUG(get_logger(), "Path end point is (%.2f, %.2f)",
+  RCLCPP_INFO(get_logger(), "Path end point is (%.2f, %.2f)",
     end_pose.pose.position.x, end_pose.pose.position.y);
 }
 
@@ -277,17 +277,17 @@ void ControllerServer::computeAndPublishVelocity()
 {
   geometry_msgs::msg::PoseStamped pose;
 
-  if (!getRobotPose(pose)) {
-    throw nav2_core::PlannerException("Failed to obtain robot pose");
-  }
+ pose = odom_sub_->getPoseStamped();
 
   progress_checker_->check(pose);
+  RCLCPP_INFO(get_logger(), "pose is (%.2f, %.2f)", pose.pose.position.x, pose.pose.position.y);
+  RCLCPP_INFO(get_logger(), "twist is (%.2f, %.2f)", odom_sub_->getTwist().x, odom_sub_->getTwist().y);
 
   auto cmd_vel_2d =
     controllers_[current_controller_]->computeVelocityCommands(pose,
       nav_2d_utils::twist2Dto3D(odom_sub_->getTwist()));
 
-  RCLCPP_DEBUG(get_logger(), "Publishing velocity at time %.2f", now().seconds());
+  RCLCPP_INFO(get_logger(), "Publishing velocity at time %.2f", now().seconds());
   publishVelocity(cmd_vel_2d);
 }
 
@@ -321,9 +321,7 @@ bool ControllerServer::isGoalReached()
 {
   geometry_msgs::msg::PoseStamped pose;
 
-  if (!getRobotPose(pose)) {
-    return false;
-  }
+  pose = odom_sub_->getPoseStamped();
 
   geometry_msgs::msg::Twist velocity = nav_2d_utils::twist2Dto3D(odom_sub_->getTwist());
   return controllers_[current_controller_]->isGoalReached(pose, velocity);

@@ -95,6 +95,10 @@ controller_server:
     DynamicFollowPath.max_vel_theta: 1.0
     DynamicFollowPath.acc_lim_x: 2.5
     DynamicFollowPath.acc_lim_theta: 3.2
+    DynamicFollowPath.xy_goal_tolerance: 0.05
+    DynamicFollowPath.yaw_goal_tolerance: 0.1
+    DynamicFollowPath.global_plan_viapoint_sep: 0.4
+    DynamicFollowPath.weight_viapoint: 10.0
 
 costmap_converter:
   ros__parameters:
