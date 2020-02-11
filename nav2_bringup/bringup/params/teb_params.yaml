@@ -91,7 +91,7 @@ controller_server:
     DynamicFollowPath.max_samples: 20
     DynamicFollowPath.max_global_plan_lookahead_dist: 1.0
     DynamicFollowPath.visualize_hc_graph: True
-    DynamicFollowPath.max_vel_x: 0.26
+    DynamicFollowPath.max_vel_x: 1.0
     DynamicFollowPath.max_vel_theta: 1.0
     DynamicFollowPath.acc_lim_x: 2.5
     DynamicFollowPath.acc_lim_theta: 3.2
@@ -113,11 +113,11 @@ local_costmap:
     ros__parameters:
       use_sim_time: True
       global_frame: odom
-      plugin_names: ["obstacle_layer", "voxel_layer", "inflation_layer"]
-      plugin_types: ["nav2_costmap_2d::ObstacleLayer", "nav2_costmap_2d::VoxelLayer", "nav2_costmap_2d::InflationLayer"]
+      plugin_names: ["obstacle_layer", "inflation_layer"]
+      plugin_types: ["nav2_costmap_2d::ObstacleLayer", "nav2_costmap_2d::InflationLayer"]
       rolling_window: true
-      width: 3
-      height: 3
+      width: 5
+      height: 5
       resolution: 0.05
       robot_radius: 0.22
       inflation_layer:
@@ -131,21 +131,6 @@ local_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
-      voxel_layer:
-        enabled: True
-        publish_voxel_map: True
-        origin_z: 0.0
-        z_resolution: 0.2
-        z_voxels: 10
-        max_obstacle_height: 2.0
-        mark_threshold: 0
-        observation_sources: pointcloud
-        pointcloud:
-          topic: /intel_realsense_r200_depth/points
-          max_obstacle_height: 2.0
-          clearing: True
-          marking: True
-          data_type: "PointCloud2"
       static_layer:
         map_subscribe_transient_local: True
       always_send_full_costmap: True
