@@ -47,6 +47,8 @@ ControllerServer::ControllerServer()
 
   // Launch a thread to run the costmap node
   costmap_thread_ = std::make_unique<nav2_util::NodeThread>(costmap_ros_);
+
+
 }
 
 ControllerServer::~ControllerServer()
@@ -69,7 +71,7 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & state)
   auto node = shared_from_this();
 
   progress_checker_ = std::make_unique<ProgressChecker>(rclcpp_node_);
-
+    //this.register_param_change_callback(std::bind(&ControllerServer::on_configure, this, _1));
   if (controller_types_.size() != controller_ids_.size()) {
     RCLCPP_FATAL(get_logger(), "Size of controller names (%i) and "
       "controller types (%i) are not the same!",
@@ -282,7 +284,11 @@ void ControllerServer::computeAndPublishVelocity()
   progress_checker_->check(pose);
   RCLCPP_INFO(get_logger(), "pose is (%.2f, %.2f)", pose.pose.position.x, pose.pose.position.y);
   RCLCPP_INFO(get_logger(), "twist is (%.2f, %.2f)", odom_sub_->getTwist().x, odom_sub_->getTwist().y);
-
+//    float max_vel = 0;
+//    get_parameter("DynamicFollowPath.max_vel_x", max_vel);
+//    //set_parameter("DynamicFollowPath.max_vel_x", max_vel);
+//    set_parameter(rclcpp::Parameter("DynamicFollowPath.max_vel_x", max_vel));
+//    RCLCPP_INFO(get_logger(), "Robot Max Vel : %.3f", max_vel);
   auto cmd_vel_2d =
     controllers_[current_controller_]->computeVelocityCommands(pose,
       nav_2d_utils::twist2Dto3D(odom_sub_->getTwist()));

@@ -85,6 +85,9 @@ controller_server:
     DynamicFollowPath.enable_homotopy_class_planning: True
     DynamicFollowPath.enable_multithreading: True
     #DynamicFollowPath.weight_obstacle: 100.0
+    DynamicFollowPath.control_look_ahead_poses: 1
+    DynamicFollowPath.dt_ref: 0.3
+    ###
     DynamicFollowPath.optimization_verbose: False
     DynamicFollowPath.teb_autoresize: True
     DynamicFollowPath.min_samples: 3
