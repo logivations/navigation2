@@ -87,7 +87,6 @@ controller_server:
     #DynamicFollowPath.weight_obstacle: 100.0
     DynamicFollowPath.control_look_ahead_poses: 3
     DynamicFollowPath.dt_ref: 0.3
-    DynamicFollowPath.global_plan_overwrite_orientation: True
     DynamicFollowPath.feasibility_check_no_poses: 4
     ###
     DynamicFollowPath.optimization_verbose: False
@@ -96,6 +95,7 @@ controller_server:
     DynamicFollowPath.max_samples: 20
     DynamicFollowPath.max_global_plan_lookahead_dist: 1.5
     DynamicFollowPath.visualize_hc_graph: True
+    DynamicFollowPath.global_plan_overwrite_orientation: False
     DynamicFollowPath.max_vel_x: 0.9
     DynamicFollowPath.max_vel_theta: 0.5
     DynamicFollowPath.acc_lim_x: 1.8
