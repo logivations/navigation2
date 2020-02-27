@@ -85,8 +85,10 @@ controller_server:
     DynamicFollowPath.enable_homotopy_class_planning: True
     DynamicFollowPath.enable_multithreading: True
     #DynamicFollowPath.weight_obstacle: 100.0
-    DynamicFollowPath.control_look_ahead_poses: 1
+    DynamicFollowPath.control_look_ahead_poses: 3
     DynamicFollowPath.dt_ref: 0.3
+    DynamicFollowPath.global_plan_overwrite_orientation: True
+    DynamicFollowPath.feasibility_check_no_poses: 4
     ###
     DynamicFollowPath.optimization_verbose: False
     DynamicFollowPath.teb_autoresize: True
@@ -110,8 +112,8 @@ costmap_converter:
 controller_server_rclcpp_node:
   ros__parameters:
     use_sim_time: True
-
 local_costmap:
+
   local_costmap:
     ros__parameters:
       use_sim_time: True
