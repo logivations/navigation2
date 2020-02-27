@@ -45,6 +45,7 @@ void ProgressChecker::check(geometry_msgs::msg::PoseStamped & current_pose)
     return;
   }
   if ((nh_->now() - baseline_time_) > time_allowance_) {
+
     throw nav2_core::PlannerException("Failed to make progress");
   }
 }
@@ -60,7 +61,11 @@ bool ProgressChecker::is_robot_moved_enough(const geometry_msgs::msg::Pose2D & p
 {
   if (pose_distance(pose, baseline_pose_) > radius_) {
     return true;
-  } else {
+  }
+  else if(std::abs(pose.theta - baseline_pose_.theta) > 0.17){
+      return true;
+  }
+  else {
     return false;
   }
 }
