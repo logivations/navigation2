@@ -94,16 +94,16 @@ controller_server:
     DynamicFollowPath.teb_autoresize: True
     DynamicFollowPath.min_samples: 3
     DynamicFollowPath.max_samples: 20
-    DynamicFollowPath.max_global_plan_lookahead_dist: 1.0
+    DynamicFollowPath.max_global_plan_lookahead_dist: 1.5
     DynamicFollowPath.visualize_hc_graph: True
-    DynamicFollowPath.max_vel_x: 1.0
-    DynamicFollowPath.max_vel_theta: 1.0
-    DynamicFollowPath.acc_lim_x: 2.5
+    DynamicFollowPath.max_vel_x: 0.9
+    DynamicFollowPath.max_vel_theta: 0.5
+    DynamicFollowPath.acc_lim_x: 1.8
     DynamicFollowPath.acc_lim_theta: 3.2
     DynamicFollowPath.xy_goal_tolerance: 0.05
     DynamicFollowPath.yaw_goal_tolerance: 0.1
     DynamicFollowPath.global_plan_viapoint_sep: 0.4
-    DynamicFollowPath.weight_viapoint: 10.0
+    DynamicFollowPath.weight_viapoint: 5.0
 
 costmap_converter:
   ros__parameters:
@@ -121,9 +121,9 @@ local_costmap:
       plugin_names: ["obstacle_layer", "inflation_layer"]
       plugin_types: ["nav2_costmap_2d::ObstacleLayer", "nav2_costmap_2d::InflationLayer"]
       rolling_window: true
-      width: 5
-      height: 5
-      resolution: 0.05
+      width: 8
+      height: 8
+      resolution: 0.2
       robot_radius: 0.22
       inflation_layer:
         cost_scaling_factor: 3.0
