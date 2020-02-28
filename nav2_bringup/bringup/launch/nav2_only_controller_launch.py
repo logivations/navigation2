@@ -24,12 +24,14 @@ from launch.substitutions import LaunchConfiguration
 from nav2_common.launch import Node
 from nav2_common.launch import RewrittenYaml
 
+from launch_ros.actions import PushRosNamespace
 
 def generate_launch_description():
     # Get the launch directory
     bringup_dir = get_package_share_directory('nav2_bringup')
 
     namespace = LaunchConfiguration('namespace')
+    use_namespace = LaunchConfiguration('use_namespace')
     use_sim_time = LaunchConfiguration('use_sim_time')
     autostart = LaunchConfiguration('autostart')
     params_file = LaunchConfiguration('params_file')
@@ -57,7 +59,10 @@ def generate_launch_description():
     return LaunchDescription([
         # Set env var to print messages to stdout immediately
         SetEnvironmentVariable('RCUTILS_CONSOLE_STDOUT_LINE_BUFFERED', '1'),
-
+        DeclareLaunchArgument(
+        'use_namespace',
+        default_value='false',
+        description='Whether to apply a namespace to the navigation stack'),
         DeclareLaunchArgument(
             'namespace', default_value='',
             description='Top-level namespace'),
@@ -82,7 +87,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_remappings', default_value='false',
             description='Arguments to pass to all nodes launched by the file'),
-
+        PushRosNamespace(
+            condition=IfCondition(use_namespace),
+            namespace=namespace),
         Node(
             package='nav2_controller',
             node_executable='controller_server',
