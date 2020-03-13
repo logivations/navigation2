@@ -91,7 +91,7 @@ controller_server:
     DynamicFollowPath.enable_multithreading: True
     #DynamicFollowPath.weight_obstacle: 100.0
     DynamicFollowPath.control_look_ahead_poses: 3
-    DynamicFollowPath.prevent_look_ahead_poses_near_goal: 0
+    DynamicFollowPath.prevent_look_ahead_poses_near_goal: 2
     DynamicFollowPath.dt_ref: 0.3
     DynamicFollowPath.dt_hysteresis: 0.1
     DynamicFollowPath.global_plan_overwrite_orientation: False
@@ -104,9 +104,9 @@ controller_server:
     DynamicFollowPath.max_global_plan_lookahead_dist: 4.0
     DynamicFollowPath.visualize_hc_graph: False
     DynamicFollowPath.max_vel_x: 0.8
-    DynamicFollowPath.max_vel_x_near_goal: 0.8
+    DynamicFollowPath.max_vel_x_near_goal: 0.2
     DynamicFollowPath.max_vel_theta: 0.6
-    DynamicFollowPath.max_vel_theta_near_goal: 0.6
+    DynamicFollowPath.max_vel_theta_near_goal: 0.1
     DynamicFollowPath.acc_lim_x: 0.5
     DynamicFollowPath.acc_lim_theta: 0.5
     DynamicFollowPath.xy_goal_tolerance: 0.2
