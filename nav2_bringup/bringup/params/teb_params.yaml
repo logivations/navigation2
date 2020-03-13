@@ -75,9 +75,16 @@ controller_server:
     controller_frequency: 20.0
     controller_plugin_types: ["teb_local_planner::TebLocalPlannerROS"]
     controller_plugin_ids: ["DynamicFollowPath"]
-    DynamicFollowPath.footprint_model.type: circular
-    DynamicFollowPath.footprint_model.radius: 0.17
+    DynamicFollowPath.footprint_model.type: "two_circles"
+    DynamicFollowPath:
+      footprint_model:
+        front_offset: 0.5 # for type "two_circles"
+        front_radius: 0.7 # for type "two_circles"
+        rear_offset: 0.5 # for type "two_circles"
+        rear_radius: 0.7 # for type "two_circles"
+    DynamicFollowPath.footprint_model.radius: 0.25
     DynamicFollowPath.min_obstacle_dist: 0.1
+    DynamicFollowPath.obstacle_poses_affected: 900
     DynamicFollowPath.inflation_dist: 0.1
     DynamicFollowPath.costmap_converter_plugin: costmap_converter::CostmapToPolygonsDBSMCCH
     DynamicFollowPath.costmap_converter_spin_thread: True
@@ -88,20 +95,21 @@ controller_server:
     DynamicFollowPath.control_look_ahead_poses: 3
     DynamicFollowPath.prevent_look_ahead_poses_near_goal: 0
     DynamicFollowPath.dt_ref: 0.3
-    DynamicFollowPath.global_plan_overwrite_orientation: True
+    DynamicFollowPath.dt_hysteresis: 0.1
+    DynamicFollowPath.global_plan_overwrite_orientation: False
     DynamicFollowPath.feasibility_check_no_poses: 4
     ###
     DynamicFollowPath.optimization_verbose: False
     DynamicFollowPath.teb_autoresize: True
     DynamicFollowPath.min_samples: 3
-    DynamicFollowPath.max_samples: 20
-    DynamicFollowPath.max_global_plan_lookahead_dist: 1.5
-    DynamicFollowPath.visualize_hc_graph: True
+    DynamicFollowPath.max_samples: 50
+    DynamicFollowPath.max_global_plan_lookahead_dist: 4.0
+    DynamicFollowPath.visualize_hc_graph: False
     DynamicFollowPath.max_vel_x: 0.8
     DynamicFollowPath.max_vel_theta: 0.6
-    DynamicFollowPath.acc_lim_x: 1.8
-    DynamicFollowPath.acc_lim_theta: 3.2
-    DynamicFollowPath.xy_goal_tolerance: 0.02
+    DynamicFollowPath.acc_lim_x: 0.5
+    DynamicFollowPath.acc_lim_theta: 0.5
+    DynamicFollowPath.xy_goal_tolerance: 0.2
     DynamicFollowPath.yaw_goal_tolerance: 0.1
     DynamicFollowPath.global_plan_viapoint_sep: 0.4
     DynamicFollowPath.weight_viapoint: 5.0
@@ -118,14 +126,14 @@ local_costmap:
   local_costmap:
     ros__parameters:
       use_sim_time: True
-      global_frame: odom
+      global_frame: map
       plugin_names: ["obstacle_layer", "inflation_layer"]
       plugin_types: ["nav2_costmap_2d::ObstacleLayer", "nav2_costmap_2d::InflationLayer"]
       rolling_window: true
       width: 8
       height: 8
       resolution: 0.2
-      robot_radius: 0.22
+      robot_radius: 0.25
       inflation_layer:
         cost_scaling_factor: 3.0
       obstacle_layer:
@@ -153,7 +161,7 @@ global_costmap:
       use_sim_time: True
       plugin_names: ["static_layer", "obstacle_layer", "voxel_layer", "inflation_layer"]
       plugin_types: ["nav2_costmap_2d::StaticLayer", "nav2_costmap_2d::ObstacleLayer", "nav2_costmap_2d::VoxelLayer", "nav2_costmap_2d::InflationLayer"]
-      robot_radius: 0.22
+      robot_radius: 1.0
       obstacle_layer:
         enabled: True
         observation_sources: scan

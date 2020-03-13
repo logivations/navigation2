@@ -150,13 +150,13 @@ double ObstacleFootprintCritic::pointCost(int x, int y)
 {
   unsigned char cost = costmap_->getCost(x, y);
   // if the cell is in an obstacle the path is invalid or unknown
-  if (cost == nav2_costmap_2d::LETHAL_OBSTACLE) {
-    throw dwb_core::
-          IllegalTrajectoryException(name_, "Trajectory Hits Obstacle.");
-  } else if (cost == nav2_costmap_2d::NO_INFORMATION) {
-    throw dwb_core::
-          IllegalTrajectoryException(name_, "Trajectory Hits Unknown Region.");
-  }
+//  if (cost == nav2_costmap_2d::LETHAL_OBSTACLE) {
+//    throw dwb_core::
+//          IllegalTrajectoryException(name_, "Trajectory Hits Obstacle.");
+//  } else if (cost == nav2_costmap_2d::NO_INFORMATION) {
+//    throw dwb_core::
+//          IllegalTrajectoryException(name_, "Trajectory Hits Unknown Region.");
+//  }
 
   return cost;
 }
