@@ -75,15 +75,13 @@ controller_server:
     controller_frequency: 20.0
     controller_plugin_types: ["teb_local_planner::TebLocalPlannerROS"]
     controller_plugin_ids: ["DynamicFollowPath"]
-    DynamicFollowPath.footprint_model.type: "two_circles"
+    DynamicFollowPath.footprint_model.type: "line"
     DynamicFollowPath:
       footprint_model:
-        front_offset: 0.5 # for type "two_circles"
-        front_radius: 0.7 # for type "two_circles"
-        rear_offset: 0.5 # for type "two_circles"
-        rear_radius: 0.7 # for type "two_circles"
+        line_start: [-0.1, 0.0] # for type "line"
+        line_end: [0.1, 0.0] # for type "line"
     DynamicFollowPath.footprint_model.radius: 0.25
-    DynamicFollowPath.min_obstacle_dist: 0.1
+    DynamicFollowPath.min_obstacle_dist: 0.3
     DynamicFollowPath.obstacle_poses_affected: 900
     DynamicFollowPath.inflation_dist: 0.1
     DynamicFollowPath.costmap_converter_plugin: costmap_converter::CostmapToPolygonsDBSMCCH
@@ -106,9 +104,9 @@ controller_server:
     DynamicFollowPath.max_global_plan_lookahead_dist: 4.0
     DynamicFollowPath.visualize_hc_graph: False
     DynamicFollowPath.max_vel_x: 0.8
-    DynamicFollowPath.max_vel_x_near_goal: 0.1
+    DynamicFollowPath.max_vel_x_near_goal: 0.8
     DynamicFollowPath.max_vel_theta: 0.6
-    DynamicFollowPath.max_vel_theta_near_goal: 0.1
+    DynamicFollowPath.max_vel_theta_near_goal: 0.6
     DynamicFollowPath.acc_lim_x: 0.5
     DynamicFollowPath.acc_lim_theta: 0.5
     DynamicFollowPath.xy_goal_tolerance: 0.2
