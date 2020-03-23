@@ -34,6 +34,8 @@ controller_server:
     DynamicFollowPath.visualize_hc_graph: False
     DynamicFollowPath.max_vel_x: 0.8
     DynamicFollowPath.max_vel_x_near_goal: 0.2
+    DynamicFollowPath.max_vel_x_backwards: 0.3
+    DynamicFollowPath.max_vel_x_backwards_near_goal: 0.2
     DynamicFollowPath.max_vel_theta: 0.6
     DynamicFollowPath.max_vel_theta_near_goal: 0.1
     DynamicFollowPath.acc_lim_x: 0.5
@@ -42,6 +44,7 @@ controller_server:
     DynamicFollowPath.yaw_goal_tolerance: 0.1
     DynamicFollowPath.global_plan_viapoint_sep: 0.4
     DynamicFollowPath.weight_viapoint: 5.0
+    DynamicFollowPath.slowdown_dist_near_goal: 1.5
 
 controller_server_rclcpp_node:
   ros__parameters:
