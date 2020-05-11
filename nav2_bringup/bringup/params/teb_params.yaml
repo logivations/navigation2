@@ -9,9 +9,10 @@ controller_server:
       footprint_model:
         line_start: [-0.1, 0.0] # for type "line"
         line_end: [0.1, 0.0] # for type "line"
-    DynamicFollowPath.footprint_model.radius: 0.25
-    DynamicFollowPath.min_obstacle_dist: 0.3
-    DynamicFollowPath.obstacle_poses_affected: 900
+    DynamicFollowPath.footprint_model.radius: 0.50
+    DynamicFollowPath.min_obstacle_dist: 0.5
+    DynamicFollowPath.include_dynamic_obstacles:  True
+    DynamicFollowPath.obstacle_poses_affected: 25
     DynamicFollowPath.inflation_dist: 0.1
     DynamicFollowPath.costmap_converter_plugin: costmap_converter::CostmapToPolygonsDBSMCCH
     DynamicFollowPath.costmap_converter_spin_thread: True
