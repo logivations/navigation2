@@ -32,6 +32,7 @@ def generate_launch_description():
 
     namespace = LaunchConfiguration('namespace')
     use_namespace = LaunchConfiguration('use_namespace')
+    use_valgrind = LaunchConfiguration('use_valgrind')
     use_sim_time = LaunchConfiguration('use_sim_time')
     autostart = LaunchConfiguration('autostart')
     params_file = LaunchConfiguration('params_file')
@@ -49,6 +50,9 @@ def generate_launch_description():
     param_substitutions = {
         'use_sim_time': use_sim_time,
         'autostart': autostart,}
+    prefix = ''
+    if use_valgrind:
+        prefix = 'valgrind --track-origins=yes'
 
     configured_params = RewrittenYaml(
         source_file=params_file,
@@ -95,6 +99,7 @@ def generate_launch_description():
             node_executable='controller_server',
             output='screen',
             parameters=[configured_params],
+            prefix=[prefix],
             use_remappings=IfCondition(use_remappings),
             remappings=remappings),
 
