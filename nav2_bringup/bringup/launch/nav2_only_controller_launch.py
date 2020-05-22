@@ -51,7 +51,7 @@ def generate_launch_description():
         'use_sim_time': use_sim_time,
         'autostart': autostart,}
     prefix = ''
-    if use_valgrind:
+    if use_valgrind == True:
         prefix = 'valgrind --track-origins=yes'
 
     configured_params = RewrittenYaml(
