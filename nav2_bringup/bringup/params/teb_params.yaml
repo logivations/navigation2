@@ -1,5 +1,6 @@
 controller_server:
   ros__parameters:
+    publish_feedback: False
     use_sim_time: True
     controller_frequency: 20.0
     controller_plugin_types: ["teb_local_planner::TebLocalPlannerROS"]
@@ -9,7 +10,6 @@ controller_server:
       footprint_model:
         line_start: [-0.1, 0.0] # for type "line"
         line_end: [0.1, 0.0] # for type "line"
-    DynamicFollowPath.footprint_model.radius: 0.50
     DynamicFollowPath.min_obstacle_dist: 0.5
     DynamicFollowPath.include_dynamic_obstacles:  True
     DynamicFollowPath.obstacle_poses_affected: 25
