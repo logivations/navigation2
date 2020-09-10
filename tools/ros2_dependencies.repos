@@ -19,3 +19,27 @@ repositories:
     type: git
     url: https://github.com/ros-perception/vision_opencv.git
     version: ros2
+  rcl_interfaces:
+    type: git
+    url: https://github.com/ros2/rcl_interfaces.git
+    version: master
+  test_interface_files:
+    type: git
+    url: https://github.com/ros2/test_interface_files.git
+    version: eloquent
+  diagnostics:
+    type: git
+    url: https://github.com/ros/diagnostics.git
+    version: eloquent
+  geographic_info:
+    type: git
+    url: https://github.com/ros-geographic-info/geographic_info.git
+    version: ros2
+  launch_testing:
+    type: git
+    url: https://github.com/ros2/launch.git
+    version: eloquent
+  yaml:
+    type: git
+    url: https://github.com/jbeder/yaml-cpp.git
+    version: master

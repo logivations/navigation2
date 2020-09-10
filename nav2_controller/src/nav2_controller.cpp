@@ -346,9 +346,7 @@ void ControllerServer::computeAndPublishVelocity()
 {
   geometry_msgs::msg::PoseStamped pose;
 
-  if (!getRobotPose(pose)) {
-    throw nav2_core::PlannerException("Failed to obtain robot pose");
-  }
+  pose = odom_sub_->getPoseStamped();
 
   if (!progress_checker_->check(pose)) {
     throw nav2_core::PlannerException("Failed to make progress");
@@ -418,9 +416,7 @@ bool ControllerServer::isGoalReached()
 {
   geometry_msgs::msg::PoseStamped pose;
 
-  if (!getRobotPose(pose)) {
-    return false;
-  }
+  pose = odom_sub_->getPoseStamped();
 
   nav_2d_msgs::msg::Twist2D twist = getThresholdedTwist(odom_sub_->getTwist());
   geometry_msgs::msg::Twist velocity = nav_2d_utils::twist2Dto3D(twist);

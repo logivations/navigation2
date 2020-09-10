@@ -75,6 +75,9 @@ bool SimpleProgressChecker::is_robot_moved_enough(const geometry_msgs::msg::Pose
 {
   if (pose_distance(pose, baseline_pose_) > radius_) {
     return true;
+  }
+  else if(std::abs(pose.theta - baseline_pose_.theta) > 0.17){
+      return true;
   } else {
     return false;
   }
