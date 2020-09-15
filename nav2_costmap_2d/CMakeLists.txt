@@ -3,7 +3,7 @@ project(nav2_costmap_2d)
 
 find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
-find_package(laser_geometry REQUIRED)
+#find_package(laser_geometry REQUIRED)
 find_package(map_msgs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(nav2_common REQUIRED)

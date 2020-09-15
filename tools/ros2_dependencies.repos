@@ -31,7 +31,6 @@ repositories:
     type: git
     url: https://github.com/ros/diagnostics.git
     version: eloquent
-  geographic_info:
     type: git
     url: https://github.com/ros-geographic-info/geographic_info.git
     version: ros2
