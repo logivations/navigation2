@@ -21,7 +21,7 @@ from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 
-from nav2_common.launch import Node
+from launch_ros.actions import Node
 from nav2_common.launch import RewrittenYaml
 
 from launch_ros.actions import PushRosNamespace
@@ -41,9 +41,7 @@ def generate_launch_description():
 
     # TODO(orduno) Remove once `PushNodeRemapping` is resolved
     #              https://github.com/ros2/launch_ros/issues/56
-    remappings = [((namespace, '/tf'), '/tf'),
-                  ((namespace, '/tf_static'), '/tf_static'),
-                  ('/tf', 'tf'),
+    remappings = [('/tf', 'tf'),
                   ('/tf_static', 'tf_static')]
 
     # Create our own temporary YAML files that include substitutions
@@ -91,23 +89,24 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_remappings', default_value='false',
             description='Arguments to pass to all nodes launched by the file'),
-        PushRosNamespace(
-            condition=IfCondition(use_namespace),
-            namespace=namespace),
+        # PushRosNamespace(
+        #     condition=IfCondition(use_namespace),
+        #     namespace=namespace),
         Node(
             package='nav2_controller',
-            node_executable='controller_server',
+            executable='controller_server',
             output='screen',
             parameters=[configured_params],
             prefix=[prefix],
-            use_remappings=IfCondition(use_remappings),
-            remappings=remappings),
+            #use_remappings=IfCondition(use_remappings),
+            remappings=remappings
+        ),
 
         Node(
             condition=IfCondition(use_lifecycle_mgr),
             package='nav2_lifecycle_manager',
-            node_executable='lifecycle_manager',
-            node_name='lifecycle_manager_navigation',
+            executable='lifecycle_manager',
+            name='lifecycle_manager_navigation',
             output='screen',
             parameters=[{'use_sim_time': use_sim_time},
                         {'autostart': autostart},
