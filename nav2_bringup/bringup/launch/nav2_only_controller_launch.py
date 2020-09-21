@@ -89,16 +89,15 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_remappings', default_value='false',
             description='Arguments to pass to all nodes launched by the file'),
-        # PushRosNamespace(
-        #     condition=IfCondition(use_namespace),
-        #     namespace=namespace),
+        PushRosNamespace(
+             condition=IfCondition(use_namespace),
+             namespace=namespace),
         Node(
             package='nav2_controller',
             executable='controller_server',
             output='screen',
             parameters=[configured_params],
             prefix=[prefix],
-            #use_remappings=IfCondition(use_remappings),
             remappings=remappings
         ),
 
