@@ -98,7 +98,7 @@ def generate_launch_description():
             output='screen',
             parameters=[configured_params],
             prefix=[prefix],
-            remappings=remappings
+            #remappings=remappings
         ),
 
         Node(
