@@ -52,7 +52,6 @@ controller_server:
       slowdown_dist_near_goal: 1.5
       no_inner_iterations: 5
       no_outer_iterations: 4
-      enable_homotopy_class_planning: True
       max_number_classes: 4
 
 
