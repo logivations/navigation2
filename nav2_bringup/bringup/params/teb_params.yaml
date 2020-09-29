@@ -50,6 +50,11 @@ controller_server:
       global_plan_viapoint_sep: 0.4
       weight_viapoint: 5.0
       slowdown_dist_near_goal: 1.5
+      no_inner_iterations: 5
+      no_outer_iterations: 4
+      enable_homotopy_class_planning: True
+      max_number_classes: 4
+
 
 controller_server_rclcpp_node:
   ros__parameters:
