@@ -30,7 +30,8 @@ repositories:
   diagnostics:
     type: git
     url: https://github.com/ros/diagnostics.git
-    version: eloquent
+    version: foxy
+  geographic_info:
     type: git
     url: https://github.com/ros-geographic-info/geographic_info.git
     version: ros2
