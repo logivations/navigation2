@@ -12,8 +12,8 @@ controller_server:
       plugin: "teb_local_planner::TebLocalPlannerROS"
       footprint_model:
         type: "line"
-        line_start: [0.10000000000000003, 0.0] # for type "line"
-        line_end: [2.56, 0.0] # for type "line"
+        line_start: [0.050000000000000044, 0.0] # for type "line"
+        line_end: [2.5999999999999996, 0.0] # for type "line"
       min_obstacle_dist: 0.5
       include_dynamic_obstacles:  True
       obstacle_poses_affected: 25
@@ -66,7 +66,7 @@ local_costmap:
     ros__parameters:
       use_sim_time: True
       global_frame: map
-      plugins: ["obstacle_layer", "static_layer"]
+      plugins: ["obstacle_layer"]
       obstacle_layer.plugin: "nav2_costmap_2d::ObstacleLayer"
       rolling_window: False
       width: 8
@@ -76,10 +76,6 @@ local_costmap:
       obstacle_layer:
         enabled: True
         observation_sources: scan
-      static_layer:
-        plugin: "nav2_costmap_2d::StaticLayer"
-        map_subscribe_transient_local: True
-        map_topic: map
       always_send_full_costmap: True
   local_costmap_client:
     ros__parameters:

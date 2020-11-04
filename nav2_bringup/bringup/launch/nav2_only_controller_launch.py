@@ -97,6 +97,7 @@ def generate_launch_description():
             executable='controller_server',
             output='screen',
             parameters=[configured_params],
+            #arguments = ['--ros-args', '--log-level', 'DEBUG'],
             prefix=[prefix],
             #remappings=remappings
         ),
