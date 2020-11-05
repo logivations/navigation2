@@ -108,13 +108,6 @@ def generate_launch_description():
             prefix=[prefix],
             #remappings=remappings
         ),
-        Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_filter_node',
-            output='screen',
-            parameters=[os.path.join(get_package_share_directory("robot_localization"), 'params', 'ekf.yaml')],
-           ),
         
         Node(
             package='nav2_recoveries',
@@ -122,7 +115,8 @@ def generate_launch_description():
             name='recoveries_server',
             output='screen',
             parameters=[configured_params],
-            remappings=remappings),
+            #remappings=remappings
+            ),
         
         Node(
             package='nav2_bt_navigator',
@@ -131,7 +125,8 @@ def generate_launch_description():
             output='screen',
             parameters=[configured_params],
            # arguments=['--ros-args', '--log-level', 'DEBUG'],
-            remappings=remappings),
+            #remappings=remappings
+            ),
 
         Node(
             condition=IfCondition(use_lifecycle_mgr),

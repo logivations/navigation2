@@ -114,7 +114,7 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /odom
-    default_bt_xml_filename: "/code/ros2_ws/install/nav2_bt_navigator/share/nav2_bt_navigator/behavior_trees/navigate_w_replanning_v1.xml"
+    default_bt_xml_filename: "/code/ros2_ws/src/navigation2/nav2_bt_navigator/behavior_trees/navigate_w_replanning_v1.xml"
     plugin_lib_names:
     - nav2_compute_path_to_pose_action_bt_node
     - nav2_follow_path_action_bt_node
