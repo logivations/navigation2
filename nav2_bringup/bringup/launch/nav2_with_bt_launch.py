@@ -79,7 +79,7 @@ def generate_launch_description():
 
         DeclareLaunchArgument(
             'params_file',
-            default_value=os.path.join(bringup_dir, 'params', 'teb_params.yaml'),
+            default_value=os.path.join(bringup_dir, 'params', 'forklift_params.yaml'),
             description='Full path to the ROS2 parameters file to use'),
 
         DeclareLaunchArgument(
@@ -108,6 +108,21 @@ def generate_launch_description():
             prefix=[prefix],
             #remappings=remappings
         ),
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[os.path.join(get_package_share_directory("robot_localization"), 'params', 'ekf.yaml')],
+           ),
+        
+        Node(
+            package='nav2_recoveries',
+            executable='recoveries_server',
+            name='recoveries_server',
+            output='screen',
+            parameters=[configured_params],
+            remappings=remappings),
         
         Node(
             package='nav2_bt_navigator',
@@ -115,7 +130,7 @@ def generate_launch_description():
             name='bt_navigator',
             output='screen',
             parameters=[configured_params],
-            arguments=['--ros-args', '--log-level', 'DEBUG'],
+           # arguments=['--ros-args', '--log-level', 'DEBUG'],
             remappings=remappings),
 
         Node(
@@ -123,10 +138,10 @@ def generate_launch_description():
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
             name='lifecycle_manager_navigation',
-            arguments=['--ros-args', '--log-level', 'DEBUG'],
+            #arguments=['--ros-args', '--log-level', 'DEBUG'],
             output='screen',
             parameters=[{'use_sim_time': use_sim_time},
                         {'autostart': autostart},
-                        {'node_names': ['controller_server', 'bt_navigator']}]),
+                        {'node_names': ['controller_server','recoveries_server', 'bt_navigator']}]),
 
     ])
