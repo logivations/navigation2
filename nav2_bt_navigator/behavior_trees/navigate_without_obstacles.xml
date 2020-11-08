@@ -1,0 +1,12 @@
+<!--
+  This Behavior Tree plans a path once and then follows it
+-->
+
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="NavigateWithoutObstacles">
+      <ComputePathToPose goal="{goal}" path="{path}" planner_id="ReedsSheep"/>
+      <FollowPath path="{path}"  controller_id="DynamicFollowPath"/>
+    </Sequence>      
+  </BehaviorTree>
+</root>
