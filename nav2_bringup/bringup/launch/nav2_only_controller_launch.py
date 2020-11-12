@@ -79,7 +79,7 @@ def generate_launch_description():
 
         DeclareLaunchArgument(
             'params_file',
-            default_value=os.path.join(bringup_dir, 'params', 'teb_params.yaml'),
+            default_value=os.path.join(bringup_dir, 'params', 'forklift_params.yaml'),
             description='Full path to the ROS2 parameters file to use'),
 
         DeclareLaunchArgument(
