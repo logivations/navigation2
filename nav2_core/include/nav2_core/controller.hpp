@@ -72,7 +72,7 @@ public:
    * @param  costmap_ros A pointer to the costmap
    */
   virtual void configure(
-    const rclcpp_lifecycle::LifecycleNode::SharedPtr &,
+    const rclcpp_lifecycle::LifecycleNode::WeakPtr &,
     std::string name, const std::shared_ptr<tf2_ros::Buffer> &,
     const std::shared_ptr<nav2_costmap_2d::Costmap2DROS> &) = 0;
 
@@ -110,20 +110,6 @@ public:
    * @return The best command for the robot to drive
    */
   virtual geometry_msgs::msg::TwistStamped computeVelocityCommands(
-    const geometry_msgs::msg::PoseStamped & pose,
-    const geometry_msgs::msg::Twist & velocity) = 0;
-
-  /**
-   * @brief Controller isGoalReached - Check whether the robot has reached its goal, given the current pose & velocity.
-   *
-   * The pose that it checks against is the last pose in the current global plan.
-   * The calculation is delegated to the goal_checker plugin.
-   *
-   * @param pose Current pose
-   * @param velocity Current velocity
-   * @return True if the robot should be considered as having reached the goal.
-   */
-  virtual bool isGoalReached(
     const geometry_msgs::msg::PoseStamped & pose,
     const geometry_msgs::msg::Twist & velocity) = 0;
 };

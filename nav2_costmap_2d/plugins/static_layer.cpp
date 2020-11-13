@@ -40,10 +40,8 @@
 #include "nav2_costmap_2d/static_layer.hpp"
 
 #include <algorithm>
-#include <memory>
 #include <string>
-
-#include "nav2_costmap_2d/costmap_math.hpp"
+#include <stdio.h>
 #include "pluginlib/class_list_macros.hpp"
 #include "tf2/convert.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
@@ -58,6 +56,7 @@ namespace nav2_costmap_2d
 {
 
 StaticLayer::StaticLayer()
+: map_buffer_(nullptr)
 {
 }
 
@@ -79,21 +78,29 @@ StaticLayer::onInitialize()
     map_qos.keep_last(1);
   }
 
-  RCLCPP_INFO(node_->get_logger(),
+  RCLCPP_INFO(
+    logger_,
     "Subscribing to the map topic (%s) with %s durability",
     map_topic_.c_str(),
     map_subscribe_transient_local_ ? "transient local" : "volatile");
-  map_sub_ = node_->create_subscription<nav_msgs::msg::OccupancyGrid>(
+
+  auto node = node_.lock();
+  if (!node) {
+    throw std::runtime_error{"Failed to lock node"};
+  }
+
+  map_sub_ = node->create_subscription<nav_msgs::msg::OccupancyGrid>(
     map_topic_, map_qos,
     std::bind(&StaticLayer::incomingMap, this, std::placeholders::_1));
 
   if (subscribe_to_updates_) {
-    RCLCPP_INFO(node_->get_logger(), "Subscribing to updates");
-    map_update_sub_ = node_->create_subscription<map_msgs::msg::OccupancyGridUpdate>(
+    RCLCPP_INFO(logger_, "Subscribing to updates");
+    map_update_sub_ = node->create_subscription<map_msgs::msg::OccupancyGridUpdate>(
       map_topic_ + "_updates",
       rclcpp::SystemDefaultsQoS(),
       std::bind(&StaticLayer::incomingUpdate, this, std::placeholders::_1));
   }
+
 }
 
 void
@@ -116,36 +123,57 @@ void
 StaticLayer::getParameters()
 {
   int temp_lethal_threshold = 0;
+  double temp_tf_tol = 0.0;
 
   declareParameter("enabled", rclcpp::ParameterValue(true));
   declareParameter("subscribe_to_updates", rclcpp::ParameterValue(false));
   declareParameter("map_subscribe_transient_local", rclcpp::ParameterValue(true));
+  declareParameter("transform_tolerance", rclcpp::ParameterValue(0.0));
+  declareParameter("map_topic", rclcpp::ParameterValue(""));
 
-  node_->get_parameter(name_ + "." + "enabled", enabled_);
-  node_->get_parameter(name_ + "." + "subscribe_to_updates", subscribe_to_updates_);
-  node_->get_parameter("map_topic", map_topic_);
-  node_->get_parameter(name_ + "." + "map_subscribe_transient_local",
+  auto node = node_.lock();
+  if (!node) {
+    throw std::runtime_error{"Failed to lock node"};
+  }
+
+  node->get_parameter(name_ + "." + "enabled", enabled_);
+  node->get_parameter(name_ + "." + "subscribe_to_updates", subscribe_to_updates_);
+  std::string private_map_topic, global_map_topic;
+  node->get_parameter(name_ + "." + "map_topic", private_map_topic);
+  node->get_parameter("map_topic", global_map_topic);
+  if (!private_map_topic.empty()) {
+    map_topic_ = private_map_topic;
+  } else {
+    map_topic_ = global_map_topic;
+  }
+  node->get_parameter(
+    name_ + "." + "map_subscribe_transient_local",
     map_subscribe_transient_local_);
-  node_->get_parameter("track_unknown_space", track_unknown_space_);
-  node_->get_parameter("use_maximum", use_maximum_);
-  node_->get_parameter("lethal_cost_threshold", temp_lethal_threshold);
-  node_->get_parameter("unknown_cost_value", unknown_cost_value_);
-  node_->get_parameter("trinary_costmap", trinary_costmap_);
+  node->get_parameter("track_unknown_space", track_unknown_space_);
+  node->get_parameter("use_maximum", use_maximum_);
+  node->get_parameter("lethal_cost_threshold", temp_lethal_threshold);
+  node->get_parameter("unknown_cost_value", unknown_cost_value_);
+  node->get_parameter("trinary_costmap", trinary_costmap_);
+  node->get_parameter("transform_tolerance", temp_tf_tol);
 
   // Enforce bounds
   lethal_threshold_ = std::max(std::min(temp_lethal_threshold, 100), 0);
   map_received_ = false;
+  update_in_progress_.store(false);
+
+  transform_tolerance_ = tf2::durationFromSec(temp_tf_tol);
 }
 
 void
 StaticLayer::processMap(const nav_msgs::msg::OccupancyGrid & new_map)
 {
-  RCLCPP_DEBUG(node_->get_logger(), "StaticLayer: Process map");
+  RCLCPP_DEBUG(logger_, "StaticLayer: Process map");
 
   unsigned int size_x = new_map.info.width;
   unsigned int size_y = new_map.info.height;
 
-  RCLCPP_DEBUG(node_->get_logger(),
+  RCLCPP_DEBUG(
+    logger_,
     "StaticLayer: Received a %d X %d map at %f m/pix", size_x, size_y,
     new_map.info.resolution);
 
@@ -159,10 +187,12 @@ StaticLayer::processMap(const nav_msgs::msg::OccupancyGrid & new_map)
     !layered_costmap_->isSizeLocked()))
   {
     // Update the size of the layered costmap (and all layers, including this one)
-    RCLCPP_INFO(node_->get_logger(),
+    RCLCPP_INFO(
+      logger_,
       "StaticLayer: Resizing costmap to %d X %d at %f m/pix", size_x, size_y,
       new_map.info.resolution);
-    layered_costmap_->resizeMap(size_x, size_y, new_map.info.resolution,
+    layered_costmap_->resizeMap(
+      size_x, size_y, new_map.info.resolution,
       new_map.info.origin.position.x,
       new_map.info.origin.position.y,
       true);
@@ -172,14 +202,19 @@ StaticLayer::processMap(const nav_msgs::msg::OccupancyGrid & new_map)
     origin_y_ != new_map.info.origin.position.y)
   {
     // only update the size of the costmap stored locally in this layer
-    RCLCPP_INFO(node_->get_logger(),
+    RCLCPP_INFO(
+      logger_,
       "StaticLayer: Resizing static layer to %d X %d at %f m/pix", size_x, size_y,
       new_map.info.resolution);
-    resizeMap(size_x, size_y, new_map.info.resolution,
+    resizeMap(
+      size_x, size_y, new_map.info.resolution,
       new_map.info.origin.position.x, new_map.info.origin.position.y);
   }
 
   unsigned int index = 0;
+
+  // we have a new map, update full size of map
+  std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
 
   // initialize the costmap with static data
   for (unsigned int i = 0; i < size_y; ++i) {
@@ -192,8 +227,6 @@ StaticLayer::processMap(const nav_msgs::msg::OccupancyGrid & new_map)
 
   map_frame_ = new_map.header.frame_id;
 
-  // we have a new map, update full size of map
-  std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
   x_ = y_ = 0;
   width_ = size_x_;
   height_ = size_y_;
@@ -209,7 +242,8 @@ StaticLayer::matchSize()
   //   unrelated to the size of the layered costmap
   if (!layered_costmap_->isRolling()) {
     Costmap2D * master = layered_costmap_->getCostmap();
-    resizeMap(master->getSizeInCellsX(), master->getSizeInCellsY(), master->getResolution(),
+    resizeMap(
+      master->getSizeInCellsX(), master->getSizeInCellsY(), master->getResolution(),
       master->getOriginX(), master->getOriginY());
   }
 }
@@ -235,10 +269,17 @@ StaticLayer::interpretValue(unsigned char value)
 void
 StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::SharedPtr new_map)
 {
+
   std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
-  processMap(*new_map);
   if (!map_received_) {
     map_received_ = true;
+    processMap(*new_map);
+  }
+  if (update_in_progress_.load()) {
+    map_buffer_ = new_map;
+  } else {
+    processMap(*new_map);
+    map_buffer_ = nullptr;
   }
 }
 
@@ -252,7 +293,7 @@ StaticLayer::incomingUpdate(map_msgs::msg::OccupancyGridUpdate::ConstSharedPtr u
     x_ + width_ < update->x + update->width)
   {
     RCLCPP_WARN(
-      node_->get_logger(),
+      logger_,
       "StaticLayer: Map update ignored. Exceeds bounds of static layer.\n"
       "Static layer origin: %d, %d   bounds: %d X %d\n"
       "Update origin: %d, %d   bounds: %d X %d",
@@ -262,7 +303,8 @@ StaticLayer::incomingUpdate(map_msgs::msg::OccupancyGridUpdate::ConstSharedPtr u
   }
 
   if (update->header.frame_id != map_frame_) {
-    RCLCPP_WARN(node_->get_logger(),
+    RCLCPP_WARN(
+      logger_,
       "StaticLayer: Map update ignored. Current map is in frame %s "
       "but update was in frame %s",
       map_frame_.c_str(), update->header.frame_id.c_str());
@@ -297,6 +339,14 @@ StaticLayer::updateBounds(
   }
 
   std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
+  update_in_progress_.store(true);
+
+  // If there is a new available map, load it.
+  if (map_buffer_) {
+    processMap(*map_buffer_);
+    map_buffer_ = nullptr;
+  }
+
   if (!layered_costmap_->isRolling() ) {
     if (!(has_updated_data_ || has_extra_bounds_)) {
       return;
@@ -324,15 +374,17 @@ StaticLayer::updateCosts(
   int min_i, int min_j, int max_i, int max_j)
 {
   if (!enabled_) {
+    update_in_progress_.store(false);
     return;
   }
   if (!map_received_) {
     static int count = 0;
     // throttle warning down to only 1/10 message rate
     if (++count == 10) {
-      RCLCPP_WARN(node_->get_logger(), "Can't update static costmap layer, no map received");
+      RCLCPP_WARN(logger_, "Can't update static costmap layer, no map received");
       count = 0;
     }
+    update_in_progress_.store(false);
     return;
   }
 
@@ -350,9 +402,12 @@ StaticLayer::updateCosts(
     // Might even be in a different frame
     geometry_msgs::msg::TransformStamped transform;
     try {
-      transform = tf_->lookupTransform(map_frame_, global_frame_, tf2::TimePointZero);
+      transform = tf_->lookupTransform(
+        map_frame_, global_frame_, tf2::TimePointZero,
+        transform_tolerance_);
     } catch (tf2::TransformException & ex) {
-      RCLCPP_ERROR(node_->get_logger(), "StaticLayer: %s", ex.what());
+      RCLCPP_ERROR(logger_, "StaticLayer: %s", ex.what());
+      update_in_progress_.store(false);
       return;
     }
     // Copy map data given proper transformations
@@ -377,6 +432,7 @@ StaticLayer::updateCosts(
       }
     }
   }
+  update_in_progress_.store(false);
 }
 
 }  // namespace nav2_costmap_2d

@@ -47,9 +47,15 @@ void BaseObstacleCritic::onInit()
 {
   costmap_ = costmap_ros_->getCostmap();
 
-  nav2_util::declare_parameter_if_not_declared(nh_,
-    name_ + ".sum_scores", rclcpp::ParameterValue(false));
-  nh_->get_parameter(name_ + ".sum_scores", sum_scores_);
+  auto node = node_.lock();
+  if (!node) {
+    throw std::runtime_error{"Failed to lock node"};
+  }
+
+  nav2_util::declare_parameter_if_not_declared(
+    node,
+    dwb_plugin_name_ + "." + name_ + ".sum_scores", rclcpp::ParameterValue(false));
+  node->get_parameter(dwb_plugin_name_ + "." + name_ + ".sum_scores", sum_scores_);
 }
 
 double BaseObstacleCritic::scoreTrajectory(const dwb_msgs::msg::Trajectory2D & traj)
@@ -86,7 +92,7 @@ bool BaseObstacleCritic::isValidCost(const unsigned char cost)
          cost != nav2_costmap_2d::NO_INFORMATION;
 }
 
-void BaseObstacleCritic::addGridScores(sensor_msgs::msg::PointCloud & pc)
+void BaseObstacleCritic::addCriticVisualization(sensor_msgs::msg::PointCloud & pc)
 {
   sensor_msgs::msg::ChannelFloat32 grid_scores;
   grid_scores.name = name_;

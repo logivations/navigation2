@@ -22,7 +22,7 @@ The `nav2_bringup` package is an example bringup system for Navigation2 applicat
 
     ```sudo apt-get install ros-<ros2-distro>-gazebo*```
 * A Gazebo world for simulating the robot ([Gazebo tutorials](http://gazebosim.org/tutorials?tut=quick_start))
-* A map of that world saved to a map.pgm and map.yaml ([ROS Navigation Tutorials](https://github.com/ros-planning/navigation2/tree/master/doc/use_cases))
+* A map of that world saved to a map.pgm and map.yaml ([ROS Navigation Tutorials](https://github.com/ros-planning/navigation2/tree/main/doc/use_cases))
 
 ### Terminal 1: Launch Gazebo
 
@@ -47,7 +47,7 @@ ros2 launch turtlebot3_bringup turtlebot3_state_publisher.launch.py use_sim_time
 
 ```bash
 source /opt/ros/dashing/setup.bash
-ros2 launch nav2_bringup nav2_bringup_launch.py use_sim_time:=True autostart:=True \
+ros2 launch nav2_bringup bringup_launch.py use_sim_time:=True autostart:=True \
 map:=<full/path/to/map.yaml>
 ```
 
@@ -73,7 +73,7 @@ To view the robot model in RViz:
 A convenience file is provided to launch Gazebo, RVIZ and Navigation2 using a single command:
 
 ```bash
-ros2 launch nav2_bringup nav2_tb3_simulation_launch.py <settings>
+ros2 launch nav2_bringup tb3_simulation_launch.py <settings>
 ```
 
 Where `<settings>` can used to replace any of the default options, for example:
@@ -98,7 +98,7 @@ export TURTLEBOT3_MODEL=waffle
 Also, a file for launching **two** robots with **independent** navigation stacks is provided:
 
 ```bash
-ros2 launch nav2_bringup nav2_multi_tb3_simulation_launch.py <settings>
+ros2 launch nav2_bringup multi_tb3_simulation_launch.py <settings>
 ```
 
 
@@ -109,7 +109,7 @@ ros2 launch nav2_bringup nav2_multi_tb3_simulation_launch.py <settings>
 
 * Learn more about how to use Navigation 2 with SLAM to create maps;
 
-    - [Navigation 2 with SLAM](https://github.com/ros-planning/navigation2/blob/master/doc/use_cases/navigation_with_slam.md)
+    - [Navigation 2 with SLAM](https://github.com/ros-planning/navigation2/blob/main/doc/use_cases/navigation_with_slam.md)
 
 * _Please note that currently, nav2_bringup works if you provide a map file. However, providing a map is not required to use Navigation2. Navigation2 can be configured to use the costmaps to navigate in an area without using a map file_
 
@@ -120,7 +120,7 @@ ros2 launch nav2_bringup nav2_multi_tb3_simulation_launch.py <settings>
 
 ```bash
 source /opt/ros/dashing/setup.bash
-ros2 launch nav2_bringup nav2_bringup_launch.py map:=<full/path/to/map.yaml> map_type:=occupancy
+ros2 launch nav2_bringup bringup_launch.py map:=<full/path/to/map.yaml> map_type:=occupancy
 ```
 
 ### Terminal 2 : Launch RVIZ

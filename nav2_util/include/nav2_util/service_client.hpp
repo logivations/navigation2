@@ -64,12 +64,13 @@ public:
         service_name_.c_str());
     }
 
-    RCLCPP_DEBUG(node_->get_logger(), "%s service client: send async request",
+    RCLCPP_DEBUG(
+      node_->get_logger(), "%s service client: send async request",
       service_name_.c_str());
     auto future_result = client_->async_send_request(request);
 
     if (rclcpp::spin_until_future_complete(node_, future_result, timeout) !=
-      rclcpp::executor::FutureReturnCode::SUCCESS)
+      rclcpp::FutureReturnCode::SUCCESS)
     {
       throw std::runtime_error(service_name_ + " service client: async_send_request failed");
     }
@@ -91,12 +92,13 @@ public:
         service_name_.c_str());
     }
 
-    RCLCPP_DEBUG(node_->get_logger(), "%s service client: send async request",
+    RCLCPP_DEBUG(
+      node_->get_logger(), "%s service client: send async request",
       service_name_.c_str());
     auto future_result = client_->async_send_request(request);
 
     if (rclcpp::spin_until_future_complete(node_, future_result) !=
-      rclcpp::executor::FutureReturnCode::SUCCESS)
+      rclcpp::FutureReturnCode::SUCCESS)
     {
       return false;
     }

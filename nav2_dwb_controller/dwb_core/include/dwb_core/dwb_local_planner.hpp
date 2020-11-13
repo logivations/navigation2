@@ -67,7 +67,7 @@ public:
   DWBLocalPlanner();
 
   void configure(
-    const rclcpp_lifecycle::LifecycleNode::SharedPtr & node,
+    const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
     std::string name, const std::shared_ptr<tf2_ros::Buffer> & tf,
     const std::shared_ptr<nav2_costmap_2d::Costmap2DROS> & costmap_ros) override;
 
@@ -100,20 +100,6 @@ public:
     const geometry_msgs::msg::Twist & velocity) override;
 
   /**
-   * @brief nav2_core isGoalReached - Check whether the robot has reached its goal, given the current pose & velocity.
-   *
-   * The pose that it checks against is the last pose in the current global plan.
-   * The calculation is delegated to the goal_checker plugin.
-   *
-   * @param pose Current pose
-   * @param velocity Current velocity
-   * @return True if the robot should be considered as having reached the goal.
-   */
-  bool isGoalReached(
-    const geometry_msgs::msg::PoseStamped & pose,
-    const geometry_msgs::msg::Twist & velocity) override;
-
-  /**
    * @brief Score a given command. Can be used for testing.
    *
    * Given a trajectory, calculate the score where lower scores are better.
@@ -124,7 +110,7 @@ public:
    * @param best_score If positive, the threshold for early termination
    * @return The full scoring of the input trajectory
    */
-  dwb_msgs::msg::TrajectoryScore scoreTrajectory(
+  virtual dwb_msgs::msg::TrajectoryScore scoreTrajectory(
     const dwb_msgs::msg::Trajectory2D & traj,
     double best_score = -1);
 
@@ -140,7 +126,7 @@ public:
    * @param results   Output param, if not NULL, will be filled in with full evaluation results
    * @return          Best command
    */
-  nav_2d_msgs::msg::Twist2DStamped computeVelocityCommands(
+  virtual nav_2d_msgs::msg::Twist2DStamped computeVelocityCommands(
     const nav_2d_msgs::msg::Pose2DStamped & pose,
     const nav_2d_msgs::msg::Twist2D & velocity,
     std::shared_ptr<dwb_msgs::msg::LocalPlanEvaluation> & results);
@@ -160,7 +146,7 @@ protected:
   /**
    * @brief Iterate through all the twists and find the best one
    */
-  dwb_msgs::msg::TrajectoryScore coreScoringAlgorithm(
+  virtual dwb_msgs::msg::TrajectoryScore coreScoringAlgorithm(
     const geometry_msgs::msg::Pose2D & pose,
     const nav_2d_msgs::msg::Twist2D velocity,
     std::shared_ptr<dwb_msgs::msg::LocalPlanEvaluation> & results);
@@ -175,7 +161,8 @@ protected:
    *     and the saved global_plan_. Technically, it iterates to a pose on the path that is within prune_distance_
    *     of the robot and erases all poses before that.
    */
-  nav_2d_msgs::msg::Path2D transformGlobalPlan(const nav_2d_msgs::msg::Pose2DStamped & pose);
+  virtual nav_2d_msgs::msg::Path2D transformGlobalPlan(
+    const nav_2d_msgs::msg::Pose2DStamped & pose);
   nav_2d_msgs::msg::Path2D global_plan_;  ///< Saved Global Plan
   bool prune_plan_;
   double prune_distance_;
@@ -194,11 +181,12 @@ protected:
    * @brief Load the critic parameters from the namespace
    * @param name The namespace of this planner.
    */
-  void loadCritics();
+  virtual void loadCritics();
 
-  void loadBackwardsCompatibleParameters();
+  rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
+  rclcpp::Clock::SharedPtr clock_;
+  rclcpp::Logger logger_{rclcpp::get_logger("DWBLocalPlanner")};
 
-  rclcpp_lifecycle::LifecycleNode::SharedPtr node_;
   std::shared_ptr<tf2_ros::Buffer> tf_;
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
 
@@ -209,11 +197,12 @@ protected:
   pluginlib::ClassLoader<TrajectoryGenerator> traj_gen_loader_;
   TrajectoryGenerator::Ptr traj_generator_;
 
-  pluginlib::ClassLoader<nav2_core::GoalChecker> goal_checker_loader_;
-  nav2_core::GoalChecker::Ptr goal_checker_;
-
   pluginlib::ClassLoader<TrajectoryCritic> critic_loader_;
   std::vector<TrajectoryCritic::Ptr> critics_;
+
+  std::string dwb_plugin_name_;
+
+  bool short_circuit_trajectory_evaluation_;
 };
 
 }  // namespace dwb_core

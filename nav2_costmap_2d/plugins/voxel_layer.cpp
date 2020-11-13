@@ -41,6 +41,8 @@
 #include <algorithm>
 #include <cassert>
 #include <vector>
+#include <memory>
+#include <utility>
 
 #include "pluginlib/class_list_macros.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
@@ -70,27 +72,32 @@ void VoxelLayer::onInitialize()
   declareParameter("combination_method", rclcpp::ParameterValue(1));
   declareParameter("publish_voxel_map", rclcpp::ParameterValue(false));
 
-  node_->get_parameter(name_ + "." + "enabled", enabled_);
-  node_->get_parameter(name_ + "." + "footprint_clearing_enabled", footprint_clearing_enabled_);
-  node_->get_parameter(name_ + "." + "max_obstacle_height", max_obstacle_height_);
-  node_->get_parameter(name_ + "." + "z_voxels", size_z_);
-  node_->get_parameter(name_ + "." + "origin_z", origin_z_);
-  node_->get_parameter(name_ + "." + "z_resolution", z_resolution_);
-  node_->get_parameter(name_ + "." + "unknown_threshold", unknown_threshold_);
-  node_->get_parameter(name_ + "." + "mark_threshold", mark_threshold_);
-  node_->get_parameter(name_ + "." + "combination_method", combination_method_);
-  node_->get_parameter(name_ + "." + "publish_voxel_map", publish_voxel_);
+  auto node = node_.lock();
+  if (!node) {
+    throw std::runtime_error{"Failed to lock node"};
+  }
+
+  node->get_parameter(name_ + "." + "enabled", enabled_);
+  node->get_parameter(name_ + "." + "footprint_clearing_enabled", footprint_clearing_enabled_);
+  node->get_parameter(name_ + "." + "max_obstacle_height", max_obstacle_height_);
+  node->get_parameter(name_ + "." + "z_voxels", size_z_);
+  node->get_parameter(name_ + "." + "origin_z", origin_z_);
+  node->get_parameter(name_ + "." + "z_resolution", z_resolution_);
+  node->get_parameter(name_ + "." + "unknown_threshold", unknown_threshold_);
+  node->get_parameter(name_ + "." + "mark_threshold", mark_threshold_);
+  node->get_parameter(name_ + "." + "combination_method", combination_method_);
+  node->get_parameter(name_ + "." + "publish_voxel_map", publish_voxel_);
 
   auto custom_qos = rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
 
   if (publish_voxel_) {
-    voxel_pub_ = node_->create_publisher<nav2_msgs::msg::VoxelGrid>(
+    voxel_pub_ = node->create_publisher<nav2_msgs::msg::VoxelGrid>(
       "voxel_grid", custom_qos);
   }
 
   voxel_pub_->on_activate();
 
-  clearing_endpoints_pub_ = node_->create_publisher<sensor_msgs::msg::PointCloud>(
+  clearing_endpoints_pub_ = node->create_publisher<sensor_msgs::msg::PointCloud>(
     "clearing_endpoints", custom_qos);
 
   unknown_threshold_ += (VOXEL_BITS - size_z_);
@@ -199,31 +206,33 @@ void VoxelLayer::updateBounds(
         unsigned int index = getIndex(mx, my);
 
         costmap_[index] = LETHAL_OBSTACLE;
-        touch(static_cast<double>(*iter_x), static_cast<double>(*iter_y),
+        touch(
+          static_cast<double>(*iter_x), static_cast<double>(*iter_y),
           min_x, min_y, max_x, max_y);
       }
     }
   }
 
   if (publish_voxel_) {
-    nav2_msgs::msg::VoxelGrid grid_msg;
+    auto grid_msg = std::make_unique<nav2_msgs::msg::VoxelGrid>();
     unsigned int size = voxel_grid_.sizeX() * voxel_grid_.sizeY();
-    grid_msg.size_x = voxel_grid_.sizeX();
-    grid_msg.size_y = voxel_grid_.sizeY();
-    grid_msg.size_z = voxel_grid_.sizeZ();
-    grid_msg.data.resize(size);
-    memcpy(&grid_msg.data[0], voxel_grid_.getData(), size * sizeof(unsigned int));
+    grid_msg->size_x = voxel_grid_.sizeX();
+    grid_msg->size_y = voxel_grid_.sizeY();
+    grid_msg->size_z = voxel_grid_.sizeZ();
+    grid_msg->data.resize(size);
+    memcpy(&grid_msg->data[0], voxel_grid_.getData(), size * sizeof(unsigned int));
 
-    grid_msg.origin.x = origin_x_;
-    grid_msg.origin.y = origin_y_;
-    grid_msg.origin.z = origin_z_;
+    grid_msg->origin.x = origin_x_;
+    grid_msg->origin.y = origin_y_;
+    grid_msg->origin.z = origin_z_;
 
-    grid_msg.resolutions.x = resolution_;
-    grid_msg.resolutions.y = resolution_;
-    grid_msg.resolutions.z = z_resolution_;
-    grid_msg.header.frame_id = global_frame_;
-    grid_msg.header.stamp = node_->now();
-    voxel_pub_->publish(grid_msg);
+    grid_msg->resolutions.x = resolution_;
+    grid_msg->resolutions.y = resolution_;
+    grid_msg->resolutions.z = z_resolution_;
+    grid_msg->header.frame_id = global_frame_;
+    grid_msg->header.stamp = clock_->now();
+
+    voxel_pub_->publish(std::move(grid_msg));
   }
 
   updateFootprint(robot_x, robot_y, robot_yaw, min_x, min_y, max_x, max_y);
@@ -288,6 +297,8 @@ void VoxelLayer::raytraceFreespace(
   double * max_x,
   double * max_y)
 {
+  auto clearing_endpoints_ = std::make_unique<sensor_msgs::msg::PointCloud>();
+
   size_t clearing_observation_cloud_size = clearing_observation.cloud_->height *
     clearing_observation.cloud_->width;
   if (clearing_observation_cloud_size == 0) {
@@ -300,16 +311,26 @@ void VoxelLayer::raytraceFreespace(
   double oz = clearing_observation.origin_.z;
 
   if (!worldToMap3DFloat(ox, oy, oz, sensor_x, sensor_y, sensor_z)) {
-    RCLCPP_WARN(node_->get_logger(),
+    RCLCPP_WARN(
+      logger_,
       "Sensor origin: (%.2f, %.2f, %.2f), out of map bounds. The costmap can't raytrace for it.",
       ox, oy, oz);
     return;
   }
 
-  bool publish_clearing_points = (node_->count_subscribers("clearing_endpoints") > 0);
+  bool publish_clearing_points;
+
+  {
+    auto node = node_.lock();
+    if (!node) {
+      throw std::runtime_error{"Failed to lock node"};
+    }
+    publish_clearing_points = (node->count_subscribers("clearing_endpoints") > 0);
+  }
+
   if (publish_clearing_points) {
-    clearing_endpoints_.points.clear();
-    clearing_endpoints_.points.reserve(clearing_observation_cloud_size);
+    clearing_endpoints_->points.clear();
+    clearing_endpoints_->points.reserve(clearing_observation_cloud_size);
   }
 
   // we can pre-compute the enpoints of the map outside of the inner loop... we'll need these later
@@ -373,12 +394,14 @@ void VoxelLayer::raytraceFreespace(
       unsigned int cell_raytrace_range = cellDistance(clearing_observation.raytrace_range_);
 
       // voxel_grid_.markVoxelLine(sensor_x, sensor_y, sensor_z, point_x, point_y, point_z);
-      voxel_grid_.clearVoxelLineInMap(sensor_x, sensor_y, sensor_z, point_x, point_y, point_z,
+      voxel_grid_.clearVoxelLineInMap(
+        sensor_x, sensor_y, sensor_z, point_x, point_y, point_z,
         costmap_,
         unknown_threshold_, mark_threshold_, FREE_SPACE, NO_INFORMATION,
         cell_raytrace_range);
 
-      updateRaytraceBounds(ox, oy, wpx, wpy, clearing_observation.raytrace_range_, min_x, min_y,
+      updateRaytraceBounds(
+        ox, oy, wpx, wpy, clearing_observation.raytrace_range_, min_x, min_y,
         max_x,
         max_y);
 
@@ -387,16 +410,16 @@ void VoxelLayer::raytraceFreespace(
         point.x = wpx;
         point.y = wpy;
         point.z = wpz;
-        clearing_endpoints_.points.push_back(point);
+        clearing_endpoints_->points.push_back(point);
       }
     }
   }
 
   if (publish_clearing_points) {
-    clearing_endpoints_.header.frame_id = global_frame_;
-    clearing_endpoints_.header.stamp = clearing_observation.cloud_->header.stamp;
+    clearing_endpoints_->header.frame_id = global_frame_;
+    clearing_endpoints_->header.stamp = clearing_observation.cloud_->header.stamp;
 
-    clearing_endpoints_pub_->publish(clearing_endpoints_);
+    clearing_endpoints_pub_->publish(std::move(clearing_endpoints_));
   }
 }
 
@@ -433,10 +456,12 @@ void VoxelLayer::updateOrigin(double new_origin_x, double new_origin_y)
   unsigned int * voxel_map = voxel_grid_.getData();
 
   // copy the local window in the costmap to the local map
-  copyMapRegion(costmap_, lower_left_x, lower_left_y, size_x_, local_map, 0, 0, cell_size_x,
+  copyMapRegion(
+    costmap_, lower_left_x, lower_left_y, size_x_, local_map, 0, 0, cell_size_x,
     cell_size_x,
     cell_size_y);
-  copyMapRegion(voxel_map, lower_left_x, lower_left_y, size_x_, local_voxel_map, 0, 0, cell_size_x,
+  copyMapRegion(
+    voxel_map, lower_left_x, lower_left_y, size_x_, local_voxel_map, 0, 0, cell_size_x,
     cell_size_x,
     cell_size_y);
 
@@ -452,9 +477,11 @@ void VoxelLayer::updateOrigin(double new_origin_x, double new_origin_y)
   int start_y = lower_left_y - cell_oy;
 
   // now we want to copy the overlapping information back into the map, but in its new location
-  copyMapRegion(local_map, 0, 0, cell_size_x, costmap_, start_x, start_y, size_x_, cell_size_x,
+  copyMapRegion(
+    local_map, 0, 0, cell_size_x, costmap_, start_x, start_y, size_x_, cell_size_x,
     cell_size_y);
-  copyMapRegion(local_voxel_map, 0, 0, cell_size_x, voxel_map, start_x, start_y, size_x_,
+  copyMapRegion(
+    local_voxel_map, 0, 0, cell_size_x, voxel_map, start_x, start_y, size_x_,
     cell_size_x,
     cell_size_y);
 

@@ -58,6 +58,9 @@
 #include "tf2/time.h"
 #include "tf2/transform_datatypes.h"
 
+#include "nav_msgs/msg/odometry.hpp"
+#include <mutex>
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include "tf2/utils.h"
@@ -97,7 +100,6 @@ public:
   nav2_util::CallbackReturn on_deactivate(const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_cleanup(const rclcpp_lifecycle::State & state) override;
   nav2_util::CallbackReturn on_shutdown(const rclcpp_lifecycle::State & state) override;
-  nav2_util::CallbackReturn on_error(const rclcpp_lifecycle::State & state) override;
 
   /**
    * @brief  Subscribes to sensor topics if necessary and starts costmap
@@ -120,6 +122,18 @@ public:
    * @brief  Resumes costmap updates
    */
   void resume();
+
+
+
+
+
+
+
+
+
+
+
+
 
   void updateMap();
 
@@ -183,7 +197,7 @@ public:
 
   LayeredCostmap * getLayeredCostmap()
   {
-    return layered_costmap_;
+    return layered_costmap_.get();
   }
 
   /** @brief Returns the current padded footprint as a geometry_msgs::msg::Polygon. */
@@ -223,6 +237,9 @@ public:
    */
   void getOrientedFootprint(std::vector<geometry_msgs::msg::Point> & oriented_footprint);
 
+
+  void updateRobotPoseEstimate(const nav_msgs::msg::Odometry::SharedPtr odometry);
+
   /** @brief Set the footprint of the robot to be the given set of
    * points, padded by footprint_padding.
    *
@@ -249,13 +266,21 @@ public:
 
   std::shared_ptr<tf2_ros::Buffer> getTfBuffer() {return tf_buffer_;}
 
+  /**
+   * @brief  Get the costmap's use_radius_ parameter, corresponding to
+   * whether the footprint for the robot is a circle with radius robot_radius_
+   * or an arbitrarily defined footprint in footprint_.
+   * @return  use_radius_
+   */
+  bool getUseRadius() {return use_radius_;}
+
 protected:
   rclcpp::Node::SharedPtr client_node_;
 
   // Publishers and subscribers
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PolygonStamped>::SharedPtr
     footprint_pub_;
-  Costmap2DPublisher * costmap_publisher_{nullptr};
+  std::unique_ptr<Costmap2DPublisher> costmap_publisher_{nullptr};
 
   rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr footprint_sub_;
   rclcpp::Subscription<rcl_interfaces::msg::ParameterEvent>::SharedPtr parameter_sub_;
@@ -264,7 +289,7 @@ protected:
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
-  LayeredCostmap * layered_costmap_{nullptr};
+  std::unique_ptr<LayeredCostmap> layered_costmap_{nullptr};
   std::string name_;
   std::string parent_namespace_;
   void mapUpdateLoop(double frequency);
@@ -289,6 +314,8 @@ protected:
   int map_width_meters_{0};
   double origin_x_{0};
   double origin_y_{0};
+  std::vector<std::string> default_plugins_;
+  std::vector<std::string> default_types_;
   std::vector<std::string> plugin_names_;
   std::vector<std::string> plugin_types_;
   double resolution_{0};
@@ -304,6 +331,12 @@ protected:
   std::vector<geometry_msgs::msg::Point> padded_footprint_;
 
   std::unique_ptr<ClearCostmapService> clear_costmap_service_;
+
+
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_sub_;
+  geometry_msgs::msg::PoseStamped current_pose_estimate;
+  std::mutex odom_pose_mtx;
+
 };
 
 }  // namespace nav2_costmap_2d

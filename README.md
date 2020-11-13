@@ -1,46 +1,40 @@
-# Navigation2
+# Navigation
 
-ROS2 Navigation System
-
-[![Build Status](https://circleci.com/gh/ros-planning/navigation2/tree/master.svg?style=svg)](https://circleci.com/gh/ros-planning/navigation2/tree/master) CircleCI
-
-[![Build Status](https://img.shields.io/docker/cloud/build/rosplanning/navigation2.svg?label=build)](https://hub.docker.com/r/rosplanning/navigation2) DockerHub
-
-[![Build Status](http://build.ros2.org/job/Cdev__navigation2__ubuntu_bionic_amd64/badge/icon)](http://build.ros2.org/job/Cdev__navigation2__ubuntu_bionic_amd64/) ROS Build Farm 
-
-[![codecov](https://codecov.io/gh/ros-planning/navigation2/branch/master/graph/badge.svg)](https://codecov.io/gh/ros-planning/navigation2)
-
-# Overview
-The ROS 2 Navigation System is the control system that enables a robot to autonomously reach a goal state, such as a specific position and orientation relative to a specific map. Given a current pose, a map, and a goal, such as a destination pose, the navigation system generates a plan to reach the goal, and outputs commands to autonomously drive the robot, respecting any safety constraints and avoiding obstacles encountered along the way.
-
-![nav2_overview](doc/architecture/navigation_overview.png)
-
-# Documentation
-For detailed instructions on how to install and run the examples, please visit our [documentation site](https://ros-planning.github.io/navigation2/).
-
-# Contributing
-[Contributions are welcome!](doc/README.md#contributing). For more information, please review our [contribution guidelines](https://ros-planning.github.io/navigation2/contribute/contribute_guidelines.html).
-
-# Building the source
-For instructions on how to download and build this repo, see the [BUILD.md](doc/BUILD.md) file.
-
-# Creating a docker image
-To build an image from the Dockerfile in the navigation2 folder:
-First, clone the repo to your local system (or see Building the source above)
+```bash
+sudo docker pull logivations/ml_all:ros_nav2
+sudo docker run -ti logivations/ml_all:ros_nav2 bash
 ```
-sudo docker build -t nav2/latest .
+##### In docker container
+```bash
+source /code/nav2_depend_ws/install/setup.bash
+cd /data/workspace/navigation2_ws/src
+rm navigation_2 -rf
+git clone https://github.com/andriimaistruk/navigation2
+cd ..
+colcon build --packages-select nav2_core nav2_planner nav2_costmap_2d nav2_util nav2_lifecycle_manager smac_planner nav2_navfn_planner nav2_common nav2_msgs
+source install/setup.bash
+ros2 run nav2_planner planner_server
 ```
-If proxies are needed:
+#### Now you have planner_server running  
+#### How to send goal to it  
+##### open a new terminal session
+###### assumption is that you have deep_cv setup ;=)
+```bash
+sudo docker exec -ti deep_cv bash
+cd /data/workspace/deep_cv
+git checkout task_wmo_55759_investigate_smac_hybrid_astar_planner
 ```
-sudo docker build -t nav2/latest --build-arg http_proxy=http://proxy.my.com:### --build-arg https_proxy=http://proxy.my.com:### .
-```
-Note: You may also need to configure your docker for DNS to work. See article here for details:
-https://development.robinwinslow.uk/2016/06/23/fix-docker-networking-dns/
+##### For deep_cv/appconfig/tracking/agv_simulation_config.xml the id must be set 1 (in planner_server that is hardcoded), this a temporal measure ;=)
+##### Lauch run_tracking and run_simulation using pycharm gui )
 
-## Using CI build docker container
-
-We allow for you to pull the latest docker image from the master branch at any time. As new releases and tags are made, docker containers on docker hub will be versioned as well to chose from.
-
+#### Make planner_server transition to activated state
+##### open a new terminal session
+```bash
+sudo docker run -ti logivations/ml_all:ros_nav2 bash
 ```
-sudo docker pull rosplanning/navigation2:latest
+##### In docker container
+```bash
+ros2 lifecycle set /nav2_planner configure
+ros2 lifecycle set /nav2_planner activate
 ```
+##### Use "Send to" button in W2MO 3D to send goal to AGV. The visualized path is computed by planner_server 

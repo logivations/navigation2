@@ -21,36 +21,27 @@ namespace nav2_costmap_2d
 {
 
 CostmapSubscriber::CostmapSubscriber(
-  nav2_util::LifecycleNode::SharedPtr node,
+  const nav2_util::LifecycleNode::WeakPtr & parent,
   const std::string & topic_name)
-: CostmapSubscriber(node->get_node_base_interface(),
-    node->get_node_topics_interface(),
-    node->get_node_logging_interface(),
-    topic_name)
-{}
-
-CostmapSubscriber::CostmapSubscriber(
-  rclcpp::Node::SharedPtr node,
-  const std::string & topic_name)
-: CostmapSubscriber(node->get_node_base_interface(),
-    node->get_node_topics_interface(),
-    node->get_node_logging_interface(),
-    topic_name)
-{}
-
-CostmapSubscriber::CostmapSubscriber(
-  const rclcpp::node_interfaces::NodeBaseInterface::SharedPtr node_base,
-  const rclcpp::node_interfaces::NodeTopicsInterface::SharedPtr node_topics,
-  const rclcpp::node_interfaces::NodeLoggingInterface::SharedPtr node_logging,
-  const std::string & topic_name)
-: node_base_(node_base),
-  node_topics_(node_topics),
-  node_logging_(node_logging),
-  topic_name_(topic_name)
+: topic_name_(topic_name)
 {
-  costmap_sub_ = rclcpp::create_subscription<nav2_msgs::msg::Costmap>(node_topics_, topic_name_,
-      rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
-      std::bind(&CostmapSubscriber::costmapCallback, this, std::placeholders::_1));
+  auto node = parent.lock();
+  costmap_sub_ = node->create_subscription<nav2_msgs::msg::Costmap>(
+    topic_name_,
+    rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+    std::bind(&CostmapSubscriber::costmapCallback, this, std::placeholders::_1));
+}
+
+CostmapSubscriber::CostmapSubscriber(
+  const rclcpp::Node::WeakPtr & parent,
+  const std::string & topic_name)
+: topic_name_(topic_name)
+{
+  auto node = parent.lock();
+  costmap_sub_ = node->create_subscription<nav2_msgs::msg::Costmap>(
+    topic_name_,
+    rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+    std::bind(&CostmapSubscriber::costmapCallback, this, std::placeholders::_1));
 }
 
 std::shared_ptr<Costmap2D> CostmapSubscriber::getCostmap()
@@ -76,7 +67,8 @@ void CostmapSubscriber::toCostmap2D()
     costmap_->getOriginY() != costmap_msg_->metadata.origin.position.y)
   {
     // Update the size of the costmap
-    costmap_->resizeMap(costmap_msg_->metadata.size_x, costmap_msg_->metadata.size_y,
+    costmap_->resizeMap(
+      costmap_msg_->metadata.size_x, costmap_msg_->metadata.size_y,
       costmap_msg_->metadata.resolution,
       costmap_msg_->metadata.origin.position.x,
       costmap_msg_->metadata.origin.position.y);

@@ -22,6 +22,8 @@
 #include "nav2_util/node_thread.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "bondcpp/bond.hpp"
+#include "bond/msg/constants.hpp"
 
 namespace nav2_util
 {
@@ -115,7 +117,27 @@ public:
     declare_parameter(descriptor.name, default_value, descriptor);
   }
 
+  std::shared_ptr<nav2_util::LifecycleNode> shared_from_this()
+  {
+    return std::static_pointer_cast<nav2_util::LifecycleNode>(
+      rclcpp_lifecycle::LifecycleNode::shared_from_this());
+  }
+
+  nav2_util::CallbackReturn on_error(const rclcpp_lifecycle::State & /*state*/)
+  {
+    RCLCPP_FATAL(
+      get_logger(),
+      "Lifecycle node %s does not have error state implemented", get_name());
+    return nav2_util::CallbackReturn::SUCCESS;
+  }
+
+  // bond connection to lifecycle manager
+  void createBond();
+  void destroyBond();
+
 protected:
+  void print_lifecycle_node_notification();
+
   // Whether or not to create a local rclcpp::Node which can be used for ROS2 classes that don't
   // yet support lifecycle nodes
   bool use_rclcpp_node_;
@@ -125,6 +147,9 @@ protected:
 
   // When creating a local node, this class will launch a separate thread created to spin the node
   std::unique_ptr<NodeThread> rclcpp_thread_;
+
+  // Connection to tell that server is still up
+  std::unique_ptr<bond::Bond> bond_{nullptr};
 };
 
 }  // namespace nav2_util

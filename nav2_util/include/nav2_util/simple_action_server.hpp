@@ -38,14 +38,13 @@ public:
     typename nodeT::SharedPtr node,
     const std::string & action_name,
     ExecuteCallback execute_callback,
-    bool autostart = true,
     std::chrono::milliseconds server_timeout = std::chrono::milliseconds(500))
   : SimpleActionServer(
       node->get_node_base_interface(),
       node->get_node_clock_interface(),
       node->get_node_logging_interface(),
       node->get_node_waitables_interface(),
-      action_name, execute_callback, autostart, server_timeout)
+      action_name, execute_callback, server_timeout)
   {}
 
   explicit SimpleActionServer(
@@ -55,7 +54,6 @@ public:
     rclcpp::node_interfaces::NodeWaitablesInterface::SharedPtr node_waitables_interface,
     const std::string & action_name,
     ExecuteCallback execute_callback,
-    bool autostart = true,
     std::chrono::milliseconds server_timeout = std::chrono::milliseconds(500))
   : node_base_interface_(node_base_interface),
     node_clock_interface_(node_clock_interface),
@@ -65,12 +63,7 @@ public:
     execute_callback_(execute_callback),
     server_timeout_(server_timeout)
   {
-    if (autostart) {
-      server_active_ = true;
-    }
-
     using namespace std::placeholders;  // NOLINT
-
     action_server_ = rclcpp_action::create_server<ActionT>(
       node_base_interface_,
       node_clock_interface_,
@@ -109,11 +102,12 @@ public:
     std::lock_guard<std::recursive_mutex> lock(update_mutex_);
     debug_msg("Receiving a new goal");
 
-    if (is_active(current_handle_)) {
+    if (is_active(current_handle_) || is_running()) {
       debug_msg("An older goal is active, moving the new goal to a pending slot.");
 
       if (is_active(pending_handle_)) {
-        debug_msg("The pending slot is occupied."
+        debug_msg(
+          "The pending slot is occupied."
           " The previous pending goal will be terminated and replaced.");
         terminate(pending_handle_);
       }
@@ -142,7 +136,8 @@ public:
       try {
         execute_callback_();
       } catch (std::exception & ex) {
-        RCLCPP_ERROR(node_logging_interface_->get_logger(),
+        RCLCPP_ERROR(
+          node_logging_interface_->get_logger(),
           "Action server failed while executing action callback: \"%s\"", ex.what());
         terminate_all();
         return;
@@ -195,7 +190,8 @@ public:
     }
 
     if (is_running()) {
-      warn_msg("Requested to deactivate server but goal is still executing."
+      warn_msg(
+        "Requested to deactivate server but goal is still executing."
         " Should check if action server is running before deactivating.");
     }
 
@@ -214,7 +210,9 @@ public:
 
   bool is_running()
   {
-    return execution_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready;
+    return execution_future_.valid() &&
+           (execution_future_.wait_for(std::chrono::milliseconds(0)) ==
+           std::future_status::timeout);
   }
 
   bool is_server_active()
@@ -317,6 +315,7 @@ public:
   {
     if (!is_active(current_handle_)) {
       error_msg("Trying to publish feedback when the current goal handle is not active");
+      return;
     }
 
     current_handle_->publish_feedback(feedback);
@@ -332,7 +331,7 @@ protected:
 
   ExecuteCallback execute_callback_;
   std::future<void> execution_future_;
-  bool stop_execution_;
+  bool stop_execution_{false};
 
   mutable std::recursive_mutex update_mutex_;
   bool server_active_{false};
@@ -376,25 +375,29 @@ protected:
 
   void info_msg(const std::string & msg) const
   {
-    RCLCPP_INFO(node_logging_interface_->get_logger(),
+    RCLCPP_INFO(
+      node_logging_interface_->get_logger(),
       "[%s] [ActionServer] %s", action_name_.c_str(), msg.c_str());
   }
 
   void debug_msg(const std::string & msg) const
   {
-    RCLCPP_DEBUG(node_logging_interface_->get_logger(),
+    RCLCPP_DEBUG(
+      node_logging_interface_->get_logger(),
       "[%s] [ActionServer] %s", action_name_.c_str(), msg.c_str());
   }
 
   void error_msg(const std::string & msg) const
   {
-    RCLCPP_ERROR(node_logging_interface_->get_logger(),
+    RCLCPP_ERROR(
+      node_logging_interface_->get_logger(),
       "[%s] [ActionServer] %s", action_name_.c_str(), msg.c_str());
   }
 
   void warn_msg(const std::string & msg) const
   {
-    RCLCPP_WARN(node_logging_interface_->get_logger(),
+    RCLCPP_WARN(
+      node_logging_interface_->get_logger(),
       "[%s] [ActionServer] %s", action_name_.c_str(), msg.c_str());
   }
 };

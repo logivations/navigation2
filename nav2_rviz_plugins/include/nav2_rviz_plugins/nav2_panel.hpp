@@ -71,6 +71,8 @@ private:
   void onCancelButtonPressed();
   void timerEvent(QTimerEvent * event) override;
 
+  int unique_id {0};
+
   // Call to send NavigateToPose action request for goal poses
   void startWaypointFollowing(std::vector<geometry_msgs::msg::PoseStamped> poses);
   void startNavigation(geometry_msgs::msg::PoseStamped);
@@ -81,6 +83,9 @@ private:
 
   // The (non-spinning) client node used to invoke the action client
   rclcpp::Node::SharedPtr client_node_;
+
+  // Timeout value when waiting for action servers to respnd
+  std::chrono::milliseconds server_timeout_;
 
   // A timer used to check on the completion status of the action
   QBasicTimer timer_;
@@ -97,11 +102,15 @@ private:
   WaypointFollowerGoalHandle::SharedPtr waypoint_follower_goal_handle_;
 
   // The client used to control the nav2 stack
-  nav2_lifecycle_manager::LifecycleManagerClient client_;
+  nav2_lifecycle_manager::LifecycleManagerClient client_nav_;
+  nav2_lifecycle_manager::LifecycleManagerClient client_loc_;
 
   QPushButton * start_reset_button_{nullptr};
   QPushButton * pause_resume_button_{nullptr};
   QPushButton * navigation_mode_button_{nullptr};
+
+  QLabel * navigation_status_indicator_{nullptr};
+  QLabel * localization_status_indicator_{nullptr};
 
   QStateMachine state_machine_;
   InitialThread * initial_thread_;
@@ -127,6 +136,12 @@ private:
 
   // Publish the visual markers with the waypoints
   void updateWpNavigationMarkers();
+
+  // Create unique id numbers for markers
+  int getUniqueId();
+
+  void resetUniqueId();
+
   // Waypoint navigation visual markers publisher
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr wp_navigation_markers_pub_;
 };
@@ -138,29 +153,55 @@ class InitialThread : public QThread
 public:
   using SystemStatus = nav2_lifecycle_manager::SystemStatus;
 
-  explicit InitialThread(nav2_lifecycle_manager::LifecycleManagerClient & client)
-  : client_(client)
+  explicit InitialThread(
+    nav2_lifecycle_manager::LifecycleManagerClient & client_nav,
+    nav2_lifecycle_manager::LifecycleManagerClient & client_loc)
+  : client_nav_(client_nav), client_loc_(client_loc)
   {}
 
   void run() override
   {
-    SystemStatus status = SystemStatus::TIMEOUT;
-    while (status == SystemStatus::TIMEOUT) {
-      status = client_.is_active(std::chrono::seconds(1));
+    SystemStatus status_nav = SystemStatus::TIMEOUT;
+    SystemStatus status_loc = SystemStatus::TIMEOUT;
+
+    while (status_nav == SystemStatus::TIMEOUT) {
+      if (status_nav == SystemStatus::TIMEOUT) {
+        status_nav = client_nav_.is_active(std::chrono::seconds(1));
+      }
     }
-    if (status == SystemStatus::ACTIVE) {
-      emit activeSystem();
+
+    // try to communicate twice, might not actually be up if in SLAM mode
+    bool tried_loc_bringup_once = false;
+    while (status_loc == SystemStatus::TIMEOUT) {
+      status_loc = client_loc_.is_active(std::chrono::seconds(1));
+      if (tried_loc_bringup_once) {
+        break;
+      }
+      tried_loc_bringup_once = true;
+    }
+
+    if (status_nav == SystemStatus::ACTIVE) {
+      emit navigationActive();
     } else {
-      emit inactiveSystem();
+      emit navigationInactive();
+    }
+
+    if (status_loc == SystemStatus::ACTIVE) {
+      emit localizationActive();
+    } else {
+      emit localizationInactive();
     }
   }
 
 signals:
-  void activeSystem();
-  void inactiveSystem();
+  void navigationActive();
+  void navigationInactive();
+  void localizationActive();
+  void localizationInactive();
 
 private:
-  nav2_lifecycle_manager::LifecycleManagerClient client_;
+  nav2_lifecycle_manager::LifecycleManagerClient client_nav_;
+  nav2_lifecycle_manager::LifecycleManagerClient client_loc_;
 };
 
 }  // namespace nav2_rviz_plugins

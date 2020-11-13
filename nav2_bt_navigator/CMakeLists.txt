@@ -32,6 +32,7 @@ set(library_name ${executable_name}_core)
 
 add_library(${library_name} SHARED
   src/bt_navigator.cpp
+  src/ros_topic_logger.cpp
 )
 
 set(dependencies
@@ -59,9 +60,13 @@ ament_target_dependencies(${library_name}
   ${dependencies}
 )
 
-install(TARGETS ${executable_name} ${library_name}
+install(TARGETS ${library_name}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(TARGETS ${executable_name}
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
