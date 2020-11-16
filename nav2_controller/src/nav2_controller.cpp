@@ -274,7 +274,7 @@ void ControllerServer::computeControl()
     setPlannerPath(action_server_->get_current_goal()->path);
     progress_checker_->reset();
 
-    rclcpp::Rate loop_rate(controller_frequency_);
+    rclcpp::WallRate loop_rate(controller_frequency_);
     while (rclcpp::ok()) {
       if (action_server_ == nullptr || !action_server_->is_server_active()) {
         RCLCPP_DEBUG(get_logger(), "Action server unavailable or inactive. Stopping.");
@@ -346,9 +346,9 @@ void ControllerServer::computeAndPublishVelocity()
 {
   geometry_msgs::msg::PoseStamped pose;
 
-    if (!getRobotPose(pose)) {
-        throw nav2_core::PlannerException("Failed to obtain robot pose");
-    }
+  if (!getRobotPose(pose)) {
+    throw nav2_core::PlannerException("Failed to obtain robot pose");
+  }
 
   if (!progress_checker_->check(pose)) {
     throw nav2_core::PlannerException("Failed to make progress");
@@ -418,9 +418,9 @@ bool ControllerServer::isGoalReached()
 {
   geometry_msgs::msg::PoseStamped pose;
 
-    if (!getRobotPose(pose)) {
-        return false;
-    }
+  if (!getRobotPose(pose)) {
+    return false;
+  }
 
   nav_2d_msgs::msg::Twist2D twist = getThresholdedTwist(odom_sub_->getTwist());
   geometry_msgs::msg::Twist velocity = nav_2d_utils::twist2Dto3D(twist);

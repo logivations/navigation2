@@ -78,7 +78,6 @@ public:
   }
 
   inline nav_2d_msgs::msg::Twist2D getTwist() {return odom_vel_.velocity;}
-  inline geometry_msgs::msg::PoseStamped getPoseStamped() {return pose_stamped_;}
   inline nav_2d_msgs::msg::Twist2DStamped getTwistStamped() {return odom_vel_;}
 
 protected:
@@ -90,12 +89,9 @@ protected:
     odom_vel_.velocity.x = msg->twist.twist.linear.x;
     odom_vel_.velocity.y = msg->twist.twist.linear.y;
     odom_vel_.velocity.theta = msg->twist.twist.angular.z;
-    pose_stamped_.header = msg->header;
-    pose_stamped_.pose = msg->pose.pose;
   }
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  geometry_msgs::msg::PoseStamped pose_stamped_;
   nav_2d_msgs::msg::Twist2DStamped odom_vel_;
   std::mutex odom_mutex_;
 };
