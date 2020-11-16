@@ -300,7 +300,7 @@ bool AStarAlgorithm<NodeT>::createPath(
       {
         NodePtr node = &_graph.at(_best_heuristic_node.second);
         return backtracePath(node, path);
-      }git
+      }
     }
 
     // 4) Expand neighbors of Nbest not visited
