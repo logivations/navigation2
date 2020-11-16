@@ -75,8 +75,10 @@ Costmap2DROS::Costmap2DROS(
   })),
   name_(name),
   parent_namespace_(parent_namespace),
-  default_plugins_{"static_layer"},
-  default_types_{"nav2_costmap_2d::StaticLayer"}
+  default_plugins_{"static_layer", "obstacle_layer", "inflation_layer"},
+  default_types_{"nav2_costmap_2d::StaticLayer",
+                 "nav2_costmap_2d::ObstacleLayer",
+                 "nav2_costmap_2d::InflationLayer"}
 {
   RCLCPP_INFO(get_logger(), "Creating Costmap");
   auto options = rclcpp::NodeOptions().arguments(
