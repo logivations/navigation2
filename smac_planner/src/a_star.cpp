@@ -232,6 +232,7 @@ bool AStarAlgorithm<NodeT>::createPath(
   clearQueue();
 
   if (!areInputsValid()) {
+      std::exit(34567);
     return false;
   }
 
