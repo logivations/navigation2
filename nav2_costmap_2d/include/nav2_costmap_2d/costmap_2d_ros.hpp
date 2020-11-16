@@ -58,6 +58,9 @@
 #include "tf2/time.h"
 #include "tf2/transform_datatypes.h"
 
+#include "nav_msgs/msg/odometry.hpp"
+#include <mutex>
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include "tf2/utils.h"
@@ -216,6 +219,8 @@ public:
     return unpadded_footprint_;
   }
 
+    void updateRobotPoseEstimate(const nav_msgs::msg::Odometry::SharedPtr odometry);
+
   /**
    * @brief  Build the oriented footprint of the robot at the robot's current pose
    * @param  oriented_footprint Will be filled with the points in the oriented footprint of the robot
@@ -313,6 +318,11 @@ protected:
   std::vector<geometry_msgs::msg::Point> padded_footprint_;
 
   std::unique_ptr<ClearCostmapService> clear_costmap_service_;
+
+
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_sub_;
+    geometry_msgs::msg::PoseStamped  current_pose_estimate;
+    std::mutex odom_pose_mtx;
 };
 
 }  // namespace nav2_costmap_2d

@@ -89,13 +89,13 @@ Costmap2DROS::Costmap2DROS(
   declare_parameter("always_send_full_costmap", rclcpp::ParameterValue(false));
   declare_parameter("footprint_padding", rclcpp::ParameterValue(0.01f));
   declare_parameter("footprint", rclcpp::ParameterValue(std::string("[]")));
-  declare_parameter("global_frame", rclcpp::ParameterValue(std::string("map")));
+  declare_parameter("global_frame", rclcpp::ParameterValue(std::string("odom")));
   declare_parameter("height", rclcpp::ParameterValue(5));
   declare_parameter("width", rclcpp::ParameterValue(5));
   declare_parameter("lethal_cost_threshold", rclcpp::ParameterValue(100));
   declare_parameter(
     "map_topic", rclcpp::ParameterValue(
-      (parent_namespace_ == "/" ? "/" : parent_namespace_ + "/") + std::string("map")));
+      (parent_namespace_ == "/" ? "/" : parent_namespace_ + "/") + std::string("occupancy_grid")));
   declare_parameter("observation_sources", rclcpp::ParameterValue(std::string("")));
   declare_parameter("origin_x", rclcpp::ParameterValue(0.0));
   declare_parameter("origin_y", rclcpp::ParameterValue(0.0));
@@ -158,7 +158,15 @@ Costmap2DROS::on_configure(const rclcpp_lifecycle::State & /*state*/)
   }
 
   // Create the publishers and subscribers
-  footprint_sub_ = create_subscription<geometry_msgs::msg::Polygon>(
+
+    odometry_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+            "/agv1/odom",
+            rclcpp::SensorDataQoS(),
+            std::bind(&Costmap2DROS::updateRobotPoseEstimate, this, std::placeholders::_1));
+
+
+
+    footprint_sub_ = create_subscription<geometry_msgs::msg::Polygon>(
     "footprint",
     rclcpp::SystemDefaultsQoS(),
     std::bind(&Costmap2DROS::setRobotFootprintPolygon, this, std::placeholders::_1));
@@ -344,6 +352,18 @@ Costmap2DROS::getParameters()
     }
   }
 }
+
+
+
+
+void Costmap2DROS::updateRobotPoseEstimate(const nav_msgs::msg::Odometry::SharedPtr odometry) {
+    std::lock_guard<std::mutex> lock(odom_pose_mtx);
+    current_pose_estimate.pose = odometry->pose.pose;
+    current_pose_estimate.pose.position.y *= -1.;
+    current_pose_estimate.pose.orientation = odometry->pose.pose.orientation;
+}
+
+
 
 void
 Costmap2DROS::setRobotFootprint(const std::vector<geometry_msgs::msg::Point> & points)
@@ -533,9 +553,9 @@ Costmap2DROS::resetLayers()
 bool
 Costmap2DROS::getRobotPose(geometry_msgs::msg::PoseStamped & global_pose)
 {
-  return nav2_util::getCurrentPose(
-    global_pose, *tf_buffer_,
-    global_frame_, robot_base_frame_, transform_tolerance_);
+    std::lock_guard<std::mutex> lock(odom_pose_mtx);
+    global_pose = current_pose_estimate;
+    return true;
 }
 
 }  // namespace nav2_costmap_2d
