@@ -222,6 +222,8 @@ bool AStarAlgorithm<NodeT>::areInputsValid()
   return true;
 }
 
+#include <stdio.h>
+
 template<typename NodeT>
 bool AStarAlgorithm<NodeT>::createPath(
   CoordinateVector & path, int & iterations,
@@ -298,14 +300,14 @@ bool AStarAlgorithm<NodeT>::createPath(
       {
         NodePtr node = &_graph.at(_best_heuristic_node.second);
         return backtracePath(node, path);
-      }
+      }git
     }
 
     // 4) Expand neighbors of Nbest not visited
     neighbors.clear();
     NodeT::getNeighbors(
       current_node, neighborGetter, _collision_checker, _traverse_unknown, neighbors);
-
+    printf("size of neighbours is %zu/n", neighbors.size());
     for (neighbor_iterator = neighbors.begin();
       neighbor_iterator != neighbors.end(); ++neighbor_iterator)
     {
