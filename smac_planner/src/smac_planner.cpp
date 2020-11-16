@@ -74,7 +74,7 @@ void SmacPlanner::configure(
   _node->get_parameter(name + ".downsampling_factor", _downsampling_factor);
 
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".angle_quantization_bins", rclcpp::ParameterValue(1));
+    _node, name + ".angle_quantization_bins", rclcpp::ParameterValue(72));
   _node->get_parameter(name + ".angle_quantization_bins", angle_quantizations);
   _angle_bin_size = 2.0 * M_PI / angle_quantizations;
   _angle_quantizations = static_cast<unsigned int>(angle_quantizations);
@@ -89,7 +89,7 @@ void SmacPlanner::configure(
     _node, name + ".smooth_path", rclcpp::ParameterValue(false));
   _node->get_parameter(name + ".smooth_path", smooth_path);
 
-  nav2_util::declare_parameter_if_not_declared(
+  nav2_util::declare_parameter_if_not_declared
     _node, name + ".minimum_turning_radius", rclcpp::ParameterValue(0.2));
   _node->get_parameter(name + ".minimum_turning_radius", search_info.minimum_turning_radius);
 
