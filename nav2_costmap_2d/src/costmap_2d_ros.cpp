@@ -85,9 +85,9 @@ Costmap2DROS::Costmap2DROS(
     {"--ros-args", "-r", std::string("__node:=") + get_name() + "_client", "--"});
   client_node_ = std::make_shared<rclcpp::Node>("_", options);
 
-  std::vector<std::string> clearable_layers{};
+  std::vector<std::string> clearable_layers{"obstacle_layer", "voxel_layer", "range_layer"};
 
-  declare_parameter("always_send_full_costmap", rclcpp::ParameterValue(false));
+  declare_parameter("always_send_full_costmap", rclcpp::ParameterValue(true));
   declare_parameter("footprint_padding", rclcpp::ParameterValue(0.01f));
   declare_parameter("footprint", rclcpp::ParameterValue(std::string("[]")));
   declare_parameter("global_frame", rclcpp::ParameterValue(std::string("odom")));
