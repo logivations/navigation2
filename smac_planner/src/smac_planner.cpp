@@ -89,7 +89,7 @@ void SmacPlanner::configure(
     _node, name + ".smooth_path", rclcpp::ParameterValue(false));
   _node->get_parameter(name + ".smooth_path", smooth_path);
 
-  nav2_util::declare_parameter_if_not_declared
+  nav2_util::declare_parameter_if_not_declared(
     _node, name + ".minimum_turning_radius", rclcpp::ParameterValue(0.2));
   _node->get_parameter(name + ".minimum_turning_radius", search_info.minimum_turning_radius);
 
