@@ -91,8 +91,8 @@ Costmap2DROS::Costmap2DROS(
   declare_parameter("footprint_padding", rclcpp::ParameterValue(0.01f));
   declare_parameter("footprint", rclcpp::ParameterValue(std::string("[]")));
   declare_parameter("global_frame", rclcpp::ParameterValue(std::string("odom")));
-  declare_parameter("height", rclcpp::ParameterValue(5));
-  declare_parameter("width", rclcpp::ParameterValue(5));
+  declare_parameter("height", rclcpp::ParameterValue(40));
+  declare_parameter("width", rclcpp::ParameterValue(40));
   declare_parameter("lethal_cost_threshold", rclcpp::ParameterValue(100));
   declare_parameter(
     "map_topic", rclcpp::ParameterValue(
@@ -104,7 +104,7 @@ Costmap2DROS::Costmap2DROS(
   declare_parameter("publish_frequency", rclcpp::ParameterValue(1.0));
   declare_parameter("resolution", rclcpp::ParameterValue(0.1));
   declare_parameter("robot_base_frame", rclcpp::ParameterValue(std::string("base_link")));
-  declare_parameter("robot_radius", rclcpp::ParameterValue(0.1));
+  declare_parameter("robot_radius", rclcpp::ParameterValue(0.01));
   declare_parameter("rolling_window", rclcpp::ParameterValue(false));
   declare_parameter("track_unknown_space", rclcpp::ParameterValue(false));
   declare_parameter("transform_tolerance", rclcpp::ParameterValue(0.3));
