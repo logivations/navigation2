@@ -36,6 +36,8 @@ install
 # Visual Studio Code files
 .vscode
 
+.idea
+
 # Eclipse project files
 .cproject
 .project
