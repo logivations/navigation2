@@ -307,7 +307,6 @@ bool AStarAlgorithm<NodeT>::createPath(
     neighbors.clear();
     NodeT::getNeighbors(
       current_node, neighborGetter, _collision_checker, _traverse_unknown, neighbors);
-    printf("size of neighbours is %zu/n", neighbors.size());
     for (neighbor_iterator = neighbors.begin();
       neighbor_iterator != neighbors.end(); ++neighbor_iterator)
     {
