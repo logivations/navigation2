@@ -12,8 +12,8 @@ controller_server:
       plugin: "teb_local_planner::TebLocalPlannerROS"
       footprint_model:
         type: "line"
-        line_start: [0.050000000000000044, 0.0] # for type "line"
-        line_end: [2.5999999999999996, 0.0] # for type "line"
+        line_start: [0.15000000000000002, 0.0] # for type "line"
+        line_end: [2.2, 0.0] # for type "line"
       min_obstacle_dist: 0.5
       include_dynamic_obstacles:  True
       obstacle_poses_affected: 25
@@ -117,6 +117,7 @@ bt_navigator:
     default_bt_xml_filename: "/code/ros2_ws/src/navigation2/nav2_bt_navigator/behavior_trees/navigate_w_replanning_v1.xml"
     plugin_lib_names:
     - nav2_compute_path_to_pose_action_bt_node
+    - nav2_compute_waypoints_to_pose_action_bt_node
     - nav2_follow_path_action_bt_node
     - nav2_back_up_action_bt_node
     - nav2_spin_action_bt_node

@@ -45,6 +45,7 @@ action_nodes = [
     "AlwaysFailure",
     "AlwaysSuccess",
     "SetBlackboard",
+    "ComputeWaypointsToPose"
     "ComputePathToPose",
     "FollowPath",
     "BackUp",

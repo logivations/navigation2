@@ -22,6 +22,12 @@
       <input_port name="planner_id"/>
     </Action>
 
+    <Action ID="ComputeWaypointsToPose">
+      <input_port name="goal">Destination to plan to</input_port>
+      <output_port name="path">Path created by ComputeWaypointsToPose node</output_port>
+      <input_port name="planner_id"/>
+    </Action>
+
     <Action ID="FollowPath">
       <input_port name="controller_id" default="FollowPath"/>
       <input_port name="path">Path to follow</input_port>
