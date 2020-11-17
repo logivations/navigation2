@@ -428,9 +428,9 @@ NavfnPlanner::worldToMap(double wx, double wy, unsigned int & mx, unsigned int &
   }
 
   mx = static_cast<int>(
-    std::round((wx - costmap_->getOriginX()) / costmap_->getResolution()));
+    std::round((wx - costmap_->getOriginX()) * costmap_->getResolution()));
   my = static_cast<int>(
-    std::round((wy - costmap_->getOriginY()) / costmap_->getResolution()));
+    std::round((wy - costmap_->getOriginY()) * costmap_->getResolution()));
 
   if (mx < costmap_->getSizeInCellsX() && my < costmap_->getSizeInCellsY()) {
     return true;
@@ -447,8 +447,8 @@ NavfnPlanner::worldToMap(double wx, double wy, unsigned int & mx, unsigned int &
 void
 NavfnPlanner::mapToWorld(double mx, double my, double & wx, double & wy)
 {
-  wx = costmap_->getOriginX() + mx * costmap_->getResolution();
-  wy = costmap_->getOriginY() + my * costmap_->getResolution();
+  wx = costmap_->getOriginX() + mx / costmap_->getResolution();
+  wy = costmap_->getOriginY() + my / costmap_->getResolution();
 }
 
 void
