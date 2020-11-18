@@ -64,10 +64,10 @@ void SmacPlanner::configure(
 
   // General planner params
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".tolerance", rclcpp::ParameterValue(0.125));
+    _node, name + ".tolerance", rclcpp::ParameterValue(1.5));
   _tolerance = static_cast<float>(_node->get_parameter(name + ".tolerance").as_double());
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".downsample_costmap", rclcpp::ParameterValue(true));
+    _node, name + ".downsample_costmap", rclcpp::ParameterValue(false));
   _node->get_parameter(name + ".downsample_costmap", _downsample_costmap);
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".downsampling_factor", rclcpp::ParameterValue(1));
@@ -94,19 +94,19 @@ void SmacPlanner::configure(
   _node->get_parameter(name + ".minimum_turning_radius", search_info.minimum_turning_radius);
 
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".reverse_penalty", rclcpp::ParameterValue(2.0));
+    _node, name + ".reverse_penalty", rclcpp::ParameterValue(1.05));
   _node->get_parameter(name + ".reverse_penalty", search_info.reverse_penalty);
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".change_penalty", rclcpp::ParameterValue(0.0));
+    _node, name + ".change_penalty", rclcpp::ParameterValue(1.05));
   _node->get_parameter(name + ".change_penalty", search_info.change_penalty);
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".non_straight_penalty", rclcpp::ParameterValue(0.0));
+    _node, name + ".non_straight_penalty", rclcpp::ParameterValue(1.05));
   _node->get_parameter(name + ".non_straight_penalty", search_info.non_straight_penalty);
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".cost_penalty", rclcpp::ParameterValue(1.2));
   _node->get_parameter(name + ".cost_penalty", search_info.cost_penalty);
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".analytic_expansion_ratio", rclcpp::ParameterValue(10.0));
+    _node, name + ".analytic_expansion_ratio", rclcpp::ParameterValue(2.0));
   _node->get_parameter(name + ".analytic_expansion_ratio", search_info.analytic_expansion_ratio);
 
   nav2_util::declare_parameter_if_not_declared(

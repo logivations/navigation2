@@ -61,17 +61,17 @@ void SmacPlanner2D::configure(
 
   // General planner params
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".tolerance", rclcpp::ParameterValue(0.125));
+    _node, name + ".tolerance", rclcpp::ParameterValue(1.0));
   _tolerance = static_cast<float>(_node->get_parameter(name + ".tolerance").as_double());
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".downsample_costmap", rclcpp::ParameterValue(true));
+    _node, name + ".downsample_costmap", rclcpp::ParameterValue(false));
   _node->get_parameter(name + ".downsample_costmap", _downsample_costmap);
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".downsampling_factor", rclcpp::ParameterValue(1));
   _node->get_parameter(name + ".downsampling_factor", _downsampling_factor);
 
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".allow_unknown", rclcpp::ParameterValue(true));
+    _node, name + ".allow_unknown", rclcpp::ParameterValue(false));
   _node->get_parameter(name + ".allow_unknown", allow_unknown);
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".max_iterations", rclcpp::ParameterValue(-1));
@@ -87,7 +87,7 @@ void SmacPlanner2D::configure(
   _node->get_parameter(name + ".minimum_turning_radius", minimum_turning_radius);
 
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".max_planning_time_ms", rclcpp::ParameterValue(1000.0));
+    _node, name + ".max_planning_time_ms", rclcpp::ParameterValue(5000.0));
   _node->get_parameter(name + ".max_planning_time_ms", _max_planning_time);
 
   nav2_util::declare_parameter_if_not_declared(
