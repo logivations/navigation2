@@ -86,7 +86,7 @@ void SmacPlanner::configure(
     _node, name + ".max_iterations", rclcpp::ParameterValue(-1));
   _node->get_parameter(name + ".max_iterations", max_iterations);
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".smooth_path", rclcpp::ParameterValue(false));
+    _node, name + ".smooth_path", rclcpp::ParameterValue(true));
   _node->get_parameter(name + ".smooth_path", smooth_path);
 
   nav2_util::declare_parameter_if_not_declared(
