@@ -46,7 +46,7 @@ struct SmootherParams
 
     // Smoother params
     nav2_util::declare_parameter_if_not_declared(
-      node, local_name + "w_curve", rclcpp::ParameterValue(30));
+      node, local_name + "w_curve", rclcpp::ParameterValue(30.0));
     node->get_parameter(local_name + "w_curve", curvature_weight);
     nav2_util::declare_parameter_if_not_declared(
       node, local_name + "w_cost", rclcpp::ParameterValue(0.025));
