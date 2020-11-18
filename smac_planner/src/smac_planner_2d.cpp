@@ -327,9 +327,9 @@ Eigen::Vector2d SmacPlanner2D::getWorldCoords(
   const float & mx, const float & my, const nav2_costmap_2d::Costmap2D * costmap)
 {
   float world_x =
-    static_cast<float>(costmap->getOriginX()) + (mx + 0.5) / costmap->getResolution();
+    static_cast<float>(costmap->getOriginX()) + (mx + 0.5) * costmap->getResolution();
   float world_y =
-    static_cast<float>(costmap->getOriginY()) + (my + 0.5) / costmap->getResolution();
+    static_cast<float>(costmap->getOriginY()) + (my + 0.5) * costmap->getResolution();
   return Eigen::Vector2d(world_x, world_y);
 }
 

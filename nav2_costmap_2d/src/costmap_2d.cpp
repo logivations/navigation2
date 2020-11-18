@@ -257,8 +257,8 @@ void Costmap2D::setCost(unsigned int mx, unsigned int my, unsigned char cost)
 
 void Costmap2D::mapToWorld(unsigned int mx, unsigned int my, double & wx, double & wy) const
 {
-  wx = origin_x_ + (mx + 0.5) / resolution_;
-  wy = origin_y_ + (my + 0.5) / resolution_;
+  wx = origin_x_ + (mx + 0.5) * resolution_;
+  wy = origin_y_ + (my + 0.5) * resolution_;
 }
 
 bool Costmap2D::worldToMap(double wx, double wy, unsigned int & mx, unsigned int & my) const
@@ -267,8 +267,8 @@ bool Costmap2D::worldToMap(double wx, double wy, unsigned int & mx, unsigned int
     return false;
   }
 
-  mx = static_cast<int>((wx - origin_x_) * resolution_);
-  my = static_cast<int>((wy - origin_y_) * resolution_);
+  mx = static_cast<int>((wx - origin_x_) / resolution_);
+  my = static_cast<int>((wy - origin_y_) / resolution_);
 
   if (mx < size_x_ && my < size_y_) {
     return true;

@@ -365,9 +365,9 @@ Eigen::Vector2d SmacPlanner::getWorldCoords(
 {
   // mx, my are in continuous grid coordinates, must convert to world coordinates
   double world_x =
-    static_cast<double>(costmap->getOriginX()) + (mx + 0.5) / costmap->getResolution();
+    static_cast<double>(costmap->getOriginX()) + (mx + 0.5) * costmap->getResolution();
   double world_y =
-    static_cast<double>(costmap->getOriginY()) + (my + 0.5) / costmap->getResolution();
+    static_cast<double>(costmap->getOriginY()) + (my + 0.5) * costmap->getResolution();
   return Eigen::Vector2d(world_x, world_y);
 }
 

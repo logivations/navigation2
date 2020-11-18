@@ -360,7 +360,6 @@ Costmap2DROS::setRobotFootprint(const std::vector<geometry_msgs::msg::Point> & p
 void Costmap2DROS::updateRobotPoseEstimate(const nav_msgs::msg::Odometry::SharedPtr odometry) {
     std::lock_guard<std::mutex> lock(odom_pose_mtx);
     current_pose_estimate.pose = odometry->pose.pose;
-    current_pose_estimate.pose.position.y *= -1.;
     current_pose_estimate.pose.orientation = odometry->pose.pose.orientation;
 }
 
