@@ -94,7 +94,7 @@ void SmacPlanner::configure(
   _node->get_parameter(name + ".minimum_turning_radius", search_info.minimum_turning_radius);
 
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".reverse_penalty", rclcpp::ParameterValue(1.05));
+    _node, name + ".reverse_penalty", rclcpp::ParameterValue(2.0));
   _node->get_parameter(name + ".reverse_penalty", search_info.reverse_penalty);
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".change_penalty", rclcpp::ParameterValue(0.2));
