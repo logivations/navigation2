@@ -64,7 +64,7 @@ void SmacPlanner::configure(
 
   // General planner params
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".tolerance", rclcpp::ParameterValue(1.5));
+    _node, name + ".tolerance", rclcpp::ParameterValue(0.5));
   _tolerance = static_cast<float>(_node->get_parameter(name + ".tolerance").as_double());
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".downsample_costmap", rclcpp::ParameterValue(false));
@@ -80,7 +80,7 @@ void SmacPlanner::configure(
   _angle_quantizations = static_cast<unsigned int>(angle_quantizations);
 
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".allow_unknown", rclcpp::ParameterValue(true));
+    _node, name + ".allow_unknown", rclcpp::ParameterValue(false));
   _node->get_parameter(name + ".allow_unknown", allow_unknown);
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".max_iterations", rclcpp::ParameterValue(-1));
@@ -97,13 +97,13 @@ void SmacPlanner::configure(
     _node, name + ".reverse_penalty", rclcpp::ParameterValue(1.05));
   _node->get_parameter(name + ".reverse_penalty", search_info.reverse_penalty);
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".change_penalty", rclcpp::ParameterValue(1.05));
+    _node, name + ".change_penalty", rclcpp::ParameterValue(0.2));
   _node->get_parameter(name + ".change_penalty", search_info.change_penalty);
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".non_straight_penalty", rclcpp::ParameterValue(1.05));
   _node->get_parameter(name + ".non_straight_penalty", search_info.non_straight_penalty);
   nav2_util::declare_parameter_if_not_declared(
-    _node, name + ".cost_penalty", rclcpp::ParameterValue(1.2));
+    _node, name + ".cost_penalty", rclcpp::ParameterValue(1.3));
   _node->get_parameter(name + ".cost_penalty", search_info.cost_penalty);
   nav2_util::declare_parameter_if_not_declared(
     _node, name + ".analytic_expansion_ratio", rclcpp::ParameterValue(2.0));
