@@ -113,6 +113,7 @@ public:
   void on_tick() override
   {
     getInput("order", goal_.order);
+    should_send_goal_ = false;
   }
 
   BT::NodeStatus on_success() override

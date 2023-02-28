@@ -17,6 +17,8 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(nav2_util REQUIRED)
+find_package(angles REQUIRED)
+find_package(backward_ros REQUIRED)
 
 nav2_package()
 
@@ -224,7 +226,7 @@ install(FILES nav2_tree_nodes.xml DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
+  # ament_lint_auto_find_test_dependencies()
   find_package(ament_cmake_gtest REQUIRED)
   add_subdirectory(test)
 endif()
