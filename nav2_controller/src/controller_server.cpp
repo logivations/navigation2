@@ -194,6 +194,8 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
 
   odom_sub_ = std::make_unique<nav_2d_utils::OdomSubscriber>(node);
   vel_publisher_ = create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
+  // This is a temporary hack to circumvent cmd_vel passing through teb_flickering_protection for MPPI controller 
+  vel_publisher2_ = create_publisher<geometry_msgs::msg::Twist>("/teb_flickering_protection/cmd_vel", 1);
 
   // Create the action server that we implement with our followPath method
   action_server_ = std::make_unique<ActionServer>(
@@ -223,6 +225,7 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
     it->second->activate();
   }
   vel_publisher_->on_activate();
+  vel_publisher2_->on_activate();
   action_server_->activate();
 
   auto node = shared_from_this();
@@ -250,6 +253,7 @@ ControllerServer::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
 
   publishZeroVelocity();
   vel_publisher_->on_deactivate();
+  vel_publisher2_->on_deactivate();
   dyn_params_handler_.reset();
 
   // destroy bond connection
@@ -277,6 +281,7 @@ ControllerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   action_server_.reset();
   odom_sub_.reset();
   vel_publisher_.reset();
+  vel_publisher2_.reset();
   speed_limit_sub_.reset();
 
   return nav2_util::CallbackReturn::SUCCESS;
@@ -566,8 +571,15 @@ void ControllerServer::updateGlobalPath()
 void ControllerServer::publishVelocity(const geometry_msgs::msg::TwistStamped & velocity)
 {
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>(velocity.twist);
-  if (vel_publisher_->is_activated() && vel_publisher_->get_subscription_count() > 0) {
-    vel_publisher_->publish(std::move(cmd_vel));
+  if (current_controller_ == "MPPI"){
+    if (vel_publisher2_->is_activated() && vel_publisher2_->get_subscription_count() > 0) {
+      vel_publisher2_->publish(std::move(cmd_vel));
+    }
+  }
+  else {
+    if (vel_publisher_->is_activated() && vel_publisher_->get_subscription_count() > 0) {
+      vel_publisher_->publish(std::move(cmd_vel));
+    }
   }
 }
 
