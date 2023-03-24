@@ -105,12 +105,14 @@ protected:
    * @brief Supporting routine obtaining all ROS-parameters
    * @param cmd_vel_in_topic Output name of cmd_vel_in topic
    * @param cmd_vel_out_topic Output name of cmd_vel_out topic
+   * @param frequency Frequency of the loop running process_without_vel
    * is required.
    * @return True if all parameters were obtained or false in failure case
    */
   bool getParameters(
     std::string & cmd_vel_in_topic,
-    std::string & cmd_vel_out_topic);
+    std::string & cmd_vel_out_topic,
+    double & frequency);
   /**
    * @brief Supporting routine creating and configuring all polygons
    * @param base_frame_id Robot base frame ID
@@ -142,6 +144,11 @@ protected:
   void process(const Velocity & cmd_vel_in);
 
   /**
+   * @brief Timer callback for actions not requiring vel
+   */
+  void process_without_vel();
+
+  /**
    * @brief Processes the polygon of STOP and SLOWDOWN action type
    * @param polygon Polygon to process
    * @param collision_points Array of 2D obstacle points
@@ -168,6 +175,18 @@ protected:
     const std::vector<Point> & collision_points,
     const Velocity & velocity,
     Action & robot_action) const;
+
+  /**
+   * @brief Processes Publish action type
+   * @param polygon Polygon to process
+   * @param collision_points Array of 2D obstacle points
+   * @param velocity Desired robot velocity
+   * @param robot_action Output processed robot action
+   * @return True if returned action is caused by current polygon, otherwise false
+   */
+  bool processPublish(
+    const std::shared_ptr<Polygon> polygon,
+    const std::vector<Point> & collision_points) const;
 
   /**
    * @brief Prints robot action and polygon caused it (if it was)
@@ -200,6 +219,8 @@ protected:
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_in_sub_;
   /// @brief Output cmd_vel publisher
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_out_pub_;
+  rclcpp::TimerBase::SharedPtr timer_;
+
 
   /// @brief Whether main routine is active
   bool process_active_;
