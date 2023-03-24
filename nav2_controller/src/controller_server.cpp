@@ -195,7 +195,7 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
   odom_sub_ = std::make_unique<nav_2d_utils::OdomSubscriber>(node);
   vel_publisher_ = create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
   // This is a temporary hack to circumvent cmd_vel passing through teb_flickering_protection for MPPI controller 
-  vel_publisher2_ = create_publisher<geometry_msgs::msg::Twist>("/teb_flickering_protection/cmd_vel", 1);
+  vel_publisher2_ = create_publisher<geometry_msgs::msg::Twist>("/mppi/cmd_vel", 1);
 
   // Create the action server that we implement with our followPath method
   action_server_ = std::make_unique<ActionServer>(
