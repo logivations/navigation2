@@ -75,6 +75,9 @@ Detector::on_activate(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Activating");
 
+  // Activating lifecycle publisher
+  trigger_pub_->on_activate();
+
   // Activating polygons
   for (std::shared_ptr<Polygon> polygon : polygons_) {
     polygon->activate();
@@ -94,6 +97,9 @@ Detector::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Deactivating");
 
+  // Deactivating lifecycle publishers
+  trigger_pub_->on_deactivate();
+
   // Deactivating main worker
   process_active_ = false;
 
@@ -112,6 +118,8 @@ nav2_util::CallbackReturn
 Detector::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Cleaning up");
+
+  trigger_pub_.reset();
 
   polygons_.clear();
   sources_.clear();
