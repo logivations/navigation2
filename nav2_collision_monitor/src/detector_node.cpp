@@ -24,11 +24,13 @@
 
 #include "nav2_collision_monitor/kinematics.hpp"
 
+using namespace std::chrono_literals;
+
 namespace nav2_collision_monitor
 {
 
 Detector::Detector(const rclcpp::NodeOptions & options)
-: nav2_util::LifecycleNode("collision_monitor", "", options),
+: nav2_util::LifecycleNode("detector", "", options),
   process_active_(false)
 {
 }
@@ -57,6 +59,9 @@ Detector::on_configure(const rclcpp_lifecycle::State & /*state*/)
       100ms,
       std::bind(&Detector::process, this));
 
+  trigger_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+    "~/state", rclcpp::SystemDefaultsQoS());
+
   // Obtaining ROS parameters
   if (!getParameters()) {
     return nav2_util::CallbackReturn::FAILURE;
@@ -74,10 +79,6 @@ Detector::on_activate(const rclcpp_lifecycle::State & /*state*/)
   for (std::shared_ptr<Polygon> polygon : polygons_) {
     polygon->activate();
   }
-
-  // Since polygons are being published when cmd_vel_in appears,
-  // we need to publish polygons first time to display them at startup
-  publishPolygons();
 
   // Activating main worker
   process_active_ = true;
@@ -286,30 +287,13 @@ void Detector::process()
     source->getData(curr_time, collision_points);
   }
 
-  // By default - there is no action
-  Action robot_action{DO_NOTHING, cmd_vel_in};
-  // Polygon causing robot action (if any)
-  std::shared_ptr<Polygon> action_polygon;
-
+  std::unique_ptr<std_msgs::msg::Bool> trigger_msg =
+    std::make_unique<std_msgs::msg::Bool>();
   for (std::shared_ptr<Polygon> polygon : polygons_) {
-    if (robot_action.action_type == STOP) {
-      // If robot already should stop, do nothing
-      break;
-    }
-
-    const ActionType at = polygon->getActionType();
-    // if (at == STOP || at == SLOWDOWN) {
-    //   // Process STOP/SLOWDOWN for the selected polygon
-    //   if (processStopSlowdown(polygon, collision_points, cmd_vel_in, robot_action)) {
-    //     action_polygon = polygon;
-    //   }
-    // } else if (at == APPROACH) {
-    //   // Process APPROACH for the selected polygon
-    //   if (processApproach(polygon, collision_points, cmd_vel_in, robot_action)) {
-    //     action_polygon = polygon;
-    //   }
-    // }
+    trigger_msg->data = polygon->getPointsInside(collision_points) > polygon->getMaxPoints();
   }
+
+  trigger_pub_->publish(std::move(trigger_msg));
 
   // Publish polygons for better visualization
   publishPolygons();

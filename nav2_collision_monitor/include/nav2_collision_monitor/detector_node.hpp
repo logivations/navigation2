@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 #include "tf2/time.h"
 #include "tf2_ros/buffer.h"
@@ -142,6 +143,11 @@ protected:
 
   /// @brief Whether main routine is active
   bool process_active_;
+  
+  /// @brief collision monitor state publisher
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Bool>::SharedPtr trigger_pub_;
+  /// @brief timer that runs actions
+  rclcpp::TimerBase::SharedPtr timer_;
 
 };  // class Detector
 
