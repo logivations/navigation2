@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Joshua Wallace
+// Copyright (c) 2022 Neobotix GmbH
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,30 +20,29 @@
 #include "behaviortree_cpp_v3/bt_factory.h"
 
 #include "../../test_action_server.hpp"
-#include "nav2_behavior_tree/plugins/action/assisted_teleop_cancel_node.hpp"
+#include "nav2_behavior_tree/plugins/action/drive_straight_cancel_node.hpp"
 #include "lifecycle_msgs/srv/change_state.hpp"
 
-class CancelAssistedTeleopServer : public TestActionServer<nav2_msgs::action::AssistedTeleop>
+class CancelDriveStraightServer : public TestActionServer<nav2_msgs::action::DriveStraight>
 {
 public:
-  CancelAssistedTeleopServer()
-  : TestActionServer("assisted_teleop")
+  CancelDriveStraightServer()
+  : TestActionServer("drive_straight")
   {}
 
 protected:
   void execute(
-    const typename std::shared_ptr<
-      rclcpp_action::ServerGoalHandle<nav2_msgs::action::AssistedTeleop>>
+    const typename std::shared_ptr<rclcpp_action::ServerGoalHandle<nav2_msgs::action::DriveStraight>>
     goal_handle)
   {
     while (!goal_handle->is_canceling()) {
-      // Assisted Teleop here until goal cancels
+      // BackUping here until goal cancels
       std::this_thread::sleep_for(std::chrono::milliseconds(15));
     }
   }
 };
 
-class CancelAssistedTeleopActionTestFixture : public ::testing::Test
+class CancelDriveStraightActionTestFixture : public ::testing::Test
 {
 public:
   static void SetUpTestCase()
@@ -65,18 +64,17 @@ public:
     config_->blackboard->set<std::chrono::milliseconds>(
       "bt_loop_duration",
       std::chrono::milliseconds(10));
-    client_ = rclcpp_action::create_client<nav2_msgs::action::AssistedTeleop>(
-      node_, "assisted_teleop");
+    client_ = rclcpp_action::create_client<nav2_msgs::action::DriveStraight>(
+      node_, "drive_straight");
 
     BT::NodeBuilder builder =
       [](const std::string & name, const BT::NodeConfiguration & config)
       {
-        return std::make_unique<nav2_behavior_tree::AssistedTeleopCancel>(
-          name, "assisted_teleop", config);
+        return std::make_unique<nav2_behavior_tree::DriveStraightCancel>(
+          name, "drive_straight", config);
       };
 
-    factory_->registerBuilder<nav2_behavior_tree::AssistedTeleopCancel>(
-      "CancelAssistedTeleop", builder);
+    factory_->registerBuilder<nav2_behavior_tree::DriveStraightCancel>("CancelDriveStraight", builder);
   }
 
   static void TearDownTestCase()
@@ -94,8 +92,8 @@ public:
     tree_.reset();
   }
 
-  static std::shared_ptr<CancelAssistedTeleopServer> action_server_;
-  static std::shared_ptr<rclcpp_action::Client<nav2_msgs::action::AssistedTeleop>> client_;
+  static std::shared_ptr<CancelDriveStraightServer> action_server_;
+  static std::shared_ptr<rclcpp_action::Client<nav2_msgs::action::DriveStraight>> client_;
 
 protected:
   static rclcpp::Node::SharedPtr node_;
@@ -104,33 +102,35 @@ protected:
   static std::shared_ptr<BT::Tree> tree_;
 };
 
-rclcpp::Node::SharedPtr CancelAssistedTeleopActionTestFixture::node_ = nullptr;
-std::shared_ptr<CancelAssistedTeleopServer>
-CancelAssistedTeleopActionTestFixture::action_server_ = nullptr;
-std::shared_ptr<rclcpp_action::Client<nav2_msgs::action::AssistedTeleop>>
-CancelAssistedTeleopActionTestFixture::client_ = nullptr;
+rclcpp::Node::SharedPtr CancelDriveStraightActionTestFixture::node_ = nullptr;
+std::shared_ptr<CancelDriveStraightServer>
+CancelDriveStraightActionTestFixture::action_server_ = nullptr;
+std::shared_ptr<rclcpp_action::Client<nav2_msgs::action::DriveStraight>>
+CancelDriveStraightActionTestFixture::client_ = nullptr;
 
-BT::NodeConfiguration * CancelAssistedTeleopActionTestFixture::config_ = nullptr;
+BT::NodeConfiguration * CancelDriveStraightActionTestFixture::config_ = nullptr;
 std::shared_ptr<BT::BehaviorTreeFactory>
-CancelAssistedTeleopActionTestFixture::factory_ = nullptr;
-std::shared_ptr<BT::Tree> CancelAssistedTeleopActionTestFixture::tree_ = nullptr;
+CancelDriveStraightActionTestFixture::factory_ = nullptr;
+std::shared_ptr<BT::Tree> CancelDriveStraightActionTestFixture::tree_ = nullptr;
 
-TEST_F(CancelAssistedTeleopActionTestFixture, test_ports)
+TEST_F(CancelDriveStraightActionTestFixture, test_ports)
 {
   std::string xml_txt =
     R"(
       <root main_tree_to_execute = "MainTree" >
         <BehaviorTree ID="MainTree">
-             <CancelAssistedTeleop name="AssistedTeleopCancel"/>
+             <CancelDriveStraight name="DriveStraightCancel"/>
         </BehaviorTree>
       </root>)";
 
   tree_ = std::make_shared<BT::Tree>(factory_->createTreeFromText(xml_txt, config_->blackboard));
-  auto send_goal_options = rclcpp_action::Client<
-    nav2_msgs::action::AssistedTeleop>::SendGoalOptions();
+  auto send_goal_options = rclcpp_action::Client<nav2_msgs::action::DriveStraight>::SendGoalOptions();
 
   // Creating a dummy goal_msg
-  auto goal_msg = nav2_msgs::action::AssistedTeleop::Goal();
+  auto goal_msg = nav2_msgs::action::DriveStraight::Goal();
+
+  // Setting target pose
+  goal_msg.target.x = 0.5;
 
   // BackUping for server and sending a goal
   client_->wait_for_action_server();
@@ -157,10 +157,9 @@ int main(int argc, char ** argv)
   rclcpp::init(argc, argv);
 
   // initialize action server and back_up on new thread
-  CancelAssistedTeleopActionTestFixture::action_server_ =
-    std::make_shared<CancelAssistedTeleopServer>();
+  CancelDriveStraightActionTestFixture::action_server_ = std::make_shared<CancelDriveStraightServer>();
   std::thread server_thread([]() {
-      rclcpp::spin(CancelAssistedTeleopActionTestFixture::action_server_);
+      rclcpp::spin(CancelDriveStraightActionTestFixture::action_server_);
     });
 
   int all_successful = RUN_ALL_TESTS();

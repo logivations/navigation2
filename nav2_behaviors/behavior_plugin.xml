@@ -5,6 +5,12 @@
 	  </class>
 	</library>
 
+	<library path="nav2_drive_straight_behavior">
+	  <class name="nav2_behaviors/DriveStraight" type="nav2_behaviors::DriveStraight" base_class_type="nav2_core::Behavior">
+	    <description></description>
+	  </class>
+	</library>
+
 	<library path="nav2_back_up_behavior">
 	  <class name="nav2_behaviors/BackUp" type="nav2_behaviors::BackUp" base_class_type="nav2_core::Behavior">
 	    <description></description>

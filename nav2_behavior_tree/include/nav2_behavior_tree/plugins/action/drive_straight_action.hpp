@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Joshua Wallace
+// Copyright (c) 2018 Intel Corporation
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef NAV2_BEHAVIOR_TREE__PLUGINS__ACTION__ASSISTED_TELEOP_CANCEL_NODE_HPP_
-#define NAV2_BEHAVIOR_TREE__PLUGINS__ACTION__ASSISTED_TELEOP_CANCEL_NODE_HPP_
+#ifndef NAV2_BEHAVIOR_TREE__PLUGINS__ACTION__DRIVE_STRAIGHT_ACTION_HPP_
+#define NAV2_BEHAVIOR_TREE__PLUGINS__ACTION__DRIVE_STRAIGHT_ACTION_HPP_
 
-#include <memory>
 #include <string>
 
-#include "nav2_msgs/action/assisted_teleop.hpp"
-
-#include "nav2_behavior_tree/bt_cancel_action_node.hpp"
+#include "nav2_behavior_tree/bt_action_node.hpp"
+#include "nav2_msgs/action/drive_straight.hpp"
 
 namespace nav2_behavior_tree
 {
@@ -28,7 +26,7 @@ namespace nav2_behavior_tree
 /**
  * @brief A nav2_behavior_tree::BtActionNode class that wraps nav2_msgs::action::DriveStraight
  */
-class AssistedTeleopCancel : public BtCancelActionNode<nav2_msgs::action::AssistedTeleop>
+class DriveStraightAction : public BtActionNode<nav2_msgs::action::DriveStraight>
 {
 public:
   /**
@@ -37,10 +35,15 @@ public:
    * @param action_name Action name this node creates a client for
    * @param conf BT node configuration
    */
-  AssistedTeleopCancel(
+  DriveStraightAction(
     const std::string & xml_tag_name,
     const std::string & action_name,
     const BT::NodeConfiguration & conf);
+
+  /**
+   * @brief Function to perform some user-defined operation on tick
+   */
+  void on_tick() override;
 
   /**
    * @brief Creates list of BT ports
@@ -50,10 +53,15 @@ public:
   {
     return providedBasicPorts(
       {
+        BT::InputPort<double>("backup_dist", 0.15, "Distance to backup"),
+        BT::InputPort<double>("backup_speed", 0.025, "Speed at which to backup"),
+        BT::InputPort<double>("time_allowance", 10.0, "Allowed time for reversing"),
+        BT::InputPort<bool>("free_goal_vel", false, "Don't stop when goal reached"),
+        BT::InputPort<bool>("check_local_costmap", true, "Check local costmap for collisions")
       });
   }
 };
 
 }  // namespace nav2_behavior_tree
 
-#endif  // NAV2_BEHAVIOR_TREE__PLUGINS__ACTION__ASSISTED_TELEOP_CANCEL_NODE_HPP_
+#endif  // NAV2_BEHAVIOR_TREE__PLUGINS__ACTION__DRIVE_STRA_ACTION_HPP_

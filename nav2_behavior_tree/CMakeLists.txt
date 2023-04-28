@@ -71,6 +71,9 @@ list(APPEND plugin_libs nav2_spin_cancel_bt_node)
 add_library(nav2_back_up_cancel_bt_node SHARED plugins/action/back_up_cancel_node.cpp)
 list(APPEND plugin_libs nav2_back_up_cancel_bt_node)
 
+add_library(nav2_drive_straight_cancel_bt_node SHARED plugins/action/drive_straight_cancel_node.cpp)
+list(APPEND plugin_libs nav2_drive_straight_cancel_bt_node)
+
 add_library(nav2_assisted_teleop_cancel_bt_node SHARED plugins/action/assisted_teleop_cancel_node.cpp)
 list(APPEND plugin_libs nav2_assisted_teleop_cancel_bt_node)
 
@@ -85,6 +88,9 @@ list(APPEND plugin_libs nav2_follow_path_action_bt_node)
 
 add_library(nav2_back_up_action_bt_node SHARED plugins/action/back_up_action.cpp)
 list(APPEND plugin_libs nav2_back_up_action_bt_node)
+
+add_library(nav2_drive_straight_action_bt_node SHARED plugins/action/drive_straight_action.cpp)
+list(APPEND plugin_libs nav2_drive_straight_action_bt_node)
 
 add_library(nav2_drive_on_heading_bt_node SHARED plugins/action/drive_on_heading_action.cpp)
 list(APPEND plugin_libs nav2_drive_on_heading_bt_node)

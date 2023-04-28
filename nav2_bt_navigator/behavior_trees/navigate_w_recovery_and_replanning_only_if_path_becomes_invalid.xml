@@ -36,7 +36,7 @@
           </Sequence>
           <Spin name="SpinRecovery" spin_dist="1.57"/>
           <Wait name="WaitRecovery" wait_duration="5"/>
-          <BackUp name="BackUpRecovery" backup_dist="0.30" backup_speed="0.05"/>
+          <DriveStraight name="BackUpRecovery" backup_dist="0.30" backup_speed="0.05"/>
         </RoundRobin>
       </ReactiveFallback>
     </RecoveryNode>

@@ -42,6 +42,7 @@ BtNavigator::BtNavigator(const rclcpp::NodeOptions & options)
     "nav2_wait_action_bt_node",
     "nav2_assisted_teleop_action_bt_node",
     "nav2_back_up_action_bt_node",
+    "nav2_drive_straight_action_bt_node",
     "nav2_drive_on_heading_bt_node",
     "nav2_clear_costmap_service_bt_node",
     "nav2_is_stuck_condition_bt_node",
@@ -79,6 +80,7 @@ BtNavigator::BtNavigator(const rclcpp::NodeOptions & options)
     "nav2_spin_cancel_bt_node",
     "nav2_assisted_teleop_cancel_bt_node",
     "nav2_back_up_cancel_bt_node",
+    "nav2_drive_straight_cancel_bt_node",
     "nav2_drive_on_heading_cancel_bt_node"
   };
 

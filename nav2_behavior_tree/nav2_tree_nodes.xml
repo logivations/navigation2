@@ -7,6 +7,16 @@
 <root>
   <TreeNodesModel>
     <!-- ############################### ACTION NODES ################################# -->
+    <Action ID="DriveStraight">
+      <input_port name="backup_dist">Distance to backup</input_port>
+      <input_port name="backup_speed">Speed at which to backup</input_port>
+      <input_port name="time_allowance">Allowed time for reversing</input_port>
+      <input_port name="server_name">Server name</input_port>
+      <input_port name="server_timeout">Server timeout</input_port>
+      <input_port name="free_goal_vel" default="false">Don't stop when goal reached</input_port>
+      <input_port name="check_local_costmap" default="true">Check if there is an obstacle on path</input_port>
+    </Action>
+
     <Action ID="BackUp">
       <input_port name="backup_dist">Distance to backup</input_port>
       <input_port name="backup_speed">Speed at which to backup</input_port>
@@ -27,6 +37,11 @@
 
     <Action ID="CancelControl">
       <input_port name="server_name">Server name to cancel the controller server</input_port>
+      <input_port name="server_timeout">Server timeout</input_port>
+    </Action>
+
+    <Action ID="CancelDriveStraight">
+      <input_port name="server_name">Server name to cancel the backup behavior</input_port>
       <input_port name="server_timeout">Server timeout</input_port>
     </Action>
 

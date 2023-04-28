@@ -81,6 +81,14 @@ ament_target_dependencies(nav2_back_up_behavior
   ${dependencies}
 )
 
+add_library(nav2_drive_straight_behavior SHARED
+  plugins/drive_straight.cpp
+)
+
+ament_target_dependencies(nav2_drive_straight_behavior
+  ${dependencies}
+)
+
 add_library(nav2_assisted_teleop_behavior SHARED
   plugins/assisted_teleop.cpp
 )
@@ -119,6 +127,7 @@ install(TARGETS ${library_name}
                 nav2_assisted_teleop_behavior
                 nav2_drive_on_heading_behavior
                 nav2_back_up_behavior
+                nav2_drive_straight_behavior
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -154,6 +163,7 @@ ament_export_libraries(${library_name}
   nav2_assisted_teleop_behavior
   nav2_drive_on_heading_behavior
   nav2_back_up_behavior
+  nav2_drive_straight_behavior
 )
 ament_export_dependencies(${dependencies})
 ament_package()

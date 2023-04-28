@@ -28,6 +28,7 @@
 #include "nav2_msgs/action/follow_path.hpp"
 #include "nav2_msgs/action/spin.hpp"
 #include "nav2_msgs/action/back_up.hpp"
+#include "nav2_msgs/action/drive_straight.hpp"
 #include "nav2_msgs/action/wait.hpp"
 #include "nav2_msgs/action/drive_on_heading.hpp"
 #include "nav2_msgs/action/compute_path_through_poses.hpp"
@@ -94,6 +95,7 @@ public:
   std::unique_ptr<DummyActionServer<nav2_msgs::action::Spin>> spin_server;
   std::unique_ptr<DummyActionServer<nav2_msgs::action::Wait>> wait_server;
   std::unique_ptr<DummyActionServer<nav2_msgs::action::BackUp>> backup_server;
+  std::unique_ptr<DummyActionServer<nav2_msgs::action::DriveStraight>> drive_straight_server;
   std::unique_ptr<DummyActionServer<nav2_msgs::action::DriveOnHeading>> drive_on_heading_server;
   std::unique_ptr<DummyActionServer<nav2_msgs::action::ComputePathThroughPoses>> ntp_server;
 

@@ -63,7 +63,7 @@ public:
       "nav2_spin_action_bt_node",
       "nav2_wait_action_bt_node",
       "nav2_assisted_teleop_action_bt_node",
-      "nav2_back_up_action_bt_node",
+      "nav2_drive_straight_action_bt_node",
       "nav2_drive_on_heading_bt_node",
       "nav2_clear_costmap_service_bt_node",
       "nav2_is_stuck_condition_bt_node",
@@ -99,7 +99,7 @@ public:
       "nav2_assisted_teleop_cancel_bt_node",
       "nav2_wait_cancel_bt_node",
       "nav2_spin_cancel_bt_node",
-      "nav2_back_up_cancel_bt_node",
+      "nav2_drive_straight_cancel_bt_node",
       "nav2_drive_on_heading_cancel_bt_node",
       "nav2_goal_updated_controller_bt_node"
     };
@@ -264,7 +264,7 @@ TEST_F(BehaviorTreeTestFixture, TestAllSuccess)
   // Goal count should be 0 since no goal is sent to all other servers
   EXPECT_EQ(server_handler->spin_server->getGoalCount(), 0);
   EXPECT_EQ(server_handler->wait_server->getGoalCount(), 0);
-  EXPECT_EQ(server_handler->backup_server->getGoalCount(), 0);
+  EXPECT_EQ(server_handler->drive_straight_server->getGoalCount(), 0);
   EXPECT_EQ(server_handler->clear_local_costmap_server->getRequestCount(), 0);
   EXPECT_EQ(server_handler->clear_global_costmap_server->getRequestCount(), 0);
 }
@@ -276,7 +276,7 @@ TEST_F(BehaviorTreeTestFixture, TestAllSuccess)
  * PipelineSequence returns FAILURE and NavigateRecovery triggers RecoveryFallback
  * GoalUpdated returns FAILURE and RoundRobin is triggered
  * RoundRobin triggers ClearingActions Sequence which returns FAILURE
- * RoundRobin triggers Spin, Wait, and BackUp which return FAILURE
+ * RoundRobin triggers Spin, Wait, and DriveStraight which return FAILURE
  * RoundRobin returns FAILURE hence RecoveryCallbackk returns FAILURE
  * Finally NavigateRecovery returns FAILURE
  * The behavior tree should also return FAILURE
@@ -296,7 +296,7 @@ TEST_F(BehaviorTreeTestFixture, TestAllFailure)
   server_handler->follow_path_server->setFailureRanges(failureRange);
   server_handler->spin_server->setFailureRanges(failureRange);
   server_handler->wait_server->setFailureRanges(failureRange);
-  server_handler->backup_server->setFailureRanges(failureRange);
+  server_handler->drive_straight_server->setFailureRanges(failureRange);
 
   // Disable services
   server_handler->clear_global_costmap_server->disable();
@@ -321,7 +321,7 @@ TEST_F(BehaviorTreeTestFixture, TestAllFailure)
   // All recovery action servers were sent 1 goal
   EXPECT_EQ(server_handler->spin_server->getGoalCount(), 1);
   EXPECT_EQ(server_handler->wait_server->getGoalCount(), 1);
-  EXPECT_EQ(server_handler->backup_server->getGoalCount(), 1);
+  EXPECT_EQ(server_handler->drive_straight_server->getGoalCount(), 1);
 
   // Service count is 0 since the server was disabled
   EXPECT_EQ(server_handler->clear_local_costmap_server->getRequestCount(), 0);
@@ -372,7 +372,7 @@ TEST_F(BehaviorTreeTestFixture, TestNavigateSubtreeRecoveries)
   // Goal count should be 0 since no goal is sent to all other servers
   EXPECT_EQ(server_handler->spin_server->getGoalCount(), 0);
   EXPECT_EQ(server_handler->wait_server->getGoalCount(), 0);
-  EXPECT_EQ(server_handler->backup_server->getGoalCount(), 0);
+  EXPECT_EQ(server_handler->drive_straight_server->getGoalCount(), 0);
 }
 
 /**
@@ -434,7 +434,7 @@ TEST_F(BehaviorTreeTestFixture, TestNavigateRecoverySimple)
   // Goal count should be 0 since only no goal is sent to all other servers
   EXPECT_EQ(server_handler->spin_server->getGoalCount(), 0);
   EXPECT_EQ(server_handler->wait_server->getGoalCount(), 0);
-  EXPECT_EQ(server_handler->backup_server->getGoalCount(), 0);
+  EXPECT_EQ(server_handler->drive_straight_server->getGoalCount(), 0);
 }
 
 /**
@@ -458,7 +458,7 @@ TEST_F(BehaviorTreeTestFixture, TestNavigateRecoverySimple)
  * PipelineSequence is triggered again and ComputePathToPose returns FAILURE (retry #2)
  * ClearGlobalCostmap-Context returns SUCCESS and ComputePathToPose returns FAILURE when retried
  * PipelineSequence returns FAILURE NavigateRecovery triggers RecoveryFallback
- * GoalUpdated returns FAILURE and RoundRobin triggers BackUp which returns FAILURE
+ * GoalUpdated returns FAILURE and RoundRobin triggers DriveStraight which returns FAILURE
  * RoundRobin triggers ClearingActions Sequence which returns SUCCESS
  * RoundRobin returns SUCCESS and RecoveryFallback returns SUCCESS
  *
@@ -472,7 +472,7 @@ TEST_F(BehaviorTreeTestFixture, TestNavigateRecoverySimple)
  * ClearGlobalCostmap-Context returns SUCCESS and ComputePathToPose returns FAILURE when retried
  * PipelineSequence returns FAILURE NavigateRecovery triggers RecoveryFallback
  * GoalUpdated returns FAILURE and RoundRobin triggers Wait which returns FAILURE
- * RoundRobin triggers BackUp which returns SUCCESS
+ * RoundRobin triggers DriveStraight which returns SUCCESS
  * RoundRobin returns SUCCESS and RecoveryFallback returns SUCCESS
  *
  * PipelineSequence is triggered again and ComputePathToPose returns SUCCESS (retry #5)
@@ -519,10 +519,10 @@ TEST_F(BehaviorTreeTestFixture, TestNavigateRecoveryComplex)
   waitFailureRange.emplace_back(std::pair<int, int>(2, 2));
   server_handler->wait_server->setFailureRanges(waitFailureRange);
 
-  // Set BackUp action server to fail for the first action
-  std::vector<std::pair<int, int>> backupFailureRange;
-  backupFailureRange.emplace_back(std::pair<int, int>(0, 1));
-  server_handler->backup_server->setFailureRanges(backupFailureRange);
+  // Set DriveStraight action server to fail for the first action
+  std::vector<std::pair<int, int>> DriveStraightFailureRange;
+  DriveStraightFailureRange.emplace_back(std::pair<int, int>(0, 1));
+  server_handler->drive_straight_server->setFailureRanges(DriveStraightFailureRange);
 
   BT::NodeStatus result = BT::NodeStatus::RUNNING;
 
@@ -549,7 +549,7 @@ TEST_F(BehaviorTreeTestFixture, TestNavigateRecoveryComplex)
   // All recovery action servers receive 2 goals
   EXPECT_EQ(server_handler->spin_server->getGoalCount(), 2);
   EXPECT_EQ(server_handler->wait_server->getGoalCount(), 2);
-  EXPECT_EQ(server_handler->backup_server->getGoalCount(), 2);
+  EXPECT_EQ(server_handler->drive_straight_server->getGoalCount(), 2);
 }
 
 /**
@@ -643,7 +643,7 @@ TEST_F(BehaviorTreeTestFixture, TestRecoverySubtreeGoalUpdated)
 
   // All recovery action servers receive 0 goals
   EXPECT_EQ(server_handler->wait_server->getGoalCount(), 0);
-  EXPECT_EQ(server_handler->backup_server->getGoalCount(), 0);
+  EXPECT_EQ(server_handler->drive_straight_server->getGoalCount(), 0);
 }
 
 int main(int argc, char ** argv)

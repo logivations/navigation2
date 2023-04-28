@@ -32,6 +32,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SaveMap.srv"
   "action/AssistedTeleop.action"
   "action/BackUp.action"
+  "action/DriveStraight.action"
   "action/ComputePathToPose.action"
   "action/ComputePathThroughPoses.action"
   "action/DriveOnHeading.action"

@@ -1,4 +1,5 @@
-// Copyright (c) 2022 Joshua Wallace
+// Copyright (c) 2018 Intel Corporation
+// Copyright (c) 2020 Sarthak Mittal
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,24 +21,23 @@
 #include "behaviortree_cpp_v3/bt_factory.h"
 
 #include "../../test_action_server.hpp"
-#include "nav2_behavior_tree/plugins/action/assisted_teleop_action.hpp"
+#include "nav2_behavior_tree/plugins/action/drive_straight_action.hpp"
 
-class AssistedTeleopActionServer : public TestActionServer<nav2_msgs::action::AssistedTeleop>
+class DriveStraightActionServer : public TestActionServer<nav2_msgs::action::DriveStraight>
 {
 public:
-  AssistedTeleopActionServer()
-  : TestActionServer("assisted_teleop")
+  DriveStraightActionServer()
+  : TestActionServer("drive_straight")
   {}
 
 protected:
   void execute(
-    const typename std::shared_ptr<
-      rclcpp_action::ServerGoalHandle<nav2_msgs::action::AssistedTeleop>>
+    const typename std::shared_ptr<rclcpp_action::ServerGoalHandle<nav2_msgs::action::DriveStraight>>
     goal_handle)
   override
   {
-    nav2_msgs::action::AssistedTeleop::Result::SharedPtr result =
-      std::make_shared<nav2_msgs::action::AssistedTeleop::Result>();
+    nav2_msgs::action::DriveStraight::Result::SharedPtr result =
+      std::make_shared<nav2_msgs::action::DriveStraight::Result>();
     bool return_success = getReturnSuccess();
     if (return_success) {
       goal_handle->succeed(result);
@@ -47,7 +47,7 @@ protected:
   }
 };
 
-class AssistedTeleopActionTestFixture : public ::testing::Test
+class DriveStraightActionTestFixture : public ::testing::Test
 {
 public:
   static void SetUpTestCase()
@@ -74,11 +74,11 @@ public:
     BT::NodeBuilder builder =
       [](const std::string & name, const BT::NodeConfiguration & config)
       {
-        return std::make_unique<nav2_behavior_tree::AssistedTeleopAction>(
-          name, "assisted_teleop", config);
+        return std::make_unique<nav2_behavior_tree::DriveStraightAction>(
+          name, "drive_straight", config);
       };
 
-    factory_->registerBuilder<nav2_behavior_tree::AssistedTeleopAction>("AssistedTeleop", builder);
+    factory_->registerBuilder<nav2_behavior_tree::DriveStraightAction>("DriveStraight", builder);
   }
 
   static void TearDownTestCase()
@@ -100,7 +100,7 @@ public:
     tree_.reset();
   }
 
-  static std::shared_ptr<AssistedTeleopActionServer> action_server_;
+  static std::shared_ptr<DriveStraightActionServer> action_server_;
 
 protected:
   static rclcpp::Node::SharedPtr node_;
@@ -109,45 +109,46 @@ protected:
   static std::shared_ptr<BT::Tree> tree_;
 };
 
-rclcpp::Node::SharedPtr AssistedTeleopActionTestFixture::node_ = nullptr;
-std::shared_ptr<AssistedTeleopActionServer>
-AssistedTeleopActionTestFixture::action_server_ = nullptr;
-BT::NodeConfiguration * AssistedTeleopActionTestFixture::config_ = nullptr;
-std::shared_ptr<BT::BehaviorTreeFactory> AssistedTeleopActionTestFixture::factory_ = nullptr;
-std::shared_ptr<BT::Tree> AssistedTeleopActionTestFixture::tree_ = nullptr;
+rclcpp::Node::SharedPtr DriveStraightActionTestFixture::node_ = nullptr;
+std::shared_ptr<DriveStraightActionServer> DriveStraightActionTestFixture::action_server_ = nullptr;
+BT::NodeConfiguration * DriveStraightActionTestFixture::config_ = nullptr;
+std::shared_ptr<BT::BehaviorTreeFactory> DriveStraightActionTestFixture::factory_ = nullptr;
+std::shared_ptr<BT::Tree> DriveStraightActionTestFixture::tree_ = nullptr;
 
-TEST_F(AssistedTeleopActionTestFixture, test_ports)
+TEST_F(DriveStraightActionTestFixture, test_ports)
 {
   std::string xml_txt =
     R"(
       <root main_tree_to_execute = "MainTree" >
         <BehaviorTree ID="MainTree">
-            <AssistedTeleop />
+            <DriveStraight />
         </BehaviorTree>
       </root>)";
 
   tree_ = std::make_shared<BT::Tree>(factory_->createTreeFromText(xml_txt, config_->blackboard));
-  EXPECT_EQ(tree_->rootNode()->getInput<double>("time_allowance"), 10.0);
+  EXPECT_EQ(tree_->rootNode()->getInput<double>("backup_dist"), 0.15);
+  EXPECT_EQ(tree_->rootNode()->getInput<double>("backup_speed"), 0.025);
 
   xml_txt =
     R"(
       <root main_tree_to_execute = "MainTree" >
         <BehaviorTree ID="MainTree">
-            <AssistedTeleop time_allowance="20"/>
+            <DriveStraight backup_dist="2" backup_speed="0.26" />
         </BehaviorTree>
       </root>)";
 
   tree_ = std::make_shared<BT::Tree>(factory_->createTreeFromText(xml_txt, config_->blackboard));
-  EXPECT_EQ(tree_->rootNode()->getInput<double>("time_allowance"), 20.0);
+  EXPECT_EQ(tree_->rootNode()->getInput<double>("backup_dist"), 2.0);
+  EXPECT_EQ(tree_->rootNode()->getInput<double>("backup_speed"), 0.26);
 }
 
-TEST_F(AssistedTeleopActionTestFixture, test_tick)
+TEST_F(DriveStraightActionTestFixture, test_tick)
 {
   std::string xml_txt =
     R"(
       <root main_tree_to_execute = "MainTree" >
         <BehaviorTree ID="MainTree">
-            <AssistedTeleop is_recovery="true"/>
+            <DriveStraight backup_dist="2" backup_speed="0.26" />
         </BehaviorTree>
       </root>)";
 
@@ -162,16 +163,17 @@ TEST_F(AssistedTeleopActionTestFixture, test_tick)
   EXPECT_EQ(config_->blackboard->get<int>("number_recoveries"), 1);
 
   auto goal = action_server_->getCurrentGoal();
-  EXPECT_EQ(goal->time_allowance.sec, 10.0);
+  EXPECT_EQ(goal->target.x, 2.0);
+  EXPECT_EQ(goal->speed, 0.26f);
 }
 
-TEST_F(AssistedTeleopActionTestFixture, test_failure)
+TEST_F(DriveStraightActionTestFixture, test_failure)
 {
   std::string xml_txt =
     R"(
       <root main_tree_to_execute = "MainTree" >
         <BehaviorTree ID="MainTree">
-            <AssistedTeleop is_recovery="true"/>
+            <DriveStraight backup_dist="2" backup_speed="0.26" />
         </BehaviorTree>
       </root>)";
 
@@ -189,7 +191,8 @@ TEST_F(AssistedTeleopActionTestFixture, test_failure)
   EXPECT_EQ(config_->blackboard->get<int>("number_recoveries"), 1);
 
   auto goal = action_server_->getCurrentGoal();
-  EXPECT_EQ(goal->time_allowance.sec, 10.0);
+  EXPECT_EQ(goal->target.x, 2.0);
+  EXPECT_EQ(goal->speed, 0.26f);
 }
 
 int main(int argc, char ** argv)
@@ -200,9 +203,9 @@ int main(int argc, char ** argv)
   rclcpp::init(argc, argv);
 
   // initialize action server and spin on new thread
-  AssistedTeleopActionTestFixture::action_server_ = std::make_shared<AssistedTeleopActionServer>();
+  DriveStraightActionTestFixture::action_server_ = std::make_shared<DriveStraightActionServer>();
   std::thread server_thread([]() {
-      rclcpp::spin(AssistedTeleopActionTestFixture::action_server_);
+      rclcpp::spin(DriveStraightActionTestFixture::action_server_);
     });
 
   int all_successful = RUN_ALL_TESTS();

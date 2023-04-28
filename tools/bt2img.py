@@ -48,6 +48,7 @@ action_nodes = [
     "ComputePathToPose",
     "FollowPath",
     "BackUp",
+    "DriveStraight",
     "Spin",
     "Wait",
     "ClearEntireCostmap",

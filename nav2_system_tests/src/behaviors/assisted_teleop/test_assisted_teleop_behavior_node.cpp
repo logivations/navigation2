@@ -23,7 +23,7 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "assisted_teleop_behavior_tester.hpp"
-#include "nav2_msgs/action/back_up.hpp"
+#include "nav2_msgs/action/drive_straight.hpp"
 
 using namespace std::chrono_literals;
 
