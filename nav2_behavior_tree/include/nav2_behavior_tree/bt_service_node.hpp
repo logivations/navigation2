@@ -261,10 +261,7 @@ protected:
 
   // Can be set in on_tick or on_wait_for_result to indicate if a request should be sent.
   bool should_send_request_;
-<<<<<<< HEAD
   bool should_fail_not_sent_request_;
-=======
->>>>>>> ead48a9039c80cadb18dcfbb21fff0bdd496ef03
 };
 
 }  // namespace nav2_behavior_tree
