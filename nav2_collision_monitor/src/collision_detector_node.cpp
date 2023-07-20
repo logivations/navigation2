@@ -77,7 +77,7 @@ CollisionDetector::on_activate(const rclcpp_lifecycle::State & /*state*/)
   }
 
   // Creating timer
-  timer_ = this->create_timer(
+  timer_ = this->create_wall_timer(
     std::chrono::duration<double>{1.0 / frequency_},
     std::bind(&CollisionDetector::process, this));
 
@@ -312,7 +312,7 @@ void CollisionDetector::process()
     state_msg->polygons.push_back(polygon->getName());
     state_msg->detections.push_back(
       polygon->getPointsInside(
-        collision_points) > polygon->getMinPoints());
+        collision_points) > polygon->getMaxPoints());
   }
 
   state_pub_->publish(std::move(state_msg));
