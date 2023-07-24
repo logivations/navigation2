@@ -50,7 +50,7 @@ static const char SCAN_NAME[]{"Scan"};
 static const char POINTCLOUD_NAME[]{"PointCloud"};
 static const char RANGE_NAME[]{"Range"};
 static const char STATE_TOPIC[]{"collision_detector_state"};
-static const int MIN_POINTS{2};
+static const int MAX_POINTS{1};
 static const double SIMULATION_TIME_STEP{0.01};
 static const double TRANSFORM_TOLERANCE{0.5};
 static const double SOURCE_TIMEOUT{5.0};
@@ -274,9 +274,9 @@ void Tester::addPolygon(
     rclcpp::Parameter(polygon_name + ".action_type", at));
 
   cd_->declare_parameter(
-    polygon_name + ".min_points", rclcpp::ParameterValue(MIN_POINTS));
+    polygon_name + ".max_points", rclcpp::ParameterValue(MAX_POINTS));
   cd_->set_parameter(
-    rclcpp::Parameter(polygon_name + ".min_points", MIN_POINTS));
+    rclcpp::Parameter(polygon_name + ".max_points", MAX_POINTS));
 
   cd_->declare_parameter(
     polygon_name + ".simulation_time_step", rclcpp::ParameterValue(SIMULATION_TIME_STEP));
