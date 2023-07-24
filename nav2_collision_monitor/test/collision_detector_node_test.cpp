@@ -362,7 +362,7 @@ void Tester::sendTransforms(const rclcpp::Time & stamp)
   transform.transform.rotation.w = 1.0;
 
   // Fill TF buffer ahead for future transform usage in CollisionDetector::process()
-  const rclcpp::Duration ahead = 300ms;
+  const rclcpp::Duration ahead = 1000ms;
   for (rclcpp::Time t = stamp; t <= stamp + ahead; t += rclcpp::Duration(50ms)) {
     transform.header.stamp = t;
 
@@ -580,8 +580,9 @@ TEST_F(Tester, testPolygonDetection)
   // Obstacle is in DetectionRegion
   publishRange(1.5, curr_time);
 
-  ASSERT_TRUE(waitData(1.5, 500ms, curr_time));
+  ASSERT_TRUE(waitData(1.5, 300ms, curr_time));
   ASSERT_TRUE(waitState(300ms));
+  ASSERT_GT(static_cast<int>(state_msg_->detections.size()), 0);
   ASSERT_EQ(state_msg_->detections[0], true);
 
   // Stop Collision Detector node
@@ -608,8 +609,37 @@ TEST_F(Tester, testCircleDetection)
   // Obstacle is in DetectionRegion
   publishPointCloud(1.5, curr_time);
 
-  ASSERT_TRUE(waitData(1.5, 500ms, curr_time));
+  ASSERT_TRUE(waitData(std::hypot(1.5, 0.01), 300ms, curr_time));
   ASSERT_TRUE(waitState(300ms));
+  ASSERT_EQ(state_msg_->detections[0], true);
+
+  // Stop Collision Detector node
+  cd_->stop();
+}
+
+TEST_F(Tester, testScanDetection)
+{
+  rclcpp::Time curr_time = cd_->now();
+
+  // Set Collision Detector parameters.
+  setCommonParameters();
+  // Create polygon
+  addPolygon("DetectionRegion", CIRCLE, 3.0, "none");
+  addSource(SCAN_NAME, SCAN);
+  setVectors({"DetectionRegion"}, {SCAN_NAME});
+
+  // Start Collision Detector node
+  cd_->start();
+
+  // Share TF
+  sendTransforms(curr_time);
+
+  // Obstacle is in DetectionRegion
+  publishScan(1.5, curr_time);
+
+  ASSERT_TRUE(waitData(1.5, 300ms, curr_time));
+  ASSERT_TRUE(waitState(300ms));
+  ASSERT_GT(static_cast<int>(state_msg_->detections.size()), 0);
   ASSERT_EQ(state_msg_->detections[0], true);
 
   // Stop Collision Detector node
