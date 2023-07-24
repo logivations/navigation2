@@ -146,12 +146,12 @@ protected:
 
   /// @brief collision monitor state publisher
   rclcpp_lifecycle::LifecyclePublisher<nav2_msgs::msg::CollisionDetectorState>::SharedPtr \
-  state_pub_;  /// @brief timer that runs actions
+    state_pub_;
+  /// @brief timer that runs actions
   rclcpp::TimerBase::SharedPtr timer_;
 
   /// @brief main loop frequency
   double frequency_;
-
 };  // class CollisionDetector
 
 }  // namespace nav2_collision_monitor
