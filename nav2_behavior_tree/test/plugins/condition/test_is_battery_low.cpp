@@ -167,18 +167,23 @@ TEST_F(IsBatteryLowConditionTestFixture, test_something)
 
   auto tree = factory_->createTreeFromText(xml_txt, config_->blackboard);
 
-  sensor_msgs::msg::BatteryState battery_msg;
-  for(int i = 0; i < 10; i++){
-    battery_msg.header.stamp = node_->now();
-    battery_pub_->publish(battery_msg);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    // rclcpp::spin_some(node_);
-  }
+  // publish battery state in a loop in a different thread
+  std::thread t([](){
+    sensor_msgs::msg::BatteryState battery_msg;
+    for(int i = 0; i < 10000; i++){
+      battery_msg.header.stamp = node_->now();
+      battery_pub_->publish(battery_msg);
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      // rclcpp::spin_some(node_);
+    }
+  });
+
   for(int i = 0; i < 10; i++){
     tree.tickRoot();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
   }
-
 }
+
 
 int main(int argc, char ** argv)
 {

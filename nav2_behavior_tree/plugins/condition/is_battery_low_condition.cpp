@@ -49,8 +49,7 @@ IsBatteryLowCondition::IsBatteryLowCondition(
 
 BT::NodeStatus IsBatteryLowCondition::tick()
 {
-      RCLCPP_INFO(node_->get_logger(), "TICKING");
-
+  RCLCPP_INFO(node_->get_logger(), "TICKING");
   callback_group_executor_.spin_some();
   std::lock_guard<std::mutex> lock(mutex_);
   if (is_battery_low_) {
