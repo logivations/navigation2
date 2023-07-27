@@ -49,7 +49,10 @@ IsBatteryLowCondition::IsBatteryLowCondition(
 
 BT::NodeStatus IsBatteryLowCondition::tick()
 {
+      RCLCPP_INFO(node_->get_logger(), "TICKING");
+
   callback_group_executor_.spin_some();
+  std::lock_guard<std::mutex> lock(mutex_);
   if (is_battery_low_) {
     return BT::NodeStatus::SUCCESS;
   }
@@ -58,6 +61,11 @@ BT::NodeStatus IsBatteryLowCondition::tick()
 
 void IsBatteryLowCondition::batteryCallback(sensor_msgs::msg::BatteryState::SharedPtr msg)
 {
+  // print the difference between the current time and the time stamp in msg
+  // to make sure the callback is called at the expected rate
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto diff = (node_->now() - msg->header.stamp).seconds();
+  RCLCPP_INFO(node_->get_logger(), "time diff = %f", diff);
   if (is_voltage_) {
     is_battery_low_ = msg->voltage <= min_battery_;
   } else {
