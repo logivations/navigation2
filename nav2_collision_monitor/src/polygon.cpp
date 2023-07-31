@@ -380,6 +380,14 @@ Polygon::dynamicParametersCallback(
         max_points_ = parameter.as_int();
       }
     }
+    if (param_type == ParameterType::PARAMETER_DOUBLE) {
+      if (param_name == polygon_name_ + "." + "min_vel_before_stop") {
+        min_vel_before_stop_ = parameter.as_double();
+      }
+      else if (param_name == polygon_name_ + "." + "time_before_collision") {
+        time_before_collision_ = parameter.as_double();
+      }
+    }
   }
   result.successful = true;
   return result;
