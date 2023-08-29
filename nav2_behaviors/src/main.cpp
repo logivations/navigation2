@@ -16,7 +16,6 @@
 #include <memory>
 
 #include "nav2_behaviors/behavior_server.hpp"
-#include "rclcpp/executors/events_executor/events_executor.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 int main(int argc, char ** argv)
@@ -24,10 +23,7 @@ int main(int argc, char ** argv)
   rclcpp::init(argc, argv);
   auto recoveries_node = std::make_shared<behavior_server::BehaviorServer>();
 
-  auto executor = std::make_shared<rclcpp::executors::EventsExecutor>();
-
-  executor->add_node(recoveries_node->get_node_base_interface());
-  executor->spin();
+  rclcpp::spin(recoveries_node->get_node_base_interface());
   rclcpp::shutdown();
 
   return 0;
