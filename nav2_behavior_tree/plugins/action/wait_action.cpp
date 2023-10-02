@@ -26,7 +26,7 @@ WaitAction::WaitAction(
   const BT::NodeConfiguration & conf)
 : BtActionNode<nav2_msgs::action::Wait>(xml_tag_name, action_name, conf)
 {
-  int duration;
+  double duration;
   getInput("wait_duration", duration);
   if (duration <= 0) {
     RCLCPP_WARN(
