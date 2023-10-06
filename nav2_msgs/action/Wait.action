@@ -1,9 +1,9 @@
 #goal definition
-msg/DurationTime time
+builtin_interfaces/Duration time
 ---
 #result definition
-msg/DurationTime total_elapsed_time
+builtin_interfaces/Duration total_elapsed_time
 uint16 error_code
 ---
 #feedback definition
-msg/DurationTime time_left
+builtin_interfaces/Duration time_left
