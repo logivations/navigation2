@@ -14,6 +14,7 @@
 
 #include <string>
 #include <memory>
+#include <math.h>
 
 #include "nav2_behavior_tree/plugins/action/wait_action.hpp"
 
@@ -35,7 +36,8 @@ WaitAction::WaitAction(
     duration *= -1;
   }
 
-  goal_.time.sec = duration;
+  goal_.time.sec = int(duration);
+  goal_.time.nanosec = int((duration - goal_.time.sec) * pow(10, 9));
 }
 
 void WaitAction::on_tick()
