@@ -31,7 +31,7 @@ WaitAction::WaitAction(
   if (duration <= 0) {
     RCLCPP_WARN(
       node_->get_logger(), "Wait duration is negative or zero "
-      "(%i). Setting to positive.", duration);
+      "(%f). Setting to positive.", duration);
     duration *= -1;
   }
 
@@ -41,7 +41,9 @@ WaitAction::WaitAction(
 
 void WaitAction::on_tick()
 {
-  std::cout << "on_tick in waut action called\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+  for (int i = 0; i < 10; ++i) {
+    std::cout << "on_tick in waut action called" << std::endl;
+  }
   increment_recovery_count();
 }
 
