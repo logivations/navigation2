@@ -26,7 +26,7 @@ WaitAction::WaitAction(
   const BT::NodeConfiguration & conf)
 : BtActionNode<nav2_msgs::action::Wait>(xml_tag_name, action_name, conf)
 {
-  int duration;
+  double duration;
   getInput("wait_duration", duration);
   if (duration <= 0) {
     RCLCPP_WARN(
@@ -35,11 +35,13 @@ WaitAction::WaitAction(
     duration *= -1;
   }
 
-  goal_.time.sec = duration;
+  goal_.time.sec = int(duration);
+  goal_.time.nanosec = int((duration - goal_.time.sec) * pow(10, 9));
 }
 
 void WaitAction::on_tick()
 {
+  std::cout << "on_tick in waut action called\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
   increment_recovery_count();
 }
 
