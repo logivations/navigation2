@@ -41,9 +41,6 @@ WaitAction::WaitAction(
 
 void WaitAction::on_tick()
 {
-  for (int i = 0; i < 10; ++i) {
-    std::cout << "on_tick in waut action called" << std::endl;
-  }
   increment_recovery_count();
 }
 
