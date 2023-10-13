@@ -105,7 +105,15 @@ void PolygonSource::getData(
   if (data_ == nullptr) {
     return;
   }
-  if (!sourceValid(data_->header.stamp, curr_time)) {
+  // get the earliest time stamp from the polygon array
+  // TODO: refine
+  rclcpp::Time earliest_stamp = rclcpp::Time(data_->polygons[0].header.stamp);
+  for (const auto& polygon : data_->polygons) {
+    if (rclcpp::Time(polygon.header.stamp) < earliest_stamp) {
+      earliest_stamp = polygon.header.stamp;
+    }
+  }
+  if (!sourceValid(earliest_stamp, curr_time)) {
     return;
   }
 
