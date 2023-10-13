@@ -19,7 +19,7 @@
 #include <vector>
 #include <string>
 
-#include "geometry_msgs/msg/polygon_stamped.hpp"
+#include "nav2_msgs/msg/polygons_array.hpp"
 
 #include "nav2_collision_monitor/source.hpp"
 
@@ -74,7 +74,7 @@ public:
     const rclcpp::Time & curr_time,
     std::vector<Point> & data) const;
 
-  std::vector<Point> convertPolygonStampedToVector(const geometry_msgs::msg::PolygonStamped & polygon) const;
+  void convertPolygonStampedToVector(const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point> & data) const;
 
 
 protected:
@@ -88,7 +88,7 @@ protected:
    * @brief PolygonSource data callback
    * @param msg Shared pointer to PolygonSource message
    */
-  void dataCallback(geometry_msgs::msg::PolygonStamped::ConstSharedPtr msg);
+  void dataCallback(nav2_msgs::msg::PolygonsArray::ConstSharedPtr msg);
 
   /**
  * @brief Callback executed when a parameter change is detected
@@ -100,13 +100,13 @@ protected:
   // ----- Variables -----
 
   /// @brief PolygonSource data subscriber
-  rclcpp::Subscription<geometry_msgs::msg::PolygonStamped>::SharedPtr data_sub_;
+  rclcpp::Subscription<nav2_msgs::msg::PolygonsArray>::SharedPtr data_sub_;
 
   // // Minimum and maximum height of PointCloud projected to 2D space
   // double min_height_, max_height_;
 
   /// @brief Latest data obtained from pointcloud
-  geometry_msgs::msg::PolygonStamped::ConstSharedPtr data_;
+  nav2_msgs::msg::PolygonsArray::ConstSharedPtr data_;
 
   /// @brief Dynamic parameters handler
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;

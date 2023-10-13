@@ -67,7 +67,7 @@ void PolygonSource::configure()
 
 
   rclcpp::QoS qos = rclcpp::SensorDataQoS();  // set to default
-  data_sub_ = node->create_subscription<geometry_msgs::msg::PolygonStamped>(
+  data_sub_ = node->create_subscription<nav2_msgs::msg::PolygonsArray>(
     source_topic, qos,
     std::bind(&PolygonSource::dataCallback, this, std::placeholders::_1));
 }
@@ -134,23 +134,22 @@ void PolygonSource::getData(
     }
   }
 
-  geometry_msgs::msg::PolygonStamped poly_out;
-  tf2::doTransform(*data_, poly_out, tf);
-
-  data = convertPolygonStampedToVector(poly_out);
+  for (const auto& polygon : data_->polygons) {
+    geometry_msgs::msg::PolygonStamped poly_out;
+    tf2::doTransform(polygon, poly_out, tf);
+    convertPolygonStampedToVector(poly_out, data);
+  }
 
 }
 
-std::vector<Point> PolygonSource::convertPolygonStampedToVector(const geometry_msgs::msg::PolygonStamped & polygon) const
+void PolygonSource::convertPolygonStampedToVector(const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point> & data) const
 {
-    std::vector<Point> points;
-
     // Iterate over the vertices of the polygon
     for (const auto& point : polygon.polygon.points) {
         Point p;
         p.x = point.x;
         p.y = point.y;
-        points.push_back(p);
+        data.push_back(p);
     }
 
     // Add additional points sampled across the vertices of the polygon
@@ -163,11 +162,9 @@ std::vector<Point> PolygonSource::convertPolygonStampedToVector(const geometry_m
             Point p;
             p.x = polygon.polygon.points[i].x + t * (polygon.polygon.points[next_index].x - polygon.polygon.points[i].x);
             p.y = polygon.polygon.points[i].y + t * (polygon.polygon.points[next_index].y - polygon.polygon.points[i].y);
-            points.push_back(p);
+            data.push_back(p);
         }
     }
-
-    return points;
 }
 
 
@@ -188,7 +185,7 @@ void PolygonSource::getParameters(std::string & source_topic)
   // max_height_ = node->get_parameter(source_name_ + ".max_height").as_double();
 }
 
-void PolygonSource::dataCallback(geometry_msgs::msg::PolygonStamped::ConstSharedPtr msg)
+void PolygonSource::dataCallback(nav2_msgs::msg::PolygonsArray::ConstSharedPtr msg)
 {
   data_ = msg;
 }
