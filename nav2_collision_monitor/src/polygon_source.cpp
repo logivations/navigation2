@@ -74,15 +74,14 @@ void PolygonSource::getData(
   if (data_ == nullptr || data_->polygons.empty()) {
     return;
   }
-  // get the earliest time stamp from the polygon array
-  // TODO: refine
-  rclcpp::Time earliest_stamp = rclcpp::Time(data_->polygons[0].header.stamp);
+  // get the oldest time stamp from the polygon array
+  rclcpp::Time oldest_stamp = rclcpp::Time(data_->polygons[0].header.stamp);
   for (const auto& polygon : data_->polygons) {
-    if (rclcpp::Time(polygon.header.stamp) < earliest_stamp) {
-      earliest_stamp = rclcpp::Time(polygon.header.stamp);
+    if (rclcpp::Time(polygon.header.stamp) < oldest_stamp) {
+      oldest_stamp = rclcpp::Time(polygon.header.stamp);
     }
   }
-  if (!sourceValid(earliest_stamp, curr_time)) {
+  if (!sourceValid(oldest_stamp, curr_time)) {
     return;
   }
 
