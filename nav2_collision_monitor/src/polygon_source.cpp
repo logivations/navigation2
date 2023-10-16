@@ -71,7 +71,7 @@ void PolygonSource::getData(
 {
   // Ignore data from the source if it is not being published yet or
   // not published for a long time
-  if (data_ == nullptr) {
+  if (data_ == nullptr || data_->polygons.empty()) {
     return;
   }
   // get the earliest time stamp from the polygon array
@@ -79,7 +79,7 @@ void PolygonSource::getData(
   rclcpp::Time earliest_stamp = rclcpp::Time(data_->polygons[0].header.stamp);
   for (const auto& polygon : data_->polygons) {
     if (rclcpp::Time(polygon.header.stamp) < earliest_stamp) {
-      earliest_stamp = polygon.header.stamp;
+      earliest_stamp = rclcpp::Time(polygon.header.stamp);
     }
   }
   if (!sourceValid(earliest_stamp, curr_time)) {
@@ -121,24 +121,34 @@ void PolygonSource::getData(
 
 void PolygonSource::convertPolygonStampedToVector(const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point> & data) const
 {
-    // Iterate over the vertices of the polygon
-    for (const auto& point : polygon.polygon.points) {
-        Point p;
-        p.x = point.x;
-        p.y = point.y;
-        data.push_back(p);
+    double distance = 0.1;
+    // Calculate the total perimeter of the polygon
+    double perimeter = 0.0;
+    for (size_t i = 0; i < polygon.polygon.points.size(); ++i) {
+        const auto& currentPoint = polygon.polygon.points[i];
+        const auto& nextPoint = polygon.polygon.points[(i + 1) % polygon.polygon.points.size()];
+        perimeter += sqrt(pow(nextPoint.x - currentPoint.x, 2) + pow(nextPoint.y - currentPoint.y, 2));
     }
 
-    // Add additional points sampled across the vertices of the polygon
-    for (size_t i = 0; i < polygon.polygon.points.size(); i++) {
-        size_t next_index = (i + 1) % polygon.polygon.points.size();
+    // Calculate the number of samples based on the desired distance
+    const size_t numSamples = static_cast<size_t>(perimeter / distance);
 
-        // Sample 10 points between each pair of vertices
-        for (size_t j = 0; j < 10; j++) {
-            double t = static_cast<double>(j) / 10;
+    // Iterate over the vertices of the polygon
+    for (size_t i = 0; i < polygon.polygon.points.size(); ++i) {
+        const auto& currentPoint = polygon.polygon.points[i];
+        const auto& nextPoint = polygon.polygon.points[(i + 1) % polygon.polygon.points.size()];
+
+        size_t numPointsInSegment = floor(numSamples * sqrt(pow(nextPoint.x - currentPoint.x, 2) + pow(nextPoint.y - currentPoint.y, 2)) / perimeter);
+
+        // Calculate the step size for each pair of vertices
+        const double dx = (nextPoint.x - currentPoint.x) / numPointsInSegment;
+        const double dy = (nextPoint.y - currentPoint.y) / numPointsInSegment;
+
+        // Sample the points with equal spacing
+        for (size_t j = 0; j <= numPointsInSegment; ++j) {
             Point p;
-            p.x = polygon.polygon.points[i].x + t * (polygon.polygon.points[next_index].x - polygon.polygon.points[i].x);
-            p.y = polygon.polygon.points[i].y + t * (polygon.polygon.points[next_index].y - polygon.polygon.points[i].y);
+            p.x = currentPoint.x + j * dx;
+            p.y = currentPoint.y + j * dy;
             data.push_back(p);
         }
     }
