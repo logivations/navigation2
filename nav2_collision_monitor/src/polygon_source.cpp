@@ -114,31 +114,31 @@ void PolygonSource::getData(
   for (const auto& polygon : data_->polygons) {
     geometry_msgs::msg::PolygonStamped poly_out;
     tf2::doTransform(polygon, poly_out, tf);
-    convertPolygonStampedToVector(poly_out, data);
+    convertPolygonStampedToPoints(poly_out, data);
   }
 
 }
-
-void PolygonSource::convertPolygonStampedToVector(const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point> & data) const
+void PolygonSource::convertPolygonStampedToPoints(const geometry_msgs::msg::PolygonStamped& polygon, std::vector<Point>& data) const
 {
-    double distance = 0.1;
     // Calculate the total perimeter of the polygon
     double perimeter = 0.0;
+    double spacing = 0.1;
     for (size_t i = 0; i < polygon.polygon.points.size(); ++i) {
         const auto& currentPoint = polygon.polygon.points[i];
         const auto& nextPoint = polygon.polygon.points[(i + 1) % polygon.polygon.points.size()];
         perimeter += sqrt(pow(nextPoint.x - currentPoint.x, 2) + pow(nextPoint.y - currentPoint.y, 2));
     }
 
-    // Calculate the number of samples based on the desired distance
-    const size_t numSamples = static_cast<size_t>(perimeter / distance);
-
     // Iterate over the vertices of the polygon
     for (size_t i = 0; i < polygon.polygon.points.size(); ++i) {
         const auto& currentPoint = polygon.polygon.points[i];
         const auto& nextPoint = polygon.polygon.points[(i + 1) % polygon.polygon.points.size()];
 
-        size_t numPointsInSegment = floor(numSamples * sqrt(pow(nextPoint.x - currentPoint.x, 2) + pow(nextPoint.y - currentPoint.y, 2)) / perimeter);
+        // Calculate the distance between the current and next points
+        double segmentLength = sqrt(pow(nextPoint.x - currentPoint.x, 2) + pow(nextPoint.y - currentPoint.y, 2));
+
+        // Calculate the number of points to sample in the current segment
+        size_t numPointsInSegment = std::max(static_cast<size_t>(segmentLength / spacing), static_cast<size_t>(1));
 
         // Calculate the step size for each pair of vertices
         const double dx = (nextPoint.x - currentPoint.x) / numPointsInSegment;
@@ -153,7 +153,6 @@ void PolygonSource::convertPolygonStampedToVector(const geometry_msgs::msg::Poly
         }
     }
 }
-
 
 void PolygonSource::getParameters(std::string & source_topic)
 {

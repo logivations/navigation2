@@ -74,7 +74,7 @@ public:
     const rclcpp::Time & curr_time,
     std::vector<Point> & data) const;
 
-  void convertPolygonStampedToVector(const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point> & data) const;
+  void convertPolygonStampedToPoints(const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point> & data) const;
 
 
 protected:

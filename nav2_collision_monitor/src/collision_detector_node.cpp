@@ -52,17 +52,17 @@ CollisionDetector::on_configure(const rclcpp_lifecycle::State & /*state*/)
   tf_buffer_->setCreateTimerInterface(timer_interface);
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
+  // Obtaining ROS parameters
+  if (!getParameters()) {
+    return nav2_util::CallbackReturn::FAILURE;
+  }
+
   state_pub_ = this->create_publisher<nav2_msgs::msg::CollisionDetectorState>(
     "collision_detector_state", rclcpp::SystemDefaultsQoS());
 
   if (visualize_collision_points_) {
     collision_points_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
       "collision_points_marker", 1);
-  }
-
-  // Obtaining ROS parameters
-  if (!getParameters()) {
-    return nav2_util::CallbackReturn::FAILURE;
   }
 
   return nav2_util::CallbackReturn::SUCCESS;

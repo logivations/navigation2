@@ -157,7 +157,7 @@ protected:
   /// @brief main loop frequency
   double frequency_;
   /// @brief whether to publish collision points
-  bool visualize_collision_points_;
+  bool visualize_collision_points_ = false;
 };  // class CollisionDetector
 
 }  // namespace nav2_collision_monitor
