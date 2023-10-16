@@ -44,7 +44,6 @@ PolygonSource::PolygonSource(
 
 PolygonSource::~PolygonSource()
 {
-  dyn_params_handler_.reset();
   data_sub_.reset();
 }
 
@@ -59,41 +58,11 @@ void PolygonSource::configure()
   std::string source_topic;
 
   getParameters(source_topic);
-  dyn_params_handler_ = node->add_on_set_parameters_callback(
-    std::bind(
-      &PolygonSource::dynamicParametersCallback,
-      this,
-      std::placeholders::_1));
-
 
   rclcpp::QoS qos = rclcpp::SensorDataQoS();  // set to default
   data_sub_ = node->create_subscription<nav2_msgs::msg::PolygonsArray>(
     source_topic, qos,
     std::bind(&PolygonSource::dataCallback, this, std::placeholders::_1));
-}
-
-rcl_interfaces::msg::SetParametersResult
-PolygonSource::dynamicParametersCallback(
-  std::vector<rclcpp::Parameter> parameters)
-{
-  Source::dynamicParametersCallback(parameters);
-
-  rcl_interfaces::msg::SetParametersResult result;
-
-  // for (auto parameter : parameters) {
-  //   const auto & param_type = parameter.get_type();
-  //   const auto & param_name = parameter.get_name();
-
-  //   if (param_type == ParameterType::PARAMETER_DOUBLE) {
-  //     if (param_name == source_name_ + "." + "min_height") {
-  //       min_height_ = parameter.as_double();
-  //     } else if (param_name == source_name_ + "." + "max_height") {
-  //       max_height_ = parameter.as_double();
-  //     }
-  //   }
-  // }
-  result.successful = true;
-  return result;
 }
 
 void PolygonSource::getData(
@@ -178,19 +147,7 @@ void PolygonSource::convertPolygonStampedToVector(const geometry_msgs::msg::Poly
 
 void PolygonSource::getParameters(std::string & source_topic)
 {
-  auto node = node_.lock();
-  if (!node) {
-    throw std::runtime_error{"Failed to lock node"};
-  }
-
   getCommonParameters(source_topic);
-
-  // nav2_util::declare_parameter_if_not_declared(
-  //   node, source_name_ + ".min_height", rclcpp::ParameterValue(0.05));
-  // min_height_ = node->get_parameter(source_name_ + ".min_height").as_double();
-  // nav2_util::declare_parameter_if_not_declared(
-  //   node, source_name_ + ".max_height", rclcpp::ParameterValue(0.5));
-  // max_height_ = node->get_parameter(source_name_ + ".max_height").as_double();
 }
 
 void PolygonSource::dataCallback(nav2_msgs::msg::PolygonsArray::ConstSharedPtr msg)

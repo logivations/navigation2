@@ -90,13 +90,6 @@ protected:
    */
   void dataCallback(nav2_msgs::msg::PolygonsArray::ConstSharedPtr msg);
 
-  /**
- * @brief Callback executed when a parameter change is detected
- * @param event ParameterEvent message
- */
-  rcl_interfaces::msg::SetParametersResult
-  dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
-
   // ----- Variables -----
 
   /// @brief PolygonSource data subscriber
@@ -107,9 +100,6 @@ protected:
 
   /// @brief Latest data obtained from pointcloud
   nav2_msgs::msg::PolygonsArray::ConstSharedPtr data_;
-
-  /// @brief Dynamic parameters handler
-  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
 
 };  // class PolygonSource
 
