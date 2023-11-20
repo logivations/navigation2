@@ -62,7 +62,7 @@ void LifecycleNode::createBond()
     this->get_name(),
     shared_from_this());
 
-  bond_->setHeartbeatPeriod(0.10);
+  bond_->setHeartbeatPeriod(1.0);
   bond_->setHeartbeatTimeout(4.0);
   bond_->start();
 }
