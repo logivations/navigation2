@@ -49,7 +49,7 @@ void GridCollisionChecker::setFootprint(
   const bool & radius,
   const double & possible_inscribed_cost)
 {
-  possible_inscribed_cost_ = possible_inscribed_cost;
+  possible_inscribed_cost_ = static_cast<float>(possible_inscribed_cost);
   footprint_is_radius_ = radius;
 
   // Use radius, no caching required
@@ -147,7 +147,7 @@ bool GridCollisionChecker::inCollision(
       current_footprint.push_back(new_pt);
     }
 
-    footprint_cost_ = footprintCost(current_footprint);
+    footprint_cost_ = static_cast<float>(footprintCost(current_footprint));
 
     if (footprint_cost_ == UNKNOWN && traverse_unknown) {
       return false;
@@ -165,7 +165,7 @@ bool GridCollisionChecker::inCollision(
     }
 
     // if occupied or unknown and not to traverse unknown space
-    return static_cast<double>(footprint_cost_) >= INSCRIBED;
+    return footprint_cost_ >= INSCRIBED;
   }
 }
 

@@ -122,6 +122,24 @@ void SmacPlannerHybrid::configure(
     node, name + ".analytic_expansion_ratio", rclcpp::ParameterValue(3.5));
   node->get_parameter(name + ".analytic_expansion_ratio", _search_info.analytic_expansion_ratio);
   nav2_util::declare_parameter_if_not_declared(
+    node, name + ".analytic_expansion_max_cost", rclcpp::ParameterValue(200.0));
+  node->get_parameter(
+    name + ".analytic_expansion_max_cost", _search_info.analytic_expansion_max_cost);
+  nav2_util::declare_parameter_if_not_declared(
+    node, name + ".analytic_expansion_max_cost_override", rclcpp::ParameterValue(false));
+  node->get_parameter(
+    name + ".analytic_expansion_max_cost_override",
+    _search_info.analytic_expansion_max_cost_override);
+  nav2_util::declare_parameter_if_not_declared(
+    node, name + ".use_quadratic_cost_penalty", rclcpp::ParameterValue(false));
+  node->get_parameter(
+    name + ".use_quadratic_cost_penalty", _search_info.use_quadratic_cost_penalty);
+  nav2_util::declare_parameter_if_not_declared(
+    node, name + ".downsample_obstacle_heuristic", rclcpp::ParameterValue(true));
+  node->get_parameter(
+    name + ".downsample_obstacle_heuristic", _search_info.downsample_obstacle_heuristic);
+
+  nav2_util::declare_parameter_if_not_declared(
     node, name + ".analytic_expansion_max_length", rclcpp::ParameterValue(3.0));
   node->get_parameter(name + ".analytic_expansion_max_length", analytic_expansion_max_length_m);
   _search_info.analytic_expansion_max_length =
@@ -496,6 +514,9 @@ SmacPlannerHybrid::dynamicParametersCallback(std::vector<rclcpp::Parameter> para
         reinit_a_star = true;
         _search_info.analytic_expansion_max_length =
           static_cast<float>(parameter.as_double()) / _costmap->getResolution();
+      } else if (name == _name + ".analytic_expansion_max_cost") {
+        reinit_a_star = true;
+        _search_info.analytic_expansion_max_cost = static_cast<float>(parameter.as_double());
       }
     } else if (type == ParameterType::PARAMETER_BOOL) {
       if (name == _name + ".downsample_costmap") {
@@ -513,6 +534,9 @@ SmacPlannerHybrid::dynamicParametersCallback(std::vector<rclcpp::Parameter> para
         } else {
           _smoother.reset();
         }
+      } else if (name == _name + ".analytic_expansion_max_cost_override") {
+        _search_info.analytic_expansion_max_cost_override = parameter.as_bool();
+        reinit_a_star = true;
       }
     } else if (type == ParameterType::PARAMETER_INTEGER) {
       if (name == _name + ".downsampling_factor") {
