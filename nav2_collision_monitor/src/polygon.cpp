@@ -523,7 +523,8 @@ Polygon::dynamicParametersCallback(
 
 void Polygon::polygonCallback(geometry_msgs::msg::PolygonStamped::ConstSharedPtr msg)
 {
-  RCLCPP_INFO(
+  // debug logging to prevent spam
+  RCLCPP_DEBUG(
     logger_,
     "[%s]: Polygon shape update has been arrived",
     polygon_name_.c_str());
