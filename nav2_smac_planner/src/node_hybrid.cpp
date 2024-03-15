@@ -556,8 +556,14 @@ float NodeHybrid::getObstacleHeuristic(
 
         existing_cost = obstacle_heuristic_lookup_table[new_idx];
         if (existing_cost <= 0.0f) {
-          travel_cost =
-            ((i <= 3) ? 1.0f : sqrt_2) * (1.0f + (cost_penalty * cost / 252.0f));
+          if (motion_table.use_quadratic_cost_penalty) {
+            travel_cost =
+              (i <= 3 ? 1.0f : sqrt2) * (1.0f + (cost_penalty * cost * cost / 63504.0f));  // 252^2
+          } else {
+            travel_cost =
+              ((i <= 3) ? 1.0f : sqrt2) * (1.0f + (cost_penalty * cost / 252.0f));
+          }
+
           new_cost = c_cost + travel_cost;
           if (existing_cost == 0.0f || -existing_cost > new_cost) {
             // the negative value means the cell is in the open set
