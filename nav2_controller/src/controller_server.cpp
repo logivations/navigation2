@@ -746,6 +746,7 @@ void ControllerServer::updateGlobalPath()
     }
     std::string current_goal_checker;
     if (findGoalCheckerId(goal->goal_checker_id, current_goal_checker)) {
+      RCLCPP_INFO(get_logger(), "Selected goal checker: %s.", current_goal_checker.c_str());
       current_goal_checker_ = current_goal_checker;
     } else {
       RCLCPP_INFO(
