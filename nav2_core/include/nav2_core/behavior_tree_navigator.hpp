@@ -204,7 +204,7 @@ public:
     // Create the Behavior Tree Action Server for this navigator
     bt_action_server_ = std::make_unique<nav2_behavior_tree::BtActionServer<ActionT>>(
       node,
-      getName(),
+      node->get_name(),
       plugin_lib_names,
       default_bt_xml_filename,
       std::bind(&BehaviorTreeNavigator::onGoalReceived, this, std::placeholders::_1),
