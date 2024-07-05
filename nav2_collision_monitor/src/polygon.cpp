@@ -23,6 +23,7 @@
 
 #include "nav2_util/node_utils.hpp"
 #include "nav2_util/robot_utils.hpp"
+#include "nav2_util/array_parser.hpp"
 
 #include "nav2_collision_monitor/kinematics.hpp"
 using rcl_interfaces::msg::ParameterType;
@@ -191,7 +192,7 @@ bool Polygon::isShapeSet()
   return true;
 }
 
-void Polygon::updatePolygon()
+void Polygon::updatePolygon(const Velocity & /*cmd_vel_in*/)
 {
   if (footprint_sub_ != nullptr) {
     // Get latest robot footprint from footprint subscriber
@@ -578,6 +579,47 @@ inline bool Polygon::isPointInside(const Point & point) const
     i = j;
   }
   return res;
+}
+
+bool Polygon::getPolygonFromString(
+  std::string & poly_string,
+  std::vector<Point> & polygon)
+{
+  std::string error;
+  std::vector<std::vector<float>> vvf = nav2_util::parseVVF(poly_string, error);
+
+  if (error != "") {
+    RCLCPP_ERROR(
+      logger_, "Error parsing polygon parameter %s: '%s'",
+      poly_string.c_str(), error.c_str());
+    return false;
+  }
+
+  // Check for minimum 4 points
+  if (vvf.size() <= 3) {
+    RCLCPP_ERROR(
+      logger_,
+      "Polygon must have at least three points.");
+    return false;
+  }
+  for (unsigned int i = 0; i < vvf.size(); i++) {
+    if (vvf[i].size() == 2) {
+      Point point;
+      point.x = vvf[i][0];
+      point.y = vvf[i][1];
+      polygon.push_back(point);
+    } else {
+      RCLCPP_ERROR(
+        logger_,
+        "Points in the polygon specification must be pairs of numbers"
+        "Found a point with %d numbers.",
+        static_cast<int>(vvf[i].size()));
+      polygon.clear();
+      return false;
+    }
+  }
+
+  return true;
 }
 
 }  // namespace nav2_collision_monitor
