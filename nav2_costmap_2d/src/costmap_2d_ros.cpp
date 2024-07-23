@@ -101,7 +101,7 @@ Costmap2DROS::Costmap2DROS(
 {
   declare_parameter(
     "map_topic", rclcpp::ParameterValue(
-      (parent_namespace_ == "/" ? "/" : parent_namespace_ + "/") + std::string("map")));
+      (parent_namespace_ == "/" ? "/" : parent_namespace_ + "/") + std::string("map"))); 
   init();
 }
 
