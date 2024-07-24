@@ -1,4 +1,5 @@
 add_library(${library_name} SHARED
+  array_parser.cpp
   costmap.cpp
   node_utils.cpp
   lifecycle_service_client.cpp
