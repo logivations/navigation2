@@ -119,6 +119,12 @@ public:
    * @return Time before collision in seconds
    */
   double getTimeBeforeCollision() const;
+  /**
+   * @brief Obtains time step for robot movement simulation for current polygon.
+   * Applicable for APPROACH model.
+   * @return Simulation time step in seconds
+   */
+  double getSimulationTimeStep() const;
 
   /**
    * @brief Obtains minimum velocity before completly stopping.

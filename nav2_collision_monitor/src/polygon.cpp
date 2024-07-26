@@ -173,6 +173,11 @@ double Polygon::getTimeBeforeCollision() const
   return time_before_collision_;
 }
 
+double Polygon::getSimulationTimeStep() const
+{
+  return simulation_time_step_;
+}
+
 double Polygon::getMinVelBeforeStop() const
 {
   return min_vel_before_stop_;
