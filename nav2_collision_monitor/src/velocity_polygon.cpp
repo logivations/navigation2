@@ -125,32 +125,29 @@ bool VelocityPolygon::getParameters(
 
       if (action_type_ == SLOWDOWN) {
         nav2_util::declare_parameter_if_not_declared(
-          node, polygon_name_ + ".slowdown_ratio", rclcpp::ParameterValue(0.5));
-        slowdown_ratio_ = node->get_parameter(polygon_name_ + ".slowdown_ratio").as_double();
+          node, polygon_name_ + "." + velocity_polygon_name + ".slowdown_ratio", rclcpp::ParameterValue(0.5));
+        slowdown_ratio_ = node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".slowdown_ratio").as_double();
       }
 
       if (action_type_ == LIMIT) {
         nav2_util::declare_parameter_if_not_declared(
-          node, polygon_name_ + ".linear_limit", rclcpp::ParameterValue(0.5));
-        linear_limit_ = node->get_parameter(polygon_name_ + ".linear_limit").as_double();
+          node, polygon_name_ + "." + velocity_polygon_name + ".linear_limit", rclcpp::ParameterValue(0.5));
+        linear_limit_ = node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".linear_limit").as_double();
         nav2_util::declare_parameter_if_not_declared(
-          node, polygon_name_ + ".angular_limit", rclcpp::ParameterValue(0.5));
-        angular_limit_ = node->get_parameter(polygon_name_ + ".angular_limit").as_double();
+          node, polygon_name_ + "." + velocity_polygon_name + ".angular_limit", rclcpp::ParameterValue(0.5));
+        angular_limit_ = node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".angular_limit").as_double();
       }
 
       if (action_type_ == APPROACH) {
         nav2_util::declare_parameter_if_not_declared(
-          node, polygon_name_ + ".time_before_collision", rclcpp::ParameterValue(2.0));
-        time_before_collision_ =
-          node->get_parameter(polygon_name_ + ".time_before_collision").as_double();
+          node, polygon_name_ + "." + velocity_polygon_name + ".time_before_collision", rclcpp::ParameterValue(2.0));
+        time_before_collision_ = node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".time_before_collision").as_double();
         nav2_util::declare_parameter_if_not_declared(
-          node, polygon_name_ + ".simulation_time_step", rclcpp::ParameterValue(0.1));
-        simulation_time_step_ =
-          node->get_parameter(polygon_name_ + ".simulation_time_step").as_double();
+          node, polygon_name_ + "." + velocity_polygon_name + ".simulation_time_step", rclcpp::ParameterValue(0.1));
+        simulation_time_step_ = node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".simulation_time_step").as_double();
         nav2_util::declare_parameter_if_not_declared(
-          node, polygon_name_ + ".min_vel_before_stop", rclcpp::ParameterValue(-1.0));
-        min_vel_before_stop_ =
-          node->get_parameter(polygon_name_ + ".min_vel_before_stop").as_double();
+          node, polygon_name_ + "." + velocity_polygon_name + ".min_vel_before_stop", rclcpp::ParameterValue(-1.0));
+        min_vel_before_stop_ = node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".min_vel_before_stop").as_double();
       }
 
       SubPolygonParameter sub_polygon = {
