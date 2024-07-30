@@ -79,7 +79,7 @@ protected:
     * @param theta_max_ The maximum angular velocity
     * @param direction_end_angle_ The end angle of the direction(For holonomic robot only)
     * @param direction_start_angle_ The start angle of the direction(For holonomic robot only)
-    * @param slowdown_ratio_ Robot slowdown (share of its actual speed) 
+    * @param slowdown_ratio_ Robot slowdown (share of its actual speed)
     * @param linear_limit_ Robot linear limit
     * @param angular_limit_ Robot angular limit
     * @param time_before_collision_ Time before collision in seconds
