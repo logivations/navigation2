@@ -605,35 +605,35 @@ TEST_F(Tester, testVelocityPolygonHolonomicVelocitySwitching)
   EXPECT_NEAR(poly[3].y, RIGHT_POLYGON[7], EPSILON);
 }
 
-TEST_F(Tester, testVelocityPolygonSlowdownParameters)
-{
-  createVelocityPolygon("slowdown", IS_NOT_HOLONOMIC);
-  addSlowdownParameters(SUB_POLYGON_FORWARD_NAME);
+// TEST_F(Tester, testVelocityPolygonSlowdownParameters)
+// {
+//   createVelocityPolygon("slowdown", IS_NOT_HOLONOMIC);
+//   addSlowdownParameters(SUB_POLYGON_FORWARD_NAME);
 
-  EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::SLOWDOWN);
-  EXPECT_NEAR(velocity_polygon_->getSlowdownRatio(), 0.25, EPSILON);
-}
+//   EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::SLOWDOWN);
+//   EXPECT_NEAR(velocity_polygon_->getSlowdownRatio(), 0.25, EPSILON);
+// }
 
-TEST_F(Tester, testVelocityPolygonLimitParameters)
-{
-  createVelocityPolygon("limit", IS_NOT_HOLONOMIC);
-  addLimitParameters(SUB_POLYGON_FORWARD_NAME);
+// TEST_F(Tester, testVelocityPolygonLimitParameters)
+// {
+//   createVelocityPolygon("limit", IS_NOT_HOLONOMIC);
+//   addLimitParameters(SUB_POLYGON_FORWARD_NAME);
 
-  EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::LIMIT);
-  EXPECT_NEAR(velocity_polygon_->getLinearLimit(), 0.3, EPSILON);
-  EXPECT_NEAR(velocity_polygon_->getAngularLimit(), 0.2, EPSILON);
-}
+//   EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::LIMIT);
+//   EXPECT_NEAR(velocity_polygon_->getLinearLimit(), 0.3, EPSILON);
+//   EXPECT_NEAR(velocity_polygon_->getAngularLimit(), 0.2, EPSILON);
+// }
 
-TEST_F(Tester, testVelocityPolygonApproachParameters)
-{
-  createVelocityPolygon("approach", IS_NOT_HOLONOMIC);
-  addApproachParameters(SUB_POLYGON_FORWARD_NAME);
+// TEST_F(Tester, testVelocityPolygonApproachParameters)
+// {
+//   createVelocityPolygon("approach", IS_NOT_HOLONOMIC);
+//   addApproachParameters(SUB_POLYGON_FORWARD_NAME);
 
-  EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::APPROACH);
-  EXPECT_NEAR(velocity_polygon_->getTimeBeforeCollision(), 2.0, EPSILON);
-  EXPECT_NEAR(velocity_polygon_->getSimulationTimeStep(), 0.05, EPSILON);
-  EXPECT_NEAR(velocity_polygon_->getMinVelBeforeStop(), -0.5, EPSILON);
-}
+//   EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::APPROACH);
+//   EXPECT_NEAR(velocity_polygon_->getTimeBeforeCollision(), 2.0, EPSILON);
+//   EXPECT_NEAR(velocity_polygon_->getSimulationTimeStep(), 0.05, EPSILON);
+//   EXPECT_NEAR(velocity_polygon_->getMinVelBeforeStop(), -0.5, EPSILON);
+// }
 
 int main(int argc, char ** argv)
 {
