@@ -67,6 +67,13 @@ static const char RIGHT_POLYGON_STR[]{
 static const bool IS_HOLONOMIC{true};
 static const bool IS_NOT_HOLONOMIC{false};
 static const int MIN_POINTS{2};
+static const double SLOWDOWN_RATIO{0.25};
+static const double LINEAR_LIMIT{0.3};
+static const double ANGULAR_LIMIT{0.2};
+static const double TIME_BEFORE_COLLISION{2.0};
+static const double SIMULATION_TIME_STEP{0.05};
+static const double MIN_VEL_BEFORE_COLLISION{-0.5};
+
 static const tf2::Duration TRANSFORM_TOLERANCE{tf2::durationFromSec(0.1)};
 
 class TestNode : public nav2_util::LifecycleNode
@@ -145,6 +152,10 @@ public:
 protected:
   // Working with parameters
   void setCommonParameters(const std::string & polygon_name, const std::string & action_type);
+  void addSlowdownParameters(const std::string & polygon_name);
+  void addLimitParameters(const std::string & polygon_name);
+  void addApproachParameters(const std::string & polygon_name);
+
   void setVelocityPolygonParameters(const bool is_holonomic);
   void addPolygonVelocitySubPolygon(
     const std::string & sub_polygon_name,
@@ -211,6 +222,39 @@ void Tester::setCommonParameters(const std::string & polygon_name, const std::st
     rclcpp::Parameter(polygon_name + ".polygon_pub_topic", POLYGON_PUB_TOPIC));
 }
 
+void Tester::addSlowdownParameters(const std::string & polygon_name)
+{
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + "." + polygon_name + ".slowdown_ratio", SLOWDOWN_RATIO));
+}
+
+void Tester::addLimitParameters(const std::string & polygon_name)
+{
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + "." + polygon_name + ".linear_limit", LINEAR_LIMIT));
+
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + "." + polygon_name + ".angular_limit", ANGULAR_LIMIT));
+}
+
+void Tester::addApproachParameters(const std::string & polygon_name)
+{
+  test_node_->set_parameter(
+    rclcpp::Parameter(
+      std::string(
+        POLYGON_NAME) + "." + polygon_name + ".time_before_collision", TIME_BEFORE_COLLISION));
+
+  test_node_->set_parameter(
+    rclcpp::Parameter(
+      std::string(POLYGON_NAME) + "." + polygon_name + ".simulation_time_step",
+      SIMULATION_TIME_STEP));
+
+  test_node_->set_parameter(
+    rclcpp::Parameter(
+      std::string(POLYGON_NAME) + "." + polygon_name + ".min_vel_before_stop",
+      MIN_VEL_BEFORE_COLLISION));
+}
+
 void Tester::setVelocityPolygonParameters(const bool is_holonomic)
 {
   test_node_->declare_parameter(
@@ -269,6 +313,7 @@ void Tester::setVelocityPolygonParameters(const bool is_holonomic)
   test_node_->set_parameter(
     rclcpp::Parameter(std::string(POLYGON_NAME) + ".velocity_polygons", velocity_polygons));
 }
+
 
 void Tester::addPolygonVelocitySubPolygon(
   const std::string & sub_polygon_name,
@@ -560,6 +605,35 @@ TEST_F(Tester, testVelocityPolygonHolonomicVelocitySwitching)
   EXPECT_NEAR(poly[3].y, RIGHT_POLYGON[7], EPSILON);
 }
 
+// TEST_F(Tester, testVelocityPolygonSlowdownParameters)
+// {
+//   createVelocityPolygon("slowdown", IS_NOT_HOLONOMIC);
+//   addSlowdownParameters(SUB_POLYGON_FORWARD_NAME);
+
+//   EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::SLOWDOWN);
+//   EXPECT_NEAR(velocity_polygon_->getSlowdownRatio(), 0.25, EPSILON);
+// }
+
+// TEST_F(Tester, testVelocityPolygonLimitParameters)
+// {
+//   createVelocityPolygon("limit", IS_NOT_HOLONOMIC);
+//   addLimitParameters(SUB_POLYGON_FORWARD_NAME);
+
+//   EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::LIMIT);
+//   EXPECT_NEAR(velocity_polygon_->getLinearLimit(), 0.3, EPSILON);
+//   EXPECT_NEAR(velocity_polygon_->getAngularLimit(), 0.2, EPSILON);
+// }
+
+// TEST_F(Tester, testVelocityPolygonApproachParameters)
+// {
+//   createVelocityPolygon("approach", IS_NOT_HOLONOMIC);
+//   addApproachParameters(SUB_POLYGON_FORWARD_NAME);
+
+//   EXPECT_EQ(velocity_polygon_->getActionType(), nav2_collision_monitor::APPROACH);
+//   EXPECT_NEAR(velocity_polygon_->getTimeBeforeCollision(), 2.0, EPSILON);
+//   EXPECT_NEAR(velocity_polygon_->getSimulationTimeStep(), 0.05, EPSILON);
+//   EXPECT_NEAR(velocity_polygon_->getMinVelBeforeStop(), -0.5, EPSILON);
+// }
 
 int main(int argc, char ** argv)
 {
