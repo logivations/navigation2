@@ -70,7 +70,7 @@ public:
 
 protected:
   /**
-    * @brief Custom struc to store the parameters of the sub-polygon
+    * @brief Custom struct to store the parameters of the sub-polygon
     * @param poly_ The points of the sub-polygon
     * @param velocity_polygon_name_ The name of the sub-polygon
     * @param linear_min_ The minimum linear velocity
@@ -79,6 +79,12 @@ protected:
     * @param theta_max_ The maximum angular velocity
     * @param direction_end_angle_ The end angle of the direction(For holonomic robot only)
     * @param direction_start_angle_ The start angle of the direction(For holonomic robot only)
+    * @param slowdown_ratio_ Robot slowdown (share of its actual speed)
+    * @param linear_limit_ Robot linear limit
+    * @param angular_limit_ Robot angular limit
+    * @param time_before_collision_ Time before collision in seconds
+    * @param simulation_time_step_ Time step for robot movement simulation
+    * @param min_vel_before_stop_ Minimum velocity before we fully stop
     */
   struct SubPolygonParameter
   {
@@ -90,6 +96,12 @@ protected:
     double theta_max_;
     double direction_end_angle_;
     double direction_start_angle_;
+    double slowdown_ratio_;
+    double linear_limit_;
+    double angular_limit_;
+    double time_before_collision_;
+    double simulation_time_step_;
+    double min_vel_before_stop_;
   };
 
   /**
