@@ -527,7 +527,12 @@ bool CollisionMonitor::processStopSlowdownLimit(
       Velocity safe_vel;
       double ratio = 1.0;
       if (linear_vel != 0.0) {
-        ratio = std::clamp(polygon->getLinearLimit() / linear_vel, 0.0, 1.0);
+        double linear_limit = polygon->getLinearLimit();
+        if (linear_limit >= 0) {
+          ratio = std::clamp(linear_limit / linear_vel, 0.0, 1.0);
+        } else {
+          ratio = -1 * std::clamp(linear_limit / linear_vel, -1.0, 0.0);
+        }
       }
       safe_vel.x = velocity.x * ratio;
       safe_vel.y = velocity.y * ratio;
