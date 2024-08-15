@@ -54,19 +54,21 @@ Costmap2DPublisher::Costmap2DPublisher(
   Costmap2D * costmap,
   std::string global_frame,
   std::string topic_name,
-  bool always_send_full_costmap)
+  bool always_send_full_costmap,
+  float map_vis_z)
 : costmap_(costmap),
   global_frame_(global_frame),
   topic_name_(topic_name),
   active_(false),
-  always_send_full_costmap_(always_send_full_costmap)
+  always_send_full_costmap_(always_send_full_costmap),
+  map_vis_z_(map_vis_z)
 {
   auto node = parent.lock();
   clock_ = node->get_clock();
   logger_ = node->get_logger();
   const auto custom_qos = rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
   rclcpp::PublisherOptionsWithAllocator<std::allocator<void>> pub_options;
-  pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
+  // pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
 
 
   costmap_pub_ =
@@ -153,7 +155,7 @@ void Costmap2DPublisher::prepareGrid()
   costmap_->mapToWorld(0, 0, wx, wy);
   grid_->info.origin.position.x = wx - grid_resolution / 2;
   grid_->info.origin.position.y = wy - grid_resolution / 2;
-  grid_->info.origin.position.z = 0.0;
+  grid_->info.origin.position.z = map_vis_z_;
   grid_->info.origin.orientation.w = 1.0;
   saved_origin_x_ = costmap_->getOriginX();
   saved_origin_y_ = costmap_->getOriginY();

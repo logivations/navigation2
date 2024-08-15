@@ -119,6 +119,12 @@ public:
    * @return Time before collision in seconds
    */
   double getTimeBeforeCollision() const;
+  /**
+   * @brief Obtains time step for robot movement simulation for current polygon.
+   * Applicable for APPROACH model.
+   * @return Simulation time step in seconds
+   */
+  double getSimulationTimeStep() const;
 
   /**
    * @brief Obtains minimum velocity before completly stopping.
@@ -142,7 +148,7 @@ public:
   /**
    * @brief Updates polygon from footprint subscriber (if any)
    */
-  void updatePolygon();
+  virtual void updatePolygon(const Velocity & /*cmd_vel_in*/);
 
   /**
    * @brief Gets number of points inside given polygon
@@ -216,6 +222,15 @@ protected:
    * @return True if given point is inside polygon, otherwise false
    */
   bool isPointInside(const Point & point) const;
+
+  /**
+   * @brief Extracts Polygon points from a string with of the form [[x1,y1],[x2,y2],[x3,y3]...]
+   * @param poly_string Input String containing the verteceis of the polygon
+   * @param polygon Output Point vector with all the vertecies of the polygon
+   * @return True if all parameters were obtained or false in failure case
+   */
+  bool getPolygonFromString(std::string & poly_string, std::vector<Point> & polygon);
+
 
   // ----- Variables -----
 

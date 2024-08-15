@@ -68,6 +68,16 @@ ControllerServer::ControllerServer(const rclcpp::NodeOptions & options)
   costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
     "local_costmap", std::string{get_namespace()}, "local_costmap",
     get_parameter("use_sim_time").as_bool(), options.use_intra_process_comms());
+
+  // The narrow costmap node is used in the implementation of the controller
+  narrow_costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
+    "narrow_local_costmap", std::string{get_namespace()}, "narrow_local_costmap",
+    get_parameter("use_sim_time").as_bool(), options.use_intra_process_comms());
+
+  // The costmap node is used by BT to validate that a path can be driven on
+  sensor_costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
+    "sensor_local_costmap", std::string{get_namespace()}, "sensor_local_costmap",
+    get_parameter("use_sim_time").as_bool(), options.use_intra_process_comms());
 }
 
 ControllerServer::~ControllerServer()
@@ -76,6 +86,8 @@ ControllerServer::~ControllerServer()
   goal_checkers_.clear();
   controllers_.clear();
   costmap_thread_.reset();
+  narrow_costmap_thread_.reset();
+  sensor_costmap_thread_.reset();
 }
 
 nav2_util::CallbackReturn
@@ -144,8 +156,12 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
   get_parameter("use_realtime_priority", use_realtime_priority_);
 
   costmap_ros_->configure();
+  narrow_costmap_ros_->configure();
+  sensor_costmap_ros_->configure();
   // Launch a thread to run the costmap node
   costmap_thread_ = std::make_unique<nav2_util::NodeThread>(costmap_ros_);
+  narrow_costmap_thread_ = std::make_unique<nav2_util::NodeThread>(narrow_costmap_ros_);
+  sensor_costmap_thread_ = std::make_unique<nav2_util::NodeThread>(sensor_costmap_ros_);
 
   for (size_t i = 0; i != progress_checker_ids_.size(); i++) {
     try {
@@ -205,12 +221,23 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
       controller_types_[i] = nav2_util::get_plugin_type_param(node, controller_ids_[i]);
       nav2_core::Controller::Ptr controller =
         lp_loader_.createUniqueInstance(controller_types_[i]);
+
+        if (controller_ids_[i] == "NarrowFollowPath") {
       RCLCPP_INFO(
-        get_logger(), "Created controller : %s of type %s",
+        get_logger(), "Created controller : %s of type %s using NarrowCostmap",
         controller_ids_[i].c_str(), controller_types_[i].c_str());
-      controller->configure(
-        node, controller_ids_[i],
-        costmap_ros_->getTfBuffer(), costmap_ros_);
+          controller->configure(
+            node, controller_ids_[i],
+            narrow_costmap_ros_->getTfBuffer(), narrow_costmap_ros_);
+        } else {
+
+        RCLCPP_INFO(
+          get_logger(), "Created controller : %s of type %s using standard Costmap",
+          controller_ids_[i].c_str(), controller_types_[i].c_str());
+          controller->configure(
+            node, controller_ids_[i],
+            costmap_ros_->getTfBuffer(), costmap_ros_);
+        }
       controllers_.insert({controller_ids_[i], controller});
     } catch (const pluginlib::PluginlibException & ex) {
       RCLCPP_FATAL(
@@ -265,6 +292,8 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
   RCLCPP_INFO(get_logger(), "Activating");
 
   costmap_ros_->activate();
+  narrow_costmap_ros_->activate();
+  sensor_costmap_ros_->activate();
   ControllerMap::iterator it;
   for (it = controllers_.begin(); it != controllers_.end(); ++it) {
     it->second->activate();
@@ -306,6 +335,16 @@ ControllerServer::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
   {
     costmap_ros_->deactivate();
   }
+  if (narrow_costmap_ros_->get_current_state().id() ==
+    lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE)
+  {
+    narrow_costmap_ros_->deactivate();
+  }
+  if (sensor_costmap_ros_->get_current_state().id() ==
+    lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE)
+  {
+    sensor_costmap_ros_->deactivate();
+  }
 
   publishZeroVelocity();
   vel_publisher_->on_deactivate();
@@ -336,11 +375,23 @@ ControllerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   {
     costmap_ros_->cleanup();
   }
+  if (narrow_costmap_ros_->get_current_state().id() ==
+    lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE)
+  {
+    narrow_costmap_ros_->cleanup();
+  }
+  if (sensor_costmap_ros_->get_current_state().id() ==
+    lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE)
+  {
+    sensor_costmap_ros_->cleanup();
+  }
 
   // Release any allocated resources
   action_server_.reset();
   odom_sub_.reset();
   costmap_thread_.reset();
+  narrow_costmap_thread_.reset();
+  sensor_costmap_thread_.reset();
   vel_publisher_.reset();
   speed_limit_sub_.reset();
 
