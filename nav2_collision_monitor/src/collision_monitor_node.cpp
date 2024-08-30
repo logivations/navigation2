@@ -198,7 +198,6 @@ void CollisionMonitor::cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPt
 
 void CollisionMonitor::odomCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
-  RCLCPP_INFO(this->get_logger(), "odomCallback triggered");
   last_odom_msg_ = msg->twist.twist;
   // geometry_msgs::msg::Twist twist = msg->twist.twist;
   // current_polygon_->updatePolygon({twist.linear.x, twist.linear.y, twist.angular.z});
