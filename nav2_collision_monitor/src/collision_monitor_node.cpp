@@ -199,8 +199,6 @@ void CollisionMonitor::cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPt
 void CollisionMonitor::odomCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
   last_odom_msg_ = msg->twist.twist;
-  // geometry_msgs::msg::Twist twist = msg->twist.twist;
-  // current_polygon_->updatePolygon({twist.linear.x, twist.linear.y, twist.angular.z});
 }
 
 void CollisionMonitor::publishVelocity(const Action & robot_action)
@@ -479,7 +477,6 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
 
     // Update polygon coordinates
     polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
-    // polygon = current_polygon_;
 
     const ActionType at = polygon->getActionType();
     if (at == STOP || at == SLOWDOWN || at == LIMIT) {

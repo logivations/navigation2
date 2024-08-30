@@ -209,7 +209,7 @@ protected:
   /// @brief Polygons array
   std::vector<std::shared_ptr<Polygon>> polygons_;
 
-  /// @brief Current polygon
+  /// @brief Last twist from odometry
   geometry_msgs::msg::Twist last_odom_msg_;
 
   /// @brief Data sources array
