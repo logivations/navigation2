@@ -21,6 +21,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
 #include "tf2/time.h"
@@ -99,6 +100,11 @@ protected:
    */
   void cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPtr msg);
   /**
+   * @brief Callback for input odom
+   * @param msg Input odom message
+   */
+  void odomCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg);
+  /**
    * @brief Publishes output cmd_vel. If robot was stopped more than stop_pub_timeout_ seconds,
    * quit to publish 0-velocity.
    * @param robot_action Robot action to publish
@@ -107,6 +113,7 @@ protected:
 
   /**
    * @brief Supporting routine obtaining all ROS-parameters
+   * @param odom_in_topic
    * @param cmd_vel_in_topic Output name of cmd_vel_in topic
    * @param cmd_vel_out_topic Output name of cmd_vel_out topic
    * is required.
@@ -114,6 +121,7 @@ protected:
    * @return True if all parameters were obtained or false in failure case
    */
   bool getParameters(
+    std::string & odom_in_topic_,
     std::string & cmd_vel_in_topic,
     std::string & cmd_vel_out_topic,
     std::string & state_topic);
@@ -201,12 +209,19 @@ protected:
   /// @brief Polygons array
   std::vector<std::shared_ptr<Polygon>> polygons_;
 
+  /// @brief Current polygon
+  geometry_msgs::msg::Twist last_odom_msg_;
+
   /// @brief Data sources array
   std::vector<std::shared_ptr<Source>> sources_;
 
   // Input/output speed controls
-  /// @beirf Input cmd_vel subscriber
+  /// @brief Input cmd_vel subscriber
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_in_sub_;
+
+  /// @brief Input odom subscriber
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_in_sub_;
+
   /// @brief Output cmd_vel publisher
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_out_pub_;
 

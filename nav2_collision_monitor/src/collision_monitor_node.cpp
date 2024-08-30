@@ -54,18 +54,22 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & /*state*/)
   tf_buffer_->setCreateTimerInterface(timer_interface);
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
+  std::string odom_in_topic;
   std::string cmd_vel_in_topic;
   std::string cmd_vel_out_topic;
   std::string state_topic;
 
   // Obtaining ROS parameters
-  if (!getParameters(cmd_vel_in_topic, cmd_vel_out_topic, state_topic)) {
+  if (!getParameters(odom_in_topic, cmd_vel_in_topic, cmd_vel_out_topic, state_topic)) {
     return nav2_util::CallbackReturn::FAILURE;
   }
 
   cmd_vel_in_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
     cmd_vel_in_topic, 1,
     std::bind(&CollisionMonitor::cmdVelInCallback, this, std::placeholders::_1));
+  odom_in_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    odom_in_topic, 1,
+    std::bind(&CollisionMonitor::odomCallback, this, std::placeholders::_1));
   cmd_vel_out_pub_ = this->create_publisher<geometry_msgs::msg::Twist>(
     cmd_vel_out_topic, 1);
 
@@ -159,6 +163,7 @@ CollisionMonitor::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   RCLCPP_INFO(get_logger(), "Cleaning up");
 
   cmd_vel_in_sub_.reset();
+  odom_in_sub_.reset();
   cmd_vel_out_pub_.reset();
   state_pub_.reset();
   collision_points_marker_pub_.reset();
@@ -191,6 +196,14 @@ void CollisionMonitor::cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPt
   process({msg->linear.x, msg->linear.y, msg->angular.z});
 }
 
+void CollisionMonitor::odomCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg)
+{
+  RCLCPP_INFO(this->get_logger(), "odomCallback triggered");
+  last_odom_msg_ = msg->twist.twist;
+  // geometry_msgs::msg::Twist twist = msg->twist.twist;
+  // current_polygon_->updatePolygon({twist.linear.x, twist.linear.y, twist.angular.z});
+}
+
 void CollisionMonitor::publishVelocity(const Action & robot_action)
 {
   if (robot_action.req_vel.isZero()) {
@@ -215,6 +228,7 @@ void CollisionMonitor::publishVelocity(const Action & robot_action)
 }
 
 bool CollisionMonitor::getParameters(
+  std::string & odom_in_topic,
   std::string & cmd_vel_in_topic,
   std::string & cmd_vel_out_topic,
   std::string & state_topic)
@@ -228,6 +242,9 @@ bool CollisionMonitor::getParameters(
   nav2_util::declare_parameter_if_not_declared(
     node, "cmd_vel_in_topic", rclcpp::ParameterValue("cmd_vel_raw"));
   cmd_vel_in_topic = get_parameter("cmd_vel_in_topic").as_string();
+  nav2_util::declare_parameter_if_not_declared(
+    node, "odom_in_topic", rclcpp::ParameterValue("odom"));
+  odom_in_topic = get_parameter("odom_in_topic").as_string();
   nav2_util::declare_parameter_if_not_declared(
     node, "cmd_vel_out_topic", rclcpp::ParameterValue("cmd_vel"));
   cmd_vel_out_topic = get_parameter("cmd_vel_out_topic").as_string();
@@ -462,7 +479,8 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     }
 
     // Update polygon coordinates
-    polygon->updatePolygon(cmd_vel_in);
+    polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
+    // polygon = current_polygon_;
 
     const ActionType at = polygon->getActionType();
     if (at == STOP || at == SLOWDOWN || at == LIMIT) {
