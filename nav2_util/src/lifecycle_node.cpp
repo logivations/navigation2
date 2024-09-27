@@ -35,7 +35,7 @@ LifecycleNode::LifecycleNode(
     rclcpp::Parameter(
       bond::msg::Constants::DISABLE_HEARTBEAT_TIMEOUT_PARAM, true));
 
-  printLifecycleNodeNotification();
+  // printLifecycleNodeNotification();
 
   register_rcl_preshutdown_callback();
 }
