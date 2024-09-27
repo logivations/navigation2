@@ -42,6 +42,8 @@ BehaviorTreeEngine::run(
   rclcpp::Clock::SharedPtr clock,
   std::chrono::milliseconds loopTimeout)
 {
+  (void)clock;
+
   rclcpp::WallRate loopRate(loopTimeout);
   BT::NodeStatus result = BT::NodeStatus::RUNNING;
 
