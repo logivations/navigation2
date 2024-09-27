@@ -234,7 +234,7 @@ bool SmootherServer::findSmootherId(
 {
   if (smoothers_.find(c_name) == smoothers_.end()) {
     if (smoothers_.size() == 1 && c_name.empty()) {
-      RCLCPP_WARN_ONCE(
+      RCLCPP_DEBUG_ONCE(
         get_logger(),
         "No smoother was specified in action call."
         " Server will use only plugin loaded %s. "
