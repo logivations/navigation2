@@ -42,6 +42,8 @@ BehaviorTreeEngine::run(
   rclcpp::Clock::SharedPtr clock,
   std::chrono::milliseconds loopTimeout)
 {
+  (void)clock;
+
   rclcpp::WallRate loopRate(loopTimeout);
   BT::NodeStatus result = BT::NodeStatus::RUNNING;
 
@@ -57,13 +59,13 @@ BehaviorTreeEngine::run(
 
       onLoop();
 
-      if (!loopRate.sleep()) {
-        RCLCPP_WARN_THROTTLE(
-          rclcpp::get_logger("BehaviorTreeEngine"),
-          *(clock), 1000,
-          "Behavior Tree tick rate %0.2f was exceeded!",
-          1.0 / (loopRate.period().count() * 1.0e-9));
-      }
+      //if (!loopRate.sleep()) {
+      //  RCLCPP_WARN_THROTTLE(
+      //    rclcpp::get_logger("BehaviorTreeEngine"),
+      //    *(clock), 1000,
+      //    "Behavior Tree tick rate %0.2f was exceeded!",
+      //    1.0 / (loopRate.period().count() * 1.0e-9));
+      //}
     }
   } catch (const std::exception & ex) {
     RCLCPP_ERROR(
