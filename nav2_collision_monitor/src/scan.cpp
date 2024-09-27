@@ -38,7 +38,7 @@ Scan::Scan(
     transform_tolerance, source_timeout, base_shift_correction),
   data_(nullptr)
 {
-  RCLCPP_INFO(logger_, "[%s]: Creating Scan", source_name_.c_str());
+  RCLCPP_DEBUG(logger_, "[%s]: Creating Scan", source_name_.c_str());
 }
 
 Scan::~Scan()

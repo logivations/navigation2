@@ -41,7 +41,7 @@ PointCloud::PointCloud(
     transform_tolerance, source_timeout, base_shift_correction),
   data_(nullptr)
 {
-  RCLCPP_INFO(logger_, "[%s]: Creating PointCloud", source_name_.c_str());
+  RCLCPP_DEBUG(logger_, "[%s]: Creating PointCloud", source_name_.c_str());
 }
 
 PointCloud::~PointCloud()

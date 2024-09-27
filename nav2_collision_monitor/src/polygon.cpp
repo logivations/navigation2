@@ -42,7 +42,7 @@ Polygon::Polygon(
   footprint_sub_(nullptr), tf_buffer_(tf_buffer),
   base_frame_id_(base_frame_id), transform_tolerance_(transform_tolerance)
 {
-  RCLCPP_INFO(logger_, "[%s]: Creating Polygon", polygon_name_.c_str());
+  RCLCPP_DEBUG(logger_, "[%s]: Creating Polygon", polygon_name_.c_str());
 }
 
 Polygon::~Polygon()

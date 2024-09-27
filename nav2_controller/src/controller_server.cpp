@@ -195,7 +195,7 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
       goal_checker_types_[i] = nav2_util::get_plugin_type_param(node, goal_checker_ids_[i]);
       nav2_core::GoalChecker::Ptr goal_checker =
         goal_checker_loader_.createUniqueInstance(goal_checker_types_[i]);
-      RCLCPP_INFO(
+      RCLCPP_DEBUG(
         get_logger(), "Created goal checker : %s of type %s",
         goal_checker_ids_[i].c_str(), goal_checker_types_[i].c_str());
       goal_checker->initialize(node, goal_checker_ids_[i], costmap_ros_);
