@@ -223,21 +223,23 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 bool VelocityPolygon::isInRange(
   const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon)
 {
+  const double epsilon = 1e-6;
+
   bool in_range =
-    (cmd_vel_in.x <= sub_polygon.linear_max_ && cmd_vel_in.x >= sub_polygon.linear_min_ &&
-    cmd_vel_in.tw <= sub_polygon.theta_max_ && cmd_vel_in.tw >= sub_polygon.theta_min_);
+    (cmd_vel_in.x <= sub_polygon.linear_max_ + epsilon && cmd_vel_in.x >= sub_polygon.linear_min_ - epsilon &&
+     cmd_vel_in.tw <= sub_polygon.theta_max_ + epsilon && cmd_vel_in.tw >= sub_polygon.theta_min_ - epsilon);
 
   if (holonomic_) {
     // Additionally check if moving direction in angle range(start -> end) for holonomic case
     const double direction = std::atan2(cmd_vel_in.y, cmd_vel_in.x);
     if (sub_polygon.direction_start_angle_ <= sub_polygon.direction_end_angle_) {
       in_range &=
-        (direction >= sub_polygon.direction_start_angle_ &&
-        direction <= sub_polygon.direction_end_angle_);
+        (direction >= sub_polygon.direction_start_angle_ - epsilon &&
+         direction <= sub_polygon.direction_end_angle_ + epsilon);
     } else {
       in_range &=
-        (direction >= sub_polygon.direction_start_angle_ ||
-        direction <= sub_polygon.direction_end_angle_);
+        (direction >= sub_polygon.direction_start_angle_ - epsilon ||
+         direction <= sub_polygon.direction_end_angle_ + epsilon);
     }
   }
 

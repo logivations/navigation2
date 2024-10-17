@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <cmath>
 
 #include "geometry_msgs/msg/polygon_stamped.hpp"
 #include "nav2_collision_monitor/polygon.hpp"
