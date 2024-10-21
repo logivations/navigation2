@@ -282,6 +282,7 @@ void VelocitySmoother::smootherTimer()
   if (open_loop_) {
     current_ = last_cmd_;
   } else {
+    current_ = last_cmd_;
     auto odom = odom_smoother_->getTwist();
     double max_delta = 0.3;
 
