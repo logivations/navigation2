@@ -282,7 +282,20 @@ void VelocitySmoother::smootherTimer()
   if (open_loop_) {
     current_ = last_cmd_;
   } else {
-    current_ = odom_smoother_->getTwist();
+    auto odom = odom_smoother_->getTwist();
+    double max_delta = 0.3;
+
+    current_.linear.x = std::clamp(
+      current_.linear.x,
+      odom.linear.x - max_delta,
+      odom.linear.x + max_delta
+    );
+
+    current_.angular.z = std::clamp(
+      current_.angular.z,
+      odom.angular.z - max_delta,
+      odom.angular.z + max_delta
+    );
   }
 
   // Apply absolute velocity restrictions to the command
