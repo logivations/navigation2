@@ -89,6 +89,10 @@ VelocitySmoother::on_configure(const rclcpp_lifecycle::State &)
     }
   }
 
+  // Get max_delta parameters
+  declare_parameter_if_not_declared(node, "max_delta", rclcpp::ParameterValue(std::vector<double>{0.3, 0.3, 0.3}));
+  node->get_parameter("max_delta", max_deltas_);
+
   // Get feature parameters
   declare_parameter_if_not_declared(node, "odom_topic", rclcpp::ParameterValue("odom"));
   declare_parameter_if_not_declared(node, "odom_duration", rclcpp::ParameterValue(0.1));
@@ -115,8 +119,12 @@ VelocitySmoother::on_configure(const rclcpp_lifecycle::State &)
   } else if (feedback_type == "CLOSED_LOOP") {
     open_loop_ = false;
     odom_smoother_ = std::make_unique<nav2_util::OdomSmoother>(node, odom_duration_, odom_topic_);
-  } else {
-    throw std::runtime_error("Invalid feedback_type, options are OPEN_LOOP and CLOSED_LOOP.");
+  } else if (feedback_type == "BOUNDED_OPEN_LOOP"){
+    bounded_open_loop_ = true;
+    open_loop_ = false;
+    odom_smoother_ = std::make_unique<nav2_util::OdomSmoother>(node, odom_duration_, odom_topic_);
+  }else {
+    throw std::runtime_error("Invalid feedback_type, options are OPEN_LOOP, CLOSED_LOOP and BOUNDED_OPEN_LOOP.");
   }
 
   // Setup inputs / outputs
@@ -281,22 +289,24 @@ void VelocitySmoother::smootherTimer()
   geometry_msgs::msg::Twist current_;
   if (open_loop_) {
     current_ = last_cmd_;
-  } else {
+  } else if(bounded_open_loop_) {
     current_ = last_cmd_;
     auto odom = odom_smoother_->getTwist();
-    double max_delta = 0.3;
 
     current_.linear.x = std::clamp(
       current_.linear.x,
-      odom.linear.x - max_delta,
-      odom.linear.x + max_delta
+      odom.linear.x - max_deltas_[0],
+      odom.linear.x + max_deltas_[0]
     );
 
     current_.angular.z = std::clamp(
       current_.angular.z,
-      odom.angular.z - max_delta,
-      odom.angular.z + max_delta
+      odom.angular.z - max_deltas_[2],
+      odom.angular.z + max_deltas_[2]
     );
+
+  } else {
+    current_ = odom_smoother_->getTwist();
   }
 
   // Apply absolute velocity restrictions to the command
@@ -423,7 +433,14 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
           odom_smoother_ =
             std::make_unique<nav2_util::OdomSmoother>(
             shared_from_this(), odom_duration_, odom_topic_);
-        } else {
+        } else if (parameter.as_string() == "BOUNDED_OPEN_LOOP") {
+          open_loop_ = false;
+          bounded_open_loop_ = true;
+          odom_smoother_ =
+            std::make_unique<nav2_util::OdomSmoother>(
+            shared_from_this(), odom_duration_, odom_topic_);
+        } 
+        else {
           RCLCPP_WARN(
             get_logger(), "Invalid feedback_type, options are OPEN_LOOP and CLOSED_LOOP.");
           result.successful = false;

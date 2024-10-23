@@ -143,12 +143,14 @@ protected:
   double odom_duration_;
   std::string odom_topic_;
   bool open_loop_;
+  bool bounded_open_loop_{false};
   bool stopped_{true};
   bool scale_velocities_;
   std::vector<double> max_velocities_;
   std::vector<double> min_velocities_;
   std::vector<double> max_accels_;
   std::vector<double> max_decels_;
+  std::vector<double> max_deltas_;
   std::vector<double> deadband_velocities_;
   rclcpp::Duration velocity_timeout_{0, 0};
   rclcpp::Time last_command_time_;
