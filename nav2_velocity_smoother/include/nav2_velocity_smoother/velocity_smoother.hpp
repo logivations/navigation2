@@ -118,7 +118,10 @@ protected:
   /**
    * @brief Main worker timer function
    */
-  void smootherTimer();
+  // void smootherTimer();
+
+  // Call smootherWorker function instead of smootherTimer is command is received
+  void smootherWorker();
 
   /**
    * @brief Dynamic reconfigure callback

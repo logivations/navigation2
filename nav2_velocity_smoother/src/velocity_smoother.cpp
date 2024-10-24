@@ -154,9 +154,9 @@ VelocitySmoother::on_activate(const rclcpp_lifecycle::State &)
   RCLCPP_INFO(get_logger(), "Activating");
   smoothed_cmd_pub_->on_activate();
   double timer_duration_ms = 1000.0 / smoothing_frequency_;
-  timer_ = create_wall_timer(
-    std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
-    std::bind(&VelocitySmoother::smootherTimer, this));
+  // timer_ = create_wall_timer(
+  //   std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
+  //   std::bind(&VelocitySmoother::smootherTimer, this));
 
   dyn_params_handler_ = this->add_on_set_parameters_callback(
     std::bind(&VelocitySmoother::dynamicParametersCallback, this, _1));
@@ -209,6 +209,10 @@ void VelocitySmoother::inputCommandCallback(const geometry_msgs::msg::Twist::Sha
 
   command_ = msg;
   last_command_time_ = now();
+
+  // now we don't wait for the timer 
+  // and call smootherWorker function directly when the command is received
+  smootherWorker();
 }
 
 double VelocitySmoother::findEtaConstraint(
@@ -265,7 +269,7 @@ double VelocitySmoother::applyConstraints(
   return v_curr + std::clamp(eta * dv, v_component_min, v_component_max);
 }
 
-void VelocitySmoother::smootherTimer()
+void VelocitySmoother::smootherWorker()
 {
   // Wait until the first command is received
   if (!command_) {
