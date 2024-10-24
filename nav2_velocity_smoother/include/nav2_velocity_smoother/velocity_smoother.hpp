@@ -120,7 +120,7 @@ protected:
    */
   // void smootherTimer();
 
-  // Call smootherWorker function instead of smootherTimer is command is received
+  // Call smootherWorker function instead of smootherTimer when command is received
   void smootherWorker();
 
   /**
