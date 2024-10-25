@@ -207,12 +207,7 @@ void VelocitySmoother::inputCommandCallback(const geometry_msgs::msg::Twist::Sha
     RCLCPP_ERROR(get_logger(), "Velocity message contains NaNs or Infs! Ignoring as invalid!");
     return;
   }
-
-  dynamique_smoothing_frequency_ = calculate_smoothing_frequency();
-  if(dynamique_smoothing_frequency_  == 0.0) {
-    return;
-  }
-
+  
   command_ = msg;
   last_command_time_ = now();
 
@@ -277,9 +272,9 @@ double VelocitySmoother::applyConstraints(
 
 void VelocitySmoother::smootherTimer(const bool force_execution = false)
 {
-  // Check if the last smoother execution happened within 50 ms
+  // Check if the last smoother execution happened within smoothing_frequency_
   // Skip if called too recently, unless forced by inputCommandCallback
-  if (!force_execution && now() - last_command_time_ < rclcpp::Duration(std::chrono::milliseconds(50))) {
+  if (!force_execution && now() - last_command_time_ < rclcpp::Duration(std::chrono::milliseconds(static_cast<int>(smoothing_frequency_)))) {
     return;
   }
  
@@ -288,8 +283,9 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     return;
   }
 
-  if(!force_execution) {
-     dynamique_smoothing_frequency_ = calculate_smoothing_frequency();
+  dynamique_smoothing_frequency_ = calculate_smoothing_frequency();
+  if(dynamique_smoothing_frequency_ == 0.0) {
+    return;
   }
 
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
