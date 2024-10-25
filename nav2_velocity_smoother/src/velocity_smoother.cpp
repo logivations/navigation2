@@ -154,9 +154,10 @@ VelocitySmoother::on_activate(const rclcpp_lifecycle::State &)
   RCLCPP_INFO(get_logger(), "Activating");
   smoothed_cmd_pub_->on_activate();
   double timer_duration_ms = 1000.0 / smoothing_frequency_;
-  // timer_ = create_wall_timer(
-  //   std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
-  //   std::bind(&VelocitySmoother::smootherTimer, this));
+  timer_ = create_wall_timer(
+        std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
+        [this]() { smootherTimer(false); }
+    );
 
   dyn_params_handler_ = this->add_on_set_parameters_callback(
     std::bind(&VelocitySmoother::dynamicParametersCallback, this, _1));
@@ -207,16 +208,21 @@ void VelocitySmoother::inputCommandCallback(const geometry_msgs::msg::Twist::Sha
     return;
   }
 
+  dynamique_smoothing_frequency_ = calculate_smoothing_frequency();
+  if(dynamique_smoothing_frequency_  == 0.0) {
+    return;
+  }
+
   command_ = msg;
   last_command_time_ = now();
 
   // now we don't wait for the timer 
-  // and call smootherWorker function directly when the command is received
-  smootherWorker();
+  // and call smootherTimer function directly if the command is received
+  smootherTimer(true);
 }
 
 double VelocitySmoother::findEtaConstraint(
-  const double v_curr, const double v_cmd, const double accel, const double decel)
+  const double v_curr, const double v_cmd, const double accel, const double decel, const double smoothing_frequency)
 {
   // Exploiting vector scaling properties
   double dv = v_cmd - v_curr;
@@ -228,11 +234,11 @@ double VelocitySmoother::findEtaConstraint(
   // and if v_cmd and v_curr have the same sign (i.e. speed is NOT passing through 0.0)
   // Decelerating otherwise
   if (abs(v_cmd) >= abs(v_curr) && v_curr * v_cmd >= 0.0) {
-    v_component_max = accel / smoothing_frequency_;
-    v_component_min = -accel / smoothing_frequency_;
+    v_component_max = accel / smoothing_frequency;
+    v_component_min = -accel / smoothing_frequency;
   } else {
-    v_component_max = -decel / smoothing_frequency_;
-    v_component_min = decel / smoothing_frequency_;
+    v_component_max = -decel / smoothing_frequency;
+    v_component_min = decel / smoothing_frequency;
   }
 
   if (dv > v_component_max) {
@@ -248,7 +254,7 @@ double VelocitySmoother::findEtaConstraint(
 
 double VelocitySmoother::applyConstraints(
   const double v_curr, const double v_cmd,
-  const double accel, const double decel, const double eta)
+  const double accel, const double decel, const double eta, const double smoothing_frequency)
 {
   double dv = v_cmd - v_curr;
 
@@ -259,21 +265,31 @@ double VelocitySmoother::applyConstraints(
   // and if v_cmd and v_curr have the same sign (i.e. speed is NOT passing through 0.0)
   // Decelerating otherwise
   if (abs(v_cmd) >= abs(v_curr) && v_curr * v_cmd >= 0.0) {
-    v_component_max = accel / smoothing_frequency_;
-    v_component_min = -accel / smoothing_frequency_;
+    v_component_max = accel / smoothing_frequency;
+    v_component_min = -accel / smoothing_frequency;
   } else {
-    v_component_max = -decel / smoothing_frequency_;
-    v_component_min = decel / smoothing_frequency_;
+    v_component_max = -decel / smoothing_frequency;
+    v_component_min = decel / smoothing_frequency;
   }
 
   return v_curr + std::clamp(eta * dv, v_component_min, v_component_max);
 }
 
-void VelocitySmoother::smootherWorker()
+void VelocitySmoother::smootherTimer(const bool force_execution = false)
 {
+  // Check if the last smoother execution happened within 50 ms
+  // Skip if called too recently, unless forced by inputCommandCallback
+  if (!force_execution && now() - last_command_time_ < rclcpp::Duration(std::chrono::milliseconds(50))) {
+    return;
+  }
+ 
   // Wait until the first command is received
   if (!command_) {
     return;
+  }
+
+  if(!force_execution) {
+     dynamique_smoothing_frequency_ = calculate_smoothing_frequency();
   }
 
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
@@ -328,30 +344,30 @@ void VelocitySmoother::smootherWorker()
     double curr_eta = -1.0;
 
     curr_eta = findEtaConstraint(
-      current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0]);
+      current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], dynamique_smoothing_frequency_);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
 
     curr_eta = findEtaConstraint(
-      current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1]);
+      current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], dynamique_smoothing_frequency_);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
 
     curr_eta = findEtaConstraint(
-      current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2]);
+      current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], dynamique_smoothing_frequency_);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
   }
 
   cmd_vel->linear.x = applyConstraints(
-    current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], eta);
+    current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], eta, dynamique_smoothing_frequency_);
   cmd_vel->linear.y = applyConstraints(
-    current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], eta);
+    current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], eta, dynamique_smoothing_frequency_);
   cmd_vel->angular.z = applyConstraints(
-    current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], eta);
+    current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], eta, dynamique_smoothing_frequency_);
   last_cmd_ = *cmd_vel;
 
   // Apply deadband restrictions & publish
@@ -383,8 +399,9 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
 
         double timer_duration_ms = 1000.0 / smoothing_frequency_;
         timer_ = create_wall_timer(
-          std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
-          std::bind(&VelocitySmoother::smootherTimer, this));
+        std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
+        [this]() { smootherTimer(false); } 
+        );
       } else if (name == "velocity_timeout") {
         velocity_timeout_ = rclcpp::Duration::from_seconds(parameter.as_double());
       } else if (name == "odom_duration") {
@@ -460,6 +477,12 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
   }
 
   return result;
+}
+
+double VelocitySmoother::calculate_smoothing_frequency()
+{
+  rclcpp::Time now_time = this->now();
+  return (now_time - last_command_time_).seconds();
 }
 
 }  // namespace nav2_velocity_smoother
