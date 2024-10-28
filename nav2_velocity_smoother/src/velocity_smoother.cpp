@@ -282,9 +282,9 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     return;
   }
 
-  dynamique_smoothing_frequency_ = calculate_smoothing_frequency();
-  if(dynamique_smoothing_frequency_ == 0.0) {
-    dynamique_smoothing_frequency_ = 0.01;
+  dynamic_smoothing_frequency_ = calculate_smoothing_frequency();
+  if(dynamic_smoothing_frequency_ == 0.0) {
+    dynamic_smoothing_frequency_ = 0.01;
   }
 
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
@@ -339,30 +339,30 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     double curr_eta = -1.0;
 
     curr_eta = findEtaConstraint(
-      current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], dynamique_smoothing_frequency_);
+      current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], dynamic_smoothing_frequency_);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
 
     curr_eta = findEtaConstraint(
-      current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], dynamique_smoothing_frequency_);
+      current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], dynamic_smoothing_frequency_);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
 
     curr_eta = findEtaConstraint(
-      current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], dynamique_smoothing_frequency_);
+      current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], dynamic_smoothing_frequency_);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
   }
 
   cmd_vel->linear.x = applyConstraints(
-    current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], eta, dynamique_smoothing_frequency_);
+    current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], eta, dynamic_smoothing_frequency_);
   cmd_vel->linear.y = applyConstraints(
-    current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], eta, dynamique_smoothing_frequency_);
+    current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], eta, dynamic_smoothing_frequency_);
   cmd_vel->angular.z = applyConstraints(
-    current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], eta, dynamique_smoothing_frequency_);
+    current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], eta, dynamic_smoothing_frequency_);
   last_cmd_ = *cmd_vel;
 
   // Apply deadband restrictions & publish

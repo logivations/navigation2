@@ -145,7 +145,7 @@ protected:
 
   // Parameters
   double smoothing_frequency_;
-  double dynamique_smoothing_frequency_;
+  double dynamic_smoothing_frequency_;
   double odom_duration_;
   std::string odom_topic_;
   bool open_loop_;
