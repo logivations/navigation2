@@ -207,13 +207,12 @@ void VelocitySmoother::inputCommandCallback(const geometry_msgs::msg::Twist::Sha
     RCLCPP_ERROR(get_logger(), "Velocity message contains NaNs or Infs! Ignoring as invalid!");
     return;
   }
-  
-  command_ = msg;
-  last_command_time_ = now();
-
   // now we don't wait for the timer 
   // and call smootherTimer function directly if the command is received
   smootherTimer(true);
+
+  command_ = msg;
+  last_command_time_ = now();
 }
 
 double VelocitySmoother::findEtaConstraint(
@@ -285,7 +284,7 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
 
   dynamique_smoothing_frequency_ = calculate_smoothing_frequency();
   if(dynamique_smoothing_frequency_ == 0.0) {
-    return;
+    dynamique_smoothing_frequency_ = 0.01;
   }
 
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
