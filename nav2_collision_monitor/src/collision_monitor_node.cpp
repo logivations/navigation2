@@ -31,7 +31,7 @@ namespace nav2_collision_monitor
 CollisionMonitor::CollisionMonitor(const rclcpp::NodeOptions & options)
 : nav2_util::LifecycleNode("collision_monitor", "", options),
   process_active_(false), robot_action_prev_{DO_NOTHING, {-1.0, -1.0, -1.0}, ""},
-  stop_stamp_{0, 0, get_clock()->get_clock_type()}, stop_pub_timeout_(1.0, 0.0), is_stop_polygon_triggered_(false)
+  stop_stamp_{0, 0, get_clock()->get_clock_type()}, stop_pub_timeout_(1.0, 0.0)
 {
 }
 
@@ -186,10 +186,6 @@ CollisionMonitor::on_shutdown(const rclcpp_lifecycle::State & /*state*/)
 
 void CollisionMonitor::cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPtr msg)
 {
-  // if(!is_stop_polygon_triggered_) {
-  //   return;
-  // }
-
   // If message contains NaN or Inf, ignore
   if (!nav2_util::validateTwist(*msg)) {
     RCLCPP_ERROR(get_logger(), "Velocity message contains NaNs or Infs! Ignoring as invalid!");
@@ -207,7 +203,6 @@ void CollisionMonitor::odomInCallback(nav_msgs::msg::Odometry::ConstSharedPtr ms
   }
 
   last_odom_msg_ = msg->twist.twist;
-  // process({msg->twist.twist.linear.x, msg->twist.twist.linear.y, msg->twist.twist.angular.z});
 }
 
 void CollisionMonitor::publishVelocity(const Action & robot_action)
@@ -475,6 +470,12 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     collision_points_marker_pub_->publish(std::move(marker_array));
   }
 
+  const double velocity_threshold = 0.01;
+
+  bool robot_stopped = std::abs(last_odom_msg_.linear.x) < velocity_threshold &&
+                       std::abs(last_odom_msg_.linear.y) < velocity_threshold && 
+                       std::abs(last_odom_msg_.angular.z) < velocity_threshold;
+
   for (std::shared_ptr<Polygon> polygon : polygons_) {
     if (!polygon->getEnabled()) {
       continue;
@@ -485,7 +486,7 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     }
 
     // Update polygon coordinates
-    if(is_stop_polygon_triggered_) {
+    if(robot_stopped) {
       polygon->updatePolygon(cmd_vel_in);
     } else {
       polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
@@ -504,8 +505,6 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
       }
     }
   }
-
-  robot_action.action_type == STOP ? is_stop_polygon_triggered_ = true : is_stop_polygon_triggered_ = false; 
 
   if (robot_action.polygon_name != robot_action_prev_.polygon_name) {
     // Report changed robot behavior

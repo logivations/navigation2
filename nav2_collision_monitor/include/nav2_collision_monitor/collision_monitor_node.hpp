@@ -236,8 +236,6 @@ protected:
   rclcpp::Time stop_stamp_;
   /// @brief Timeout after which 0-velocity ceases to be published
   rclcpp::Duration stop_pub_timeout_;
-  /// @brief Flag to check if stop polygon is triggered
-  bool is_stop_polygon_triggered_;
 };  // class CollisionMonitor
 
 }  // namespace nav2_collision_monitor
