@@ -22,6 +22,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 
 #include "tf2/time.h"
 #include "tf2_ros/buffer.h"
@@ -29,7 +30,6 @@
 
 #include "nav2_util/lifecycle_node.hpp"
 #include "nav2_msgs/msg/collision_monitor_state.hpp"
-
 #include "nav2_collision_monitor/types.hpp"
 #include "nav2_collision_monitor/polygon.hpp"
 #include "nav2_collision_monitor/circle.hpp"
@@ -98,6 +98,11 @@ protected:
    * @param msg Input cmd_vel message
    */
   void cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPtr msg);
+    /**
+   * @brief Callback for input odom
+   * @param msg Input odom message
+   */
+  void odomInCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg);
   /**
    * @brief Publishes output cmd_vel. If robot was stopped more than stop_pub_timeout_ seconds,
    * quit to publish 0-velocity.
@@ -114,6 +119,7 @@ protected:
    * @return True if all parameters were obtained or false in failure case
    */
   bool getParameters(
+    std::string & odom_in_topic,
     std::string & cmd_vel_in_topic,
     std::string & cmd_vel_out_topic,
     std::string & state_topic);
@@ -209,7 +215,10 @@ protected:
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_in_sub_;
   /// @brief Output cmd_vel publisher
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_out_pub_;
-
+  /// @brief Input odom subscriber
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_in_sub_;
+  /// @brief Last twist from odometry
+  geometry_msgs::msg::Twist last_odom_msg_;
   /// @brief CollisionMonitor state publisher
   rclcpp_lifecycle::LifecyclePublisher<nav2_msgs::msg::CollisionMonitorState>::SharedPtr
     state_pub_;
@@ -227,6 +236,8 @@ protected:
   rclcpp::Time stop_stamp_;
   /// @brief Timeout after which 0-velocity ceases to be published
   rclcpp::Duration stop_pub_timeout_;
+  /// @brief Flag to check if stop polygon is triggered
+  bool is_stop_polygon_triggered_;
 };  // class CollisionMonitor
 
 }  // namespace nav2_collision_monitor

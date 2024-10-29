@@ -31,7 +31,7 @@ namespace nav2_collision_monitor
 CollisionMonitor::CollisionMonitor(const rclcpp::NodeOptions & options)
 : nav2_util::LifecycleNode("collision_monitor", "", options),
   process_active_(false), robot_action_prev_{DO_NOTHING, {-1.0, -1.0, -1.0}, ""},
-  stop_stamp_{0, 0, get_clock()->get_clock_type()}, stop_pub_timeout_(1.0, 0.0)
+  stop_stamp_{0, 0, get_clock()->get_clock_type()}, stop_pub_timeout_(1.0, 0.0), is_stop_polygon_triggered_(false)
 {
 }
 
@@ -54,18 +54,22 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & /*state*/)
   tf_buffer_->setCreateTimerInterface(timer_interface);
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
+  std::string odom_in_topic;
   std::string cmd_vel_in_topic;
   std::string cmd_vel_out_topic;
   std::string state_topic;
 
   // Obtaining ROS parameters
-  if (!getParameters(cmd_vel_in_topic, cmd_vel_out_topic, state_topic)) {
+  if (!getParameters(odom_in_topic, cmd_vel_in_topic, cmd_vel_out_topic, state_topic)) {
     return nav2_util::CallbackReturn::FAILURE;
   }
 
   cmd_vel_in_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
     cmd_vel_in_topic, 1,
     std::bind(&CollisionMonitor::cmdVelInCallback, this, std::placeholders::_1));
+  odom_in_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    odom_in_topic, 1,
+    std::bind(&CollisionMonitor::odomInCallback, this, std::placeholders::_1));
   cmd_vel_out_pub_ = this->create_publisher<geometry_msgs::msg::Twist>(
     cmd_vel_out_topic, 1);
 
@@ -182,6 +186,10 @@ CollisionMonitor::on_shutdown(const rclcpp_lifecycle::State & /*state*/)
 
 void CollisionMonitor::cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPtr msg)
 {
+  // if(!is_stop_polygon_triggered_) {
+  //   return;
+  // }
+
   // If message contains NaN or Inf, ignore
   if (!nav2_util::validateTwist(*msg)) {
     RCLCPP_ERROR(get_logger(), "Velocity message contains NaNs or Infs! Ignoring as invalid!");
@@ -189,6 +197,17 @@ void CollisionMonitor::cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPt
   }
 
   process({msg->linear.x, msg->linear.y, msg->angular.z});
+}
+
+void CollisionMonitor::odomInCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg)
+{
+  if(!nav2_util::validateTwist(msg->twist.twist)) {
+    RCLCPP_ERROR(get_logger(), "Odometry twist message contains NaNs or Infs! Ignoring as invalid!");
+    return;
+  }
+
+  last_odom_msg_ = msg->twist.twist;
+  // process({msg->twist.twist.linear.x, msg->twist.twist.linear.y, msg->twist.twist.angular.z});
 }
 
 void CollisionMonitor::publishVelocity(const Action & robot_action)
@@ -215,6 +234,7 @@ void CollisionMonitor::publishVelocity(const Action & robot_action)
 }
 
 bool CollisionMonitor::getParameters(
+  std::string & odom_in_topic,
   std::string & cmd_vel_in_topic,
   std::string & cmd_vel_out_topic,
   std::string & state_topic)
@@ -228,6 +248,9 @@ bool CollisionMonitor::getParameters(
   nav2_util::declare_parameter_if_not_declared(
     node, "cmd_vel_in_topic", rclcpp::ParameterValue("cmd_vel_raw"));
   cmd_vel_in_topic = get_parameter("cmd_vel_in_topic").as_string();
+  nav2_util::declare_parameter_if_not_declared(
+    node, "odom_in_topic", rclcpp::ParameterValue("odom"));
+  odom_in_topic = get_parameter("odom_in_topic").as_string();
   nav2_util::declare_parameter_if_not_declared(
     node, "cmd_vel_out_topic", rclcpp::ParameterValue("cmd_vel"));
   cmd_vel_out_topic = get_parameter("cmd_vel_out_topic").as_string();
@@ -462,7 +485,11 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     }
 
     // Update polygon coordinates
-    polygon->updatePolygon(cmd_vel_in);
+    if(is_stop_polygon_triggered_) {
+      polygon->updatePolygon(cmd_vel_in);
+    } else {
+      polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
+    }
 
     const ActionType at = polygon->getActionType();
     if (at == STOP || at == SLOWDOWN || at == LIMIT) {
@@ -477,6 +504,8 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
       }
     }
   }
+
+  robot_action.action_type == STOP ? is_stop_polygon_triggered_ = true : is_stop_polygon_triggered_ = false; 
 
   if (robot_action.polygon_name != robot_action_prev_.polygon_name) {
     // Report changed robot behavior
