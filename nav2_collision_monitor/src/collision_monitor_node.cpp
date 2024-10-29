@@ -54,18 +54,22 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & /*state*/)
   tf_buffer_->setCreateTimerInterface(timer_interface);
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
+  std::string odom_in_topic;
   std::string cmd_vel_in_topic;
   std::string cmd_vel_out_topic;
   std::string state_topic;
 
   // Obtaining ROS parameters
-  if (!getParameters(cmd_vel_in_topic, cmd_vel_out_topic, state_topic)) {
+  if (!getParameters(odom_in_topic, cmd_vel_in_topic, cmd_vel_out_topic, state_topic)) {
     return nav2_util::CallbackReturn::FAILURE;
   }
 
   cmd_vel_in_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
     cmd_vel_in_topic, 1,
     std::bind(&CollisionMonitor::cmdVelInCallback, this, std::placeholders::_1));
+  odom_in_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    odom_in_topic, 1,
+    std::bind(&CollisionMonitor::odomInCallback, this, std::placeholders::_1));
   cmd_vel_out_pub_ = this->create_publisher<geometry_msgs::msg::Twist>(
     cmd_vel_out_topic, 1);
 
@@ -191,6 +195,16 @@ void CollisionMonitor::cmdVelInCallback(geometry_msgs::msg::Twist::ConstSharedPt
   process({msg->linear.x, msg->linear.y, msg->angular.z});
 }
 
+void CollisionMonitor::odomInCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg)
+{
+  if(!nav2_util::validateTwist(msg->twist.twist)) {
+    RCLCPP_ERROR(get_logger(), "Odometry twist message contains NaNs or Infs! Ignoring as invalid!");
+    return;
+  }
+
+  last_odom_msg_ = msg->twist.twist;
+}
+
 void CollisionMonitor::publishVelocity(const Action & robot_action)
 {
   if (robot_action.req_vel.isZero()) {
@@ -215,6 +229,7 @@ void CollisionMonitor::publishVelocity(const Action & robot_action)
 }
 
 bool CollisionMonitor::getParameters(
+  std::string & odom_in_topic,
   std::string & cmd_vel_in_topic,
   std::string & cmd_vel_out_topic,
   std::string & state_topic)
@@ -228,6 +243,9 @@ bool CollisionMonitor::getParameters(
   nav2_util::declare_parameter_if_not_declared(
     node, "cmd_vel_in_topic", rclcpp::ParameterValue("cmd_vel_raw"));
   cmd_vel_in_topic = get_parameter("cmd_vel_in_topic").as_string();
+  nav2_util::declare_parameter_if_not_declared(
+    node, "odom_in_topic", rclcpp::ParameterValue("odom"));
+  odom_in_topic = get_parameter("odom_in_topic").as_string();
   nav2_util::declare_parameter_if_not_declared(
     node, "cmd_vel_out_topic", rclcpp::ParameterValue("cmd_vel"));
   cmd_vel_out_topic = get_parameter("cmd_vel_out_topic").as_string();
@@ -452,6 +470,12 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     collision_points_marker_pub_->publish(std::move(marker_array));
   }
 
+  const double velocity_threshold = 0.01;
+
+  bool robot_stopped = std::abs(last_odom_msg_.linear.x) < velocity_threshold &&
+                       std::abs(last_odom_msg_.linear.y) < velocity_threshold && 
+                       std::abs(last_odom_msg_.angular.z) < velocity_threshold;
+
   for (std::shared_ptr<Polygon> polygon : polygons_) {
     if (!polygon->getEnabled()) {
       continue;
@@ -462,7 +486,11 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     }
 
     // Update polygon coordinates
-    polygon->updatePolygon(cmd_vel_in);
+    if(robot_stopped) {
+      polygon->updatePolygon(cmd_vel_in);
+    } else {
+      polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
+    }
 
     const ActionType at = polygon->getActionType();
     if (at == STOP || at == SLOWDOWN || at == LIMIT) {
