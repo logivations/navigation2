@@ -394,8 +394,8 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
 
         double timer_duration_ms = 1000.0 / smoothing_frequency_;
         timer_ = create_wall_timer(
-        std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
-        [this]() { smootherTimer(false); } 
+            std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
+            [this]() { smootherTimer(false); } 
         );
         smoothertimer_treshold_ = smoothing_frequency_ / 10;
       } else if (name == "velocity_timeout") {
