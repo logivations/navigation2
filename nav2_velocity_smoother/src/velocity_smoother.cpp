@@ -158,7 +158,7 @@ VelocitySmoother::on_activate(const rclcpp_lifecycle::State &)
         std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
         [this]() { smootherTimer(false); }
     );
-  smoothertimer_treshold_ = smoothing_frequency_ / 10;
+  smoothertimer_treshold_ = 1.0;
   dyn_params_handler_ = this->add_on_set_parameters_callback(
     std::bind(&VelocitySmoother::dynamicParametersCallback, this, _1));
 
@@ -397,7 +397,7 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
             std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
             [this]() { smootherTimer(false); } 
         );
-        smoothertimer_treshold_ = smoothing_frequency_ / 10;
+        smoothertimer_treshold_ = 1.0;
       } else if (name == "velocity_timeout") {
         velocity_timeout_ = rclcpp::Duration::from_seconds(parameter.as_double());
       } else if (name == "odom_duration") {
