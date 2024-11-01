@@ -271,33 +271,33 @@ double VelocitySmoother::applyConstraints(
 
 void VelocitySmoother::smootherTimer(const bool force_execution = false)
 {
-  // Check if the last smoother execution happened within smoothing_frequency_
-  // Skip if called too recently, unless forced by inputCommandCallback
-  if (!force_execution && now() - last_command_time_ < rclcpp::Duration(std::chrono::milliseconds(static_cast<int>(smoothing_frequency_)))) {
-    return;
-  }
- 
-  // Wait until the first command is received
-  if (!command_) {
-    return;
-  }
-
   dynamic_smoothing_frequency_ = calculate_smoothing_frequency();
   if(dynamic_smoothing_frequency_ == 0.0) {
     dynamic_smoothing_frequency_ = 0.01;
   }
 
+  // Check if the last smoother execution happened within smoothing_frequency_
+  // Skip if called too recently, unless forced by inputCommandCallback
+  if (!force_execution && dynamic_smoothing_frequency_ < smoothing_frequency_) {
+    return;
+  }
+
+  // Wait until the first command is received
+  if (!command_) {
+    return;
+  }
+
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
 
   // Check for velocity timeout. If nothing received, publish zeros to apply deceleration
-  if (now() - last_command_time_ > velocity_timeout_) {
+  if (dynamic_smoothing_frequency_ > velocity_timeout_.seconds()) {
     if (last_cmd_ == geometry_msgs::msg::Twist() || stopped_) {
       stopped_ = true;
       return;
     }
     *command_ = geometry_msgs::msg::Twist();
   }
-
+  
   stopped_ = false;
 
   // Get current velocity based on feedback type
