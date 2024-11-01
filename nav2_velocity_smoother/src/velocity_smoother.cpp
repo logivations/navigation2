@@ -158,7 +158,7 @@ VelocitySmoother::on_activate(const rclcpp_lifecycle::State &)
         std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
         [this]() { smootherTimer(false); }
     );
-
+  smoothertimer_treshold_ = smoothing_frequency_ / 10;
   dyn_params_handler_ = this->add_on_set_parameters_callback(
     std::bind(&VelocitySmoother::dynamicParametersCallback, this, _1));
 
@@ -276,9 +276,9 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     dynamic_smoothing_frequency_ = 0.01;
   }
 
-  // Check if the last smoother execution happened within smoothing_frequency_
+  // Check if the last smoother execution happened within smoothertimer_treshold_
   // Skip if called too recently, unless forced by inputCommandCallback
-  if (!force_execution && dynamic_smoothing_frequency_ < smoothing_frequency_) {
+  if (!force_execution && dynamic_smoothing_frequency_ < smoothertimer_treshold_) {
     return;
   }
 
@@ -397,6 +397,7 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
         std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
         [this]() { smootherTimer(false); } 
         );
+        smoothertimer_treshold_ = smoothing_frequency_ / 10;
       } else if (name == "velocity_timeout") {
         velocity_timeout_ = rclcpp::Duration::from_seconds(parameter.as_double());
       } else if (name == "odom_duration") {

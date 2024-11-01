@@ -147,6 +147,7 @@ protected:
   double smoothing_frequency_;
   double dynamic_smoothing_frequency_;
   double odom_duration_;
+  double smoothertimer_treshold_;
   std::string odom_topic_;
   bool open_loop_;
   bool bounded_open_loop_{false};
