@@ -31,7 +31,7 @@ namespace nav2_velocity_smoother
 
 VelocitySmoother::VelocitySmoother(const rclcpp::NodeOptions & options)
 : LifecycleNode("velocity_smoother", "", options),
-  last_command_time_{0, 0, get_clock()->get_clock_type()}
+  last_command_time_{0, 0, get_clock()->get_clock_type()},last_smoothed_time_{0, 0, get_clock()->get_clock_type()}
 {
 }
 
@@ -271,33 +271,33 @@ double VelocitySmoother::applyConstraints(
 
 void VelocitySmoother::smootherTimer(const bool force_execution = false)
 {
+  // Wait until the first command is received
+  if (!command_) {
+    return;
+  }
+    
   dynamic_smoothing_frequency_ = calculate_smoothing_frequency();
-  if(dynamic_smoothing_frequency_ == 0.0) {
+  if(dynamic_smoothing_frequency_ == 0.0){
     dynamic_smoothing_frequency_ = 0.01;
   }
 
   // Check if the last smoother execution happened within smoothertimer_treshold_
   // Skip if called too recently, unless forced by inputCommandCallback
-  if (!force_execution && dynamic_smoothing_frequency_ < smoothertimer_treshold_) {
-    return;
-  }
-
-  // Wait until the first command is received
-  if (!command_) {
+  if (!force_execution && (dynamic_smoothing_frequency_ < smoothertimer_treshold_)) {
     return;
   }
 
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
 
   // Check for velocity timeout. If nothing received, publish zeros to apply deceleration
-  if (dynamic_smoothing_frequency_ > velocity_timeout_.seconds()) {
+  if (now() - last_command_time_ > velocity_timeout_) {
     if (last_cmd_ == geometry_msgs::msg::Twist() || stopped_) {
       stopped_ = true;
       return;
     }
     *command_ = geometry_msgs::msg::Twist();
   }
-  
+
   stopped_ = false;
 
   // Get current velocity based on feedback type
@@ -372,6 +372,7 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     deadband_velocities_[2] ? 0.0 : cmd_vel->angular.z;
 
   smoothed_cmd_pub_->publish(std::move(cmd_vel));
+  last_smoothed_time_ = now();
 }
 
 rcl_interfaces::msg::SetParametersResult
@@ -478,7 +479,7 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
 double VelocitySmoother::calculate_smoothing_frequency()
 {
   rclcpp::Time now_time = this->now();
-  return (now_time - last_command_time_).seconds();
+  return (now_time - last_smoothed_time_).seconds();
 }
 
 }  // namespace nav2_velocity_smoother
