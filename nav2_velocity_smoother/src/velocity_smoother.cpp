@@ -275,12 +275,11 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
   if (!command_) {
     return;
   }
-    
-  dynamic_smoothing_frequency_ = calculate_smoothing_frequency();
-  if(dynamic_smoothing_frequency_ == 0.0){
-    dynamic_smoothing_frequency_ = 0.01;
-  }
 
+  if(!force_execution) {
+    dynamic_smoothing_frequency_ = calculate_smoothing_frequency();
+  }
+   
   // Check if the last smoother execution happened within smoothertimer_treshold_
   // Skip if called too recently, unless forced by inputCommandCallback
   if (!force_execution && (dynamic_smoothing_frequency_ < smoothertimer_treshold_)) {
