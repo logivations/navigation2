@@ -190,6 +190,8 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
     if (isInRange(cmd_vel_in, sub_polygon)) {
       // Set the polygon that is within the speed range
       poly_ = sub_polygon.poly_;
+      
+      RCLCPP_INFO(logger_, "Using VelocityPolygon %s", sub_polygon.velocity_polygon_name_.c_str());
 
       // Update visualization polygon
       polygon_.polygon.points.clear();

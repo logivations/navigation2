@@ -470,7 +470,7 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     collision_points_marker_pub_->publish(std::move(marker_array));
   }
 
-  const double velocity_threshold = 0.01;
+  const double velocity_threshold = 0.1;
 
   bool robot_stopped = std::abs(last_odom_msg_.linear.x) < velocity_threshold &&
                        std::abs(last_odom_msg_.linear.y) < velocity_threshold && 
@@ -487,7 +487,21 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
 
     // Update polygon coordinates
     if(robot_stopped) {
-      polygon->updatePolygon(cmd_vel_in);
+      // when robot is stopped we need to choose the correct polygon in the direction of where it should move
+      // so we use cmd_vel_in and scale its magnitude to pick a "slow" polygon
+      double magnitude = std::sqrt(cmd_vel_in.x * cmd_vel_in.x +
+                                 cmd_vel_in.y * cmd_vel_in.y +
+                                 cmd_vel_in.tw * cmd_vel_in.tw);
+
+    Velocity scaled_cmd_vel_in = cmd_vel_in;
+
+    if (magnitude > 0.2) {
+      double scale_factor = 0.2 / magnitude;
+      scaled_cmd_vel_in.x *= scale_factor;
+      scaled_cmd_vel_in.y *= scale_factor;
+      scaled_cmd_vel_in.tw *= scale_factor;
+    }
+    polygon->updatePolygon(scaled_cmd_vel_in);
     } else {
       polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
     }
