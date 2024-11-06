@@ -23,6 +23,7 @@
 #include "nav2_collision_monitor/polygon.hpp"
 #include "nav2_collision_monitor/types.hpp"
 #include "nav2_util/lifecycle_node.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.h"
 
@@ -120,6 +121,8 @@ protected:
   bool holonomic_;
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
+  /// @brief Active polygons publisher
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr active_polygon_pub_;
 };  // class VelocityPolygon
 
 }  // namespace nav2_collision_monitor
