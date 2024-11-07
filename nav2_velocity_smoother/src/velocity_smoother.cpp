@@ -473,7 +473,7 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
   return result;
 }
 
-inline double VelocitySmoother::calculate_smoothing_frequency()
+double VelocitySmoother::calculate_smoothing_frequency()
 {
   int64_t now_us = static_cast<int64_t>(this->now().seconds() * 1e6); 
   int64_t last_smoothed_us = static_cast<int64_t>(last_smoothed_time_.seconds() * 1e6); 
