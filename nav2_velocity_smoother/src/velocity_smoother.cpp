@@ -279,6 +279,9 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
   if(!force_execution) {
     dynamic_smoothing_frequency_ = calculate_smoothing_frequency();
   }
+
+   RCLCPP_INFO(get_logger(), "dynamic_smoothing_frequency_ %f", dynamic_smoothing_frequency_);
+
    
   // Check if the last smoother execution happened within smoothertimer_treshold_
   // Skip if called too recently, unless forced by inputCommandCallback
@@ -477,11 +480,25 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
 
 double VelocitySmoother::calculate_smoothing_frequency()
 {
-  rclcpp::Time now_time = this->now();
-  return (now_time - last_smoothed_time_).seconds();
+  int64_t now_ns = this->now().nanoseconds();
+  int64_t last_smoothed_ns = last_smoothed_time_.nanoseconds();
+
+  int64_t diff_ns = now_ns - last_smoothed_ns;
+  if (diff_ns == 0) {
+      return 0.0; /
+  }
+
+  static const double inverse_1e9 = 1.0 / 1.0e9;
+  double frequency = inverse_1e9 * static_cast<double>(diff_ns);
+    
+  return frequency;
 }
 
-}  // namespace nav2_velocity_smoother
+
+
+
+
+}  namespace nav2_velocity_smoother
 
 #include "rclcpp_components/register_node_macro.hpp"
 RCLCPP_COMPONENTS_REGISTER_NODE(nav2_velocity_smoother::VelocitySmoother)
