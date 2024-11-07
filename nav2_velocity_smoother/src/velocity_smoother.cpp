@@ -18,6 +18,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <cstdint>  // For int64_t
 
 #include "nav2_velocity_smoother/velocity_smoother.hpp"
 
@@ -216,7 +217,7 @@ void VelocitySmoother::inputCommandCallback(const geometry_msgs::msg::Twist::Sha
 }
 
 double VelocitySmoother::findEtaConstraint(
-  const double v_curr, const double v_cmd, const double accel, const double decel, const double smoothing_frequency)
+  const double v_curr, const double v_cmd, const double accel, const double decel, const int smoothing_frequency)
 {
   // Exploiting vector scaling properties
   double dv = v_cmd - v_curr;
@@ -248,7 +249,7 @@ double VelocitySmoother::findEtaConstraint(
 
 double VelocitySmoother::applyConstraints(
   const double v_curr, const double v_cmd,
-  const double accel, const double decel, const double eta, const double smoothing_frequency)
+  const double accel, const double decel, const double eta, const int smoothing_frequency)
 {
   double dv = v_cmd - v_curr;
 
@@ -276,16 +277,10 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     return;
   }
 
-  if(!force_execution) {
-    dynamic_smoothing_frequency_ = calculate_smoothing_frequency();
-  }
-
-   RCLCPP_INFO(get_logger(), "dynamic_smoothing_frequency_ %f", dynamic_smoothing_frequency_);
-
-   
-  // Check if the last smoother execution happened within smoothertimer_treshold_
-  // Skip if called too recently, unless forced by inputCommandCallback
-  if (!force_execution && (dynamic_smoothing_frequency_ < smoothertimer_treshold_)) {
+  double sf = calculate_smoothing_frequency();
+  int dynamic_smoothing_frequency = static_cast<int>(sf * 1e6);
+    
+  if (!force_execution && ((now() - last_smoothed_time_).seconds() < smoothertimer_treshold_)) {
     return;
   }
 
@@ -341,30 +336,30 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     double curr_eta = -1.0;
 
     curr_eta = findEtaConstraint(
-      current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], dynamic_smoothing_frequency_);
+      current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], dynamic_smoothing_frequency);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
 
     curr_eta = findEtaConstraint(
-      current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], dynamic_smoothing_frequency_);
+      current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], dynamic_smoothing_frequency);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
 
     curr_eta = findEtaConstraint(
-      current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], dynamic_smoothing_frequency_);
+      current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], dynamic_smoothing_frequency);
     if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
       eta = curr_eta;
     }
   }
 
   cmd_vel->linear.x = applyConstraints(
-    current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], eta, dynamic_smoothing_frequency_);
+    current_.linear.x, command_->linear.x, max_accels_[0], max_decels_[0], eta, dynamic_smoothing_frequency);
   cmd_vel->linear.y = applyConstraints(
-    current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], eta, dynamic_smoothing_frequency_);
+    current_.linear.y, command_->linear.y, max_accels_[1], max_decels_[1], eta, dynamic_smoothing_frequency);
   cmd_vel->angular.z = applyConstraints(
-    current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], eta, dynamic_smoothing_frequency_);
+    current_.angular.z, command_->angular.z, max_accels_[2], max_decels_[2], eta, dynamic_smoothing_frequency);
   last_cmd_ = *cmd_vel;
 
   // Apply deadband restrictions & publish
@@ -478,27 +473,19 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
   return result;
 }
 
-double VelocitySmoother::calculate_smoothing_frequency()
+inline double VelocitySmoother::calculate_smoothing_frequency()
 {
-  int64_t now_ns = this->now().nanoseconds();
-  int64_t last_smoothed_ns = last_smoothed_time_.nanoseconds();
+  int64_t now_us = static_cast<int64_t>(this->now().seconds() * 1e6); 
+  int64_t last_smoothed_us = static_cast<int64_t>(last_smoothed_time_.seconds() * 1e6); 
 
-  int64_t diff_ns = now_ns - last_smoothed_ns;
-  if (diff_ns == 0) {
-      return 0.0; /
-  }
+  int64_t diff_us = now_us - last_smoothed_us; 
+  int64_t reciprocal = 1e6 / diff_us;  
 
-  static const double inverse_1e9 = 1.0 / 1.0e9;
-  double frequency = inverse_1e9 * static_cast<double>(diff_ns);
-    
-  return frequency;
+  reciprocal = reciprocal * (3 - (diff_us * reciprocal) / 1e6) / 2;
+  return static_cast<double>(reciprocal) / 1e6;
 }
 
-
-
-
-
-}  namespace nav2_velocity_smoother
+}  //namespace nav2_velocity_smoother
 
 #include "rclcpp_components/register_node_macro.hpp"
 RCLCPP_COMPONENTS_REGISTER_NODE(nav2_velocity_smoother::VelocitySmoother)

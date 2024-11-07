@@ -58,7 +58,7 @@ public:
    */
   double findEtaConstraint(
     const double v_curr, const double v_cmd,
-    const double accel, const double decel, const double smoothing_frequency);
+    const double accel, const double decel, const int smoothing_frequency);
 
   /**
    * @brief Apply acceleration and scale factor constraints
@@ -71,7 +71,7 @@ public:
    */
   double applyConstraints(
     const double v_curr, const double v_cmd,
-    const double accel, const double decel, const double eta, const double smoothing_frequency);
+    const double accel, const double decel, const double eta, const int smoothing_frequency);
 
 protected:
   /**
@@ -145,7 +145,6 @@ protected:
 
   // Parameters
   double smoothing_frequency_;
-  double dynamic_smoothing_frequency_;
   double odom_duration_;
   double smoothertimer_treshold_;
   std::string odom_topic_;
