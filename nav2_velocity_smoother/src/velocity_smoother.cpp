@@ -18,7 +18,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <cstdint>  // For int64_t
 
 #include "nav2_velocity_smoother/velocity_smoother.hpp"
 
@@ -159,7 +158,7 @@ VelocitySmoother::on_activate(const rclcpp_lifecycle::State &)
         std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
         [this]() { smootherTimer(false); }
     );
-  smoothertimer_treshold_ = smoothing_frequency_ / 10;
+  smoothertimer_treshold_ = 1.0 / smoothing_frequency_;
   dyn_params_handler_ = this->add_on_set_parameters_callback(
     std::bind(&VelocitySmoother::dynamicParametersCallback, this, _1));
 
@@ -278,7 +277,7 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
   }
 
   double dynamic_smoothing_frequency = calculate_smoothing_frequency();
-    
+
   if (!force_execution && ((now() - last_smoothed_time_).seconds() < smoothertimer_treshold_)) {
     return;
   }
@@ -394,7 +393,7 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
             std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
             [this]() { smootherTimer(false); } 
         );
-        smoothertimer_treshold_ = smoothing_frequency_ / 10;
+        smoothertimer_treshold_ = 1.0 / smoothing_frequency_;
       } else if (name == "velocity_timeout") {
         velocity_timeout_ = rclcpp::Duration::from_seconds(parameter.as_double());
       } else if (name == "odom_duration") {
