@@ -58,7 +58,7 @@ public:
    */
   double findEtaConstraint(
     const double v_curr, const double v_cmd,
-    const double accel, const double decel, const int smoothing_frequency);
+    const double accel, const double decel, const double smoothing_frequency);
 
   /**
    * @brief Apply acceleration and scale factor constraints
@@ -71,7 +71,7 @@ public:
    */
   double applyConstraints(
     const double v_curr, const double v_cmd,
-    const double accel, const double decel, const double eta, const int smoothing_frequency);
+    const double accel, const double decel, const double eta, const double smoothing_frequency);
 
 protected:
   /**

@@ -217,7 +217,7 @@ void VelocitySmoother::inputCommandCallback(const geometry_msgs::msg::Twist::Sha
 }
 
 double VelocitySmoother::findEtaConstraint(
-  const double v_curr, const double v_cmd, const double accel, const double decel, const int smoothing_frequency)
+  const double v_curr, const double v_cmd, const double accel, const double decel, const double smoothing_frequency)
 {
   // Exploiting vector scaling properties
   double dv = v_cmd - v_curr;
@@ -249,7 +249,7 @@ double VelocitySmoother::findEtaConstraint(
 
 double VelocitySmoother::applyConstraints(
   const double v_curr, const double v_cmd,
-  const double accel, const double decel, const double eta, const int smoothing_frequency)
+  const double accel, const double decel, const double eta, const double smoothing_frequency)
 {
   double dv = v_cmd - v_curr;
 
@@ -277,8 +277,7 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     return;
   }
 
-  double sf = calculate_smoothing_frequency();
-  int dynamic_smoothing_frequency = static_cast<int>(sf * 1e6);
+  double dynamic_smoothing_frequency = calculate_smoothing_frequency();
     
   if (!force_execution && ((now() - last_smoothed_time_).seconds() < smoothertimer_treshold_)) {
     return;
@@ -475,15 +474,9 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
 
 double VelocitySmoother::calculate_smoothing_frequency()
 {
-  int64_t now_us = static_cast<int64_t>(this->now().seconds() * 1e6); 
-  int64_t last_smoothed_us = static_cast<int64_t>(last_smoothed_time_.seconds() * 1e6); 
-
-  int64_t diff_us = now_us - last_smoothed_us; 
-  int64_t reciprocal = 1e6 / diff_us;  
-
-  reciprocal = reciprocal * (3 - (diff_us * reciprocal) / 1e6) / 2;
-  return static_cast<double>(reciprocal) / 1e6;
+  return 1.0 / (now() - last_smoothed_time_).seconds();
 }
+
 
 }  //namespace nav2_velocity_smoother
 
