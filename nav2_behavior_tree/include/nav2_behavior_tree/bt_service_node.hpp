@@ -62,8 +62,6 @@ public:
     server_timeout_ =
       config().blackboard->template get<std::chrono::milliseconds>("server_timeout");
     getInput<std::chrono::milliseconds>("server_timeout", server_timeout_);
-    wait_for_service_timeout_ =
-      config().blackboard->template get<std::chrono::milliseconds>("wait_for_service_timeout");
 
     // timeout should be less than bt_loop_duration to be able to finish the current tick
     max_timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(bt_loop_duration * 0.5);
@@ -82,10 +80,10 @@ public:
     RCLCPP_DEBUG(
       node_->get_logger(), "Waiting for \"%s\" service",
       service_name_.c_str());
-    if (!service_client_->wait_for_service(wait_for_service_timeout_)) {
+    if (!service_client_->wait_for_service(10s)) {
       RCLCPP_ERROR(
-        node_->get_logger(), "\"%s\" service server not available after waiting for %.2fs",
-        service_name_.c_str(), wait_for_service_timeout_.count() / 1000.0);
+        node_->get_logger(), "\"%s\" service server not available after waiting for 10 s",
+        service_name_.c_str());
       throw std::runtime_error(
               std::string(
                 "Service server %s not available",
@@ -259,8 +257,6 @@ protected:
   // The timeout value for BT loop execution
   std::chrono::milliseconds max_timeout_;
 
-  // The timeout value for waiting for a service to response
-  std::chrono::milliseconds wait_for_service_timeout_;
 
   // To track the server response when a new request is sent
   std::shared_future<typename ServiceT::Response::SharedPtr> future_result_;
