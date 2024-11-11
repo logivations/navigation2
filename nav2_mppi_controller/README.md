@@ -98,6 +98,9 @@ This process is then repeated a number of times and returns a converged solution
 
 
 #### Obstacles Critic
+
+Uses estimated distances from obstacles using cost and inflation parameters to avoid obstacles
+
  | Parameter            | Type   | Definition                                                                                                  |
  | ---------------      | ------ | ----------------------------------------------------------------------------------------------------------- |
  | consider_footprint   | bool   | Default: False. Whether to use point cost (if robot is circular or low compute power) or compute SE2 footprint cost. |
@@ -107,6 +110,21 @@ This process is then repeated a number of times and returns a converged solution
  | collision_cost       | double | Default 10000.0. Cost to apply to a true collision in a trajectory.                                          |
  | collision_margin_distance   | double    | Default 0.10. Margin distance from collision to apply severe penalty, similar to footprint inflation. Between 0.05-0.2 is reasonable. |
  | near_goal_distance          | double    | Default 0.5. Distance near goal to stop applying preferential obstacle term to allow robot to smoothly converge to goal pose in close proximity to obstacles.   
+ | inflation_layer_name        | string    | Default "". Name of the inflation layer. If empty, it uses the last inflation layer in the costmap. If you have multiple inflation layers, you may want to specify the name of the layer to use. |
+
+#### Cost Critic
+
+Uses inflated costmap cost directly to avoid obstacles
+
+ | Parameter            | Type   | Definition                                                                                                  |
+ | ---------------      | ------ | ----------------------------------------------------------------------------------------------------------- |
+ | consider_footprint   | bool   | Default: False. Whether to use point cost (if robot is circular or low compute power) or compute SE2 footprint cost. |
+ | cost_weight          | double | Default 3.81. Wight to apply to critic to avoid obstacles.                                       | 
+ | cost_power           | int    | Default 1. Power order to apply to term.                                                                    |
+ | collision_cost       | double | Default 1000000.0. Cost to apply to a true collision in a trajectory.                                          |
+ | critical_cost       | double | Default 300.0. Cost to apply to a pose with any point in in inflated space to prefer distance from obstacles.                                          |
+ | near_goal_distance          | double    | Default 0.5. Distance near goal to stop applying preferential obstacle term to allow robot to smoothly converge to goal pose in close proximity to obstacles.   
+ | inflation_layer_name        | string    | Default "". Name of the inflation layer. If empty, it uses the last inflation layer in the costmap. If you have multiple inflation layers, you may want to specify the name of the layer to use. |
 
 #### Path Align Critic
  | Parameter                  | Type   | Definition                                                                                                                         |
@@ -154,6 +172,15 @@ Note: There is a "Legacy" version of this critic also available with the same pa
  | cost_weight           | double | Default 10.0. Weight to apply to critic term.                                                               |
  | cost_power            | int    | Default 1. Power order to apply to term.                                                                    |
 
+
+#### Velocity Deadband Critic
+ | Parameter             | Type     | Definition                                                                                                  |
+ | ---------------       | ------   | ----------------------------------------------------------------------------------------------------------- |
+ | cost_weight           | double   | Default 35.0. Weight to apply to critic term.                                                               |
+ | cost_power            | int      | Default 1. Power order to apply to term.                                                                    |
+ | deadband_velocities   | double[] | Default [0.0, 0.0, 0.0].  The array of deadband velocities [vx, vz, wz]. A zero array indicates that the critic will take no action.      |
+
+
 ### XML configuration example
 ```
 controller_server:
@@ -181,9 +208,9 @@ controller_server:
       TrajectoryVisualizer:
         trajectory_step: 5
         time_step: 3
-      AckermannConstrains:
+      AckermannConstraints:
         min_turning_r: 0.2
-      critics: ["ConstraintCritic", "ObstaclesCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+      critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
       ConstraintCritic:
         enabled: true
         cost_power: 1
@@ -203,15 +230,24 @@ controller_server:
         cost_power: 1
         cost_weight: 5.0
         threshold_to_consider: 0.5
-      ObstaclesCritic:
+      # ObstaclesCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   repulsion_weight: 1.5
+      #   critical_weight: 20.0
+      #   consider_footprint: false
+      #   collision_cost: 10000.0
+      #   collision_margin_distance: 0.1
+      #   near_goal_distance: 0.5
+      CostCritic:
         enabled: true
         cost_power: 1
-        repulsion_weight: 1.5
-        critical_weight: 20.0
-        consider_footprint: false
-        collision_cost: 10000.0
-        collision_margin_distance: 0.1
-        near_goal_distance: 0.5
+        cost_weight: 3.81
+        critical_cost: 300.0
+        consider_footprint: true
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+      PathAlignCritic:
       PathAlignCritic:
         enabled: true
         cost_power: 1
@@ -235,6 +271,11 @@ controller_server:
         threshold_to_consider: 0.5
         max_angle_to_furthest: 1.0
         forward_preference: true
+      # VelocityDeadbandCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 35.0
+      #   deadband_velocities: [0.05, 0.05, 0.05]
       # TwirlingCritic:
       #   enabled: true
       #   twirling_cost_power: 1

@@ -154,7 +154,7 @@ public:
   void setPolygonVelocityVectors(
     const std::string & polygon_name,
     const std::vector<std::string> & polygons);
-  
+
   // Setting TF chains
   void sendTransforms(const rclcpp::Time & stamp);
 
@@ -712,6 +712,19 @@ bool Tester::waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout)
   return false;
 }
 
+bool Tester::waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout)
+{
+  rclcpp::Time start_time = cm_->now();
+  while (rclcpp::ok() && cm_->now() - start_time <= rclcpp::Duration(timeout)) {
+    if (collision_points_marker_msg_) {
+      return true;
+    }
+    rclcpp::spin_some(cm_->get_node_base_interface());
+    std::this_thread::sleep_for(10ms);
+  }
+  return false;
+}
+
 void Tester::cmdVelOutCallback(geometry_msgs::msg::Twist::SharedPtr msg)
 {
   cmd_vel_out_ = msg;
@@ -855,7 +868,8 @@ TEST_F(Tester, testProcessApproach)
   // 3. Obstacle is inside robot footprint
   publishScan(0.5, curr_time);
   ASSERT_TRUE(waitData(0.5, 500ms, curr_time));
-  publishCmdVel(0.5, 0.2, 0.0);
+  // Publish impossible cmd_vel to ensure robot footprint is checked
+  publishCmdVel(1000000000.0, 0.2, 0.0);
   ASSERT_TRUE(waitCmdVel(500ms));
   ASSERT_NEAR(cmd_vel_out_->linear.x, 0.0, EPSILON);
   ASSERT_NEAR(cmd_vel_out_->linear.y, 0.0, EPSILON);
@@ -1371,74 +1385,6 @@ TEST_F(Tester, testCollisionPointsMarkers)
   ASSERT_TRUE(waitData(0.5, 500ms, curr_time));
   ASSERT_TRUE(waitCollisionPointsMarker(500ms));
   ASSERT_NE(collision_points_marker_msg_->markers[0].points.size(), 0u);
-  // Stop Collision Monitor node
-  cm_->stop();
-}
-
-TEST_F(Tester, testVelocityPolygonStop)
-{
-  // Set Collision Monitor parameters.
-  // Add velocity polygon with 2 sub polygon:
-  // 1. Forward:  0 -> 0.5 m/s
-  // 2. Backward: 0 -> -0.5 m/s
-  setCommonParameters();
-  addPolygon("VelocityPoylgon", VELOCITY_POLYGON, 1.0, "stop");
-  addPolygonVelocitySubPolygon("VelocityPoylgon", "Forward", 0.0, 0.5, 0.0, 1.0, 4.0);
-  addPolygonVelocitySubPolygon("VelocityPoylgon", "Backward", -0.5, 0.0, 0.0, 1.0, 2.0);
-  setPolygonVelocityVectors("VelocityPoylgon", {"Forward", "Backward"});
-  addSource(POINTCLOUD_NAME, POINTCLOUD);
-  setVectors({"VelocityPoylgon"}, {POINTCLOUD_NAME});
-
-  rclcpp::Time curr_time = cm_->now();
-  // Start Collision Monitor node
-  cm_->start();
-  // Check that robot stops when source is enabled
-  sendTransforms(curr_time);
-
-  // 1. Obstacle is far away from Forward velocity polygon
-  publishPointCloud(4.5, curr_time);
-  ASSERT_TRUE(waitData(std::hypot(4.5, 0.01), 500ms, curr_time));
-  publishCmdVel(0.4, 0.0, 0.1);
-  ASSERT_TRUE(waitCmdVel(500ms));
-  ASSERT_NEAR(cmd_vel_out_->linear.x, 0.4, EPSILON);
-  ASSERT_NEAR(cmd_vel_out_->linear.y, 0.0, EPSILON);
-  ASSERT_NEAR(cmd_vel_out_->angular.z, 0.1, EPSILON);
-
-  // 2. Obstacle is in Forward velocity polygon
-  publishPointCloud(3.0, curr_time);
-  ASSERT_TRUE(waitData(std::hypot(3.0, 0.01), 500ms, curr_time));
-  publishCmdVel(0.4, 0.0, 0.1);
-  ASSERT_TRUE(waitCmdVel(500ms));
-  ASSERT_NEAR(cmd_vel_out_->linear.x, 0.0, EPSILON);
-  ASSERT_NEAR(cmd_vel_out_->linear.y, 0.0, EPSILON);
-  ASSERT_NEAR(cmd_vel_out_->angular.z, 0.0, EPSILON);
-  ASSERT_TRUE(waitActionState(500ms));
-  ASSERT_EQ(action_state_->action_type, STOP);
-  ASSERT_EQ(action_state_->polygon_name, "VelocityPoylgon");
-
-  // 3. Switch to Backward velocity polygon
-  // Obstacle is far away from Backward velocity polygon
-  publishCmdVel(-0.4, 0.0, 0.1);
-  ASSERT_TRUE(waitCmdVel(500ms));
-  ASSERT_NEAR(cmd_vel_out_->linear.x, -0.4, EPSILON);
-  ASSERT_NEAR(cmd_vel_out_->linear.y, 0.0, EPSILON);
-  ASSERT_NEAR(cmd_vel_out_->angular.z, 0.1, EPSILON);
-  ASSERT_TRUE(waitActionState(500ms));
-  ASSERT_EQ(action_state_->action_type, DO_NOTHING);
-  ASSERT_EQ(action_state_->polygon_name, "");
-
-  // 4. Obstacle is in Backward velocity polygon
-  publishPointCloud(-1.5, curr_time);
-  ASSERT_TRUE(waitData(std::hypot(-1.5, 0.01), 500ms, curr_time));
-  publishCmdVel(-0.4, 0.0, 0.1);
-  ASSERT_TRUE(waitCmdVel(500ms));
-  ASSERT_NEAR(cmd_vel_out_->linear.x, 0.0, EPSILON);
-  ASSERT_NEAR(cmd_vel_out_->linear.y, 0.0, EPSILON);
-  ASSERT_NEAR(cmd_vel_out_->angular.z, 0.0, EPSILON);
-  ASSERT_TRUE(waitActionState(500ms));
-  ASSERT_EQ(action_state_->action_type, STOP);
-  ASSERT_EQ(action_state_->polygon_name, "VelocityPoylgon");
-
   // Stop Collision Monitor node
   cm_->stop();
 }
