@@ -211,7 +211,7 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
 
   // Check intermediary poses (non-goal, non-start)
   for (float i = 1; i <= num_intervals; i++) {
-    node->motion_table.state_space->interpolate(from(), to(), i / num_intervals, s());
+    state_space->interpolate(from(), to(), i / num_intervals, s());
     reals = s.reals();
     // Make sure in range [0, 2PI)
     theta = (reals[2] < 0.0) ? (reals[2] + 2.0 * M_PI) : reals[2];
