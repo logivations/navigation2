@@ -58,8 +58,8 @@ using rcl_interfaces::msg::ParameterType;
 
 namespace nav2_costmap_2d
 {
-Costmap2DROS::Costmap2DROS(const std::string & name, const bool & use_sim_time, const bool & use_intra_process_comms)
-: Costmap2DROS(name, "/", name, use_sim_time, use_intra_process_comms) {}
+Costmap2DROS::Costmap2DROS(const std::string & name, const bool & use_sim_time)
+: Costmap2DROS(name, "/", name, use_sim_time) {}
 
 Costmap2DROS::Costmap2DROS(const rclcpp::NodeOptions & options)
 : nav2_util::LifecycleNode("costmap", "", options),
@@ -79,8 +79,7 @@ Costmap2DROS::Costmap2DROS(
   const std::string & name,
   const std::string & parent_namespace,
   const std::string & local_namespace,
-  const bool & use_sim_time,
-  const bool & use_intra_process_comms)
+  const bool & use_sim_time)
 : nav2_util::LifecycleNode(name, "",
     // NodeOption arguments take precedence over the ones provided on the command line
     // use this to make sure the node is placed on the provided namespace
@@ -91,7 +90,7 @@ Costmap2DROS::Costmap2DROS(
     nav2_util::add_namespaces(parent_namespace, local_namespace),
     "--ros-args", "-r", name + ":" + std::string("__node:=") + name,
     "--ros-args", "-p", "use_sim_time:=" + std::string(use_sim_time ? "true" : "false"),
-  }).use_intra_process_comms(use_intra_process_comms)),
+  })),
   name_(name),
   parent_namespace_(parent_namespace),
   default_plugins_{"static_layer", "obstacle_layer", "inflation_layer"},
@@ -102,7 +101,7 @@ Costmap2DROS::Costmap2DROS(
 {
   declare_parameter(
     "map_topic", rclcpp::ParameterValue(
-      (parent_namespace_ == "/" ? "/" : parent_namespace_ + "/") + std::string("map"))); 
+      (parent_namespace_ == "/" ? "/" : parent_namespace_ + "/") + std::string("map")));
   init();
 }
 
@@ -222,7 +221,7 @@ Costmap2DROS::on_configure(const rclcpp_lifecycle::State & /*state*/)
     std::bind(&Costmap2DROS::setRobotFootprintPolygon, this, std::placeholders::_1));
 
   footprint_pub_ = create_publisher<geometry_msgs::msg::PolygonStamped>(
-    "published_footprint", rclcpp::SystemDefaultsQoS().keep_last(1));
+    "published_footprint", rclcpp::SystemDefaultsQoS());
 
   costmap_publisher_ = std::make_unique<Costmap2DPublisher>(
     shared_from_this(),
@@ -251,6 +250,12 @@ Costmap2DROS::on_configure(const rclcpp_lifecycle::State & /*state*/)
     makeFootprintFromString(footprint_, new_footprint);
     setRobotFootprint(new_footprint);
   }
+
+  // Service to get the cost at a point
+  get_cost_service_ = create_service<nav2_msgs::srv::GetCost>(
+    "get_cost_" + getName(),
+    std::bind(&Costmap2DROS::getCostCallback, this, std::placeholders::_1, std::placeholders::_2,
+      std::placeholders::_3));
 
   // Add cleaning service
   clear_costmap_service_ = std::make_unique<ClearCostmapService>(shared_from_this(), *this);
@@ -288,7 +293,9 @@ Costmap2DROS::on_activate(const rclcpp_lifecycle::State & /*state*/)
     // Check timeout
     if (now() > initial_transform_timeout_point) {
       RCLCPP_ERROR(
-        get_logger(), "Failed to activate %s because transform from %s to %s did not become available before timeout",
+        get_logger(),
+        "Failed to activate %s because "
+        "transform from %s to %s did not become available before timeout",
         get_name(), robot_base_frame_.c_str(), global_frame_.c_str());
 
       return nav2_util::CallbackReturn::FAILURE;
@@ -329,6 +336,7 @@ Costmap2DROS::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Deactivating");
 
+  remove_on_set_parameters_callback(dyn_params_handler.get());
   dyn_params_handler.reset();
 
   stop();
@@ -525,7 +533,7 @@ Costmap2DROS::mapUpdateLoop(double frequency)
         layered_costmap_->getBounds(&x0, &xn, &y0, &yn);
         costmap_publisher_->updateBounds(x0, xn, y0, yn);
 
-        for (auto & layer_pub: layer_publishers_) {
+        for (auto & layer_pub : layer_publishers_) {
           layer_pub->updateBounds(x0, xn, y0, yn);
         }
 
@@ -537,7 +545,7 @@ Costmap2DROS::mapUpdateLoop(double frequency)
           RCLCPP_DEBUG(get_logger(), "Publish costmap at %s", name_.c_str());
           costmap_publisher_->publishCostmap();
 
-          for (auto & layer_pub: layer_publishers_) {
+          for (auto & layer_pub : layer_publishers_) {
             layer_pub->publishCostmap();
           }
 
@@ -815,6 +823,37 @@ Costmap2DROS::dynamicParametersCallback(std::vector<rclcpp::Parameter> parameter
 
   result.successful = true;
   return result;
+}
+
+void Costmap2DROS::getCostCallback(
+  const std::shared_ptr<rmw_request_id_t>,
+  const std::shared_ptr<nav2_msgs::srv::GetCost::Request> request,
+  const std::shared_ptr<nav2_msgs::srv::GetCost::Response> response)
+{
+  unsigned int mx, my;
+
+  Costmap2D * costmap = layered_costmap_->getCostmap();
+
+  if (request->use_footprint) {
+    Footprint footprint = layered_costmap_->getFootprint();
+    FootprintCollisionChecker<Costmap2D *> collision_checker(costmap);
+
+    RCLCPP_INFO(
+      get_logger(), "Received request to get cost at footprint pose (%.2f, %.2f, %.2f)",
+      request->x, request->y, request->theta);
+
+    response->cost = collision_checker.footprintCostAtPose(
+      request->x, request->y, request->theta, footprint);
+  } else if (costmap->worldToMap(request->x, request->y, mx, my)) {
+    RCLCPP_INFO(
+      get_logger(), "Received request to get cost at point (%f, %f)", request->x, request->y);
+
+    // Get the cost at the map coordinates
+    response->cost = static_cast<float>(costmap->getCost(mx, my));
+  } else {
+    RCLCPP_WARN(get_logger(), "Point (%f, %f) is out of bounds", request->x, request->y);
+    response->cost = -1.0;
+  }
 }
 
 }  // namespace nav2_costmap_2d

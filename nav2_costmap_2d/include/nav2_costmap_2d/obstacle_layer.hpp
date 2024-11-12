@@ -216,7 +216,6 @@ protected:
 
   std::vector<geometry_msgs::msg::Point> transformed_footprint_;
   bool footprint_clearing_enabled_;
-  bool clear_after_master_grid_update_;
   /**
    * @brief Clear costmap layer info below the robot's footprint
    */
@@ -253,7 +252,7 @@ protected:
 
   bool rolling_window_;
   bool was_reset_;
-  int combination_method_;
+  nav2_costmap_2d::CombinationMethod combination_method_;
 };
 
 }  // namespace nav2_costmap_2d

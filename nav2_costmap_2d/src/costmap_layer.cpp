@@ -135,7 +135,8 @@ void CostmapLayer::updateWithMax(
     }
   }
 }
-void CostmapLayer::updateWithMin(
+
+void CostmapLayer::updateWithMaxWithoutUnknownOverwrite(
   nav2_costmap_2d::Costmap2D & master_grid, int min_i, int min_j,
   int max_i,
   int max_j)
@@ -156,7 +157,7 @@ void CostmapLayer::updateWithMin(
       }
 
       unsigned char old_cost = master_array[it];
-      if (old_cost == NO_INFORMATION || old_cost > costmap_[it]) {
+      if (old_cost != NO_INFORMATION && old_cost < costmap_[it]) {
         master_array[it] = costmap_[it];
       }
       it++;
@@ -242,6 +243,25 @@ void CostmapLayer::updateWithAddition(
       }
       it++;
     }
+  }
+}
+
+CombinationMethod CostmapLayer::combination_method_from_int(const int value)
+{
+  switch (value) {
+    case 0:
+      return CombinationMethod::Overwrite;
+    case 1:
+      return CombinationMethod::Max;
+    case 2:
+      return CombinationMethod::MaxWithoutUnknownOverwrite;
+    default:
+      RCLCPP_WARN(
+        logger_,
+        "Param combination_method: %i. Possible values are  0 (Overwrite) or 1 (Maximum) or "
+        "2 (Maximum without overwriting the master's NO_INFORMATION values)."
+        "The default value 1 will be used", value);
+      return CombinationMethod::Max;
   }
 }
 }  // namespace nav2_costmap_2d

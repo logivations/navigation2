@@ -35,7 +35,7 @@ class AnalyticExpansion
 public:
   typedef NodeT * NodePtr;
   typedef typename NodeT::Coordinates Coordinates;
-  typedef std::function<bool (const unsigned int &, NodeT * &)> NodeGetter;
+  typedef std::function<bool (const uint64_t &, NodeT * &)> NodeGetter;
 
   /**
    * @struct nav2_smac_planner::AnalyticExpansion::AnalyticExpansionNodes
@@ -73,7 +73,7 @@ public:
    * @brief Sets the collision checker and costmap to use in expansion validation
    * @param collision_checker Collision checker to use
    */
-  void setCollisionChecker(GridCollisionChecker * & collision_checker);
+  void setCollisionChecker(GridCollisionChecker * collision_checker);
 
   /**
    * @brief Attempt an analytic path completion

@@ -41,7 +41,7 @@ AnalyticExpansion<NodeT>::AnalyticExpansion(
 
 template<typename NodeT>
 void AnalyticExpansion<NodeT>::setCollisionChecker(
-  GridCollisionChecker * & collision_checker)
+  GridCollisionChecker * collision_checker)
 {
   _collision_checker = collision_checker;
 }
@@ -201,7 +201,7 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
 
   // Pre-allocate
   NodePtr prev(node);
-  unsigned int index = 0;
+  uint64_t index = 0;
   NodePtr next(nullptr);
   float angle = 0.0;
   Coordinates proposed_coordinates;
@@ -216,7 +216,7 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
     // Make sure in range [0, 2PI)
     theta = (reals[2] < 0.0) ? (reals[2] + 2.0 * M_PI) : reals[2];
     theta = (theta > 2.0 * M_PI) ? (theta - 2.0 * M_PI) : theta;
-    angle = node->motion_table.getClosestAngularBin(theta);
+    angle = node->motion_table.getAngle(theta);
 
     // Turn the pose into a node, and check if it is valid
     index = NodeT::getIndex(
