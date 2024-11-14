@@ -73,6 +73,9 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & /*state*/)
   cmd_vel_out_pub_ = this->create_publisher<geometry_msgs::msg::Twist>(
     cmd_vel_out_topic, 1);
 
+  active_polygons_pub_ = this->create_publisher<nav2_msgs::msg::ActiveVelocityPolygons>(
+    "~/active_velocity_polygons", 1);
+
   if (!state_topic.empty()) {
     state_pub_ = this->create_publisher<nav2_msgs::msg::CollisionMonitorState>(
       state_topic, 1);
@@ -530,6 +533,19 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
 
   // Publish polygons for better visualization
   publishPolygons();
+
+  auto msg = std::make_unique<nav2_msgs::msg::ActiveVelocityPolygons>();
+  
+  for (const auto& polygon : polygons_) {
+    if (auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon)) {
+      nav2_msgs::msg::VelocityPolygonPair pair;
+      pair.polygon_name = vel_polygon->getName();
+      pair.subpolygon_name = vel_polygon->getCurrentSubPolygonName();
+      msg->active_pairs.push_back(pair);
+    }
+  }
+
+  active_polygons_pub_->publish(std::move(msg));
 
   robot_action_prev_ = robot_action;
 }

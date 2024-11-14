@@ -43,9 +43,6 @@ bool VelocityPolygon::getParameters(
   }
   clock_ = node->get_clock();
 
-  active_polygon_pub_ = node->create_publisher<std_msgs::msg::String>(
-    "~/active_polygon", 10);
-
   if (!getCommonParameters(polygon_pub_topic)) {
     return false;
   }
@@ -193,10 +190,8 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
     if (isInRange(cmd_vel_in, sub_polygon)) {
       // Set the polygon that is within the speed range
       poly_ = sub_polygon.poly_;
-
-      auto msg = std_msgs::msg::String();
-      msg.data = sub_polygon.velocity_polygon_name_;
-      active_polygon_pub_->publish(msg);
+      
+      current_subpolygon_name_ = sub_polygon.velocity_polygon_name_;
 
       // Update visualization polygon
       polygon_.polygon.points.clear();
@@ -218,6 +213,8 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
       return;
     }
   }
+
+  current_subpolygon_name_ = "none";
 
   // Log for uncovered velocity
   RCLCPP_WARN_THROTTLE(

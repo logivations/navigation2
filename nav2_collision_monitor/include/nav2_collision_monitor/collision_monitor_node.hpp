@@ -23,6 +23,8 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "nav2_msgs/msg/velocity_polygon_pair.hpp"
+#include "nav2_msgs/msg/active_velocity_polygons.hpp"
 
 #include "tf2/time.h"
 #include "tf2_ros/buffer.h"
@@ -236,6 +238,8 @@ protected:
   rclcpp::Time stop_stamp_;
   /// @brief Timeout after which 0-velocity ceases to be published
   rclcpp::Duration stop_pub_timeout_;
+  /// @brief Active polygons publisher
+  rclcpp::Publisher<nav2_msgs::msg::ActiveVelocityPolygons>::SharedPtr active_polygons_pub_;
 };  // class CollisionMonitor
 
 }  // namespace nav2_collision_monitor
