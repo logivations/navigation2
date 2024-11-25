@@ -59,6 +59,10 @@ bool VelocityPolygon::getParameters(
       node, polygon_name_ + ".holonomic", rclcpp::ParameterValue(false));
     holonomic_ = node->get_parameter(polygon_name_ + ".holonomic").as_bool();
 
+    nav2_util::declare_parameter_if_not_declared(
+      node, polygon_name_ + ".wheelbase", rclcpp::ParameterValue(1.0));
+    wheelbase_ = node->get_parameter(polygon_name_ + ".wheelbase").as_double();
+
     for (std::string velocity_polygon_name : velocity_polygons) {
       // polygon points parameter
       std::vector<Point> poly;
@@ -86,22 +90,43 @@ bool VelocityPolygon::getParameters(
         rclcpp::PARAMETER_DOUBLE);
       linear_max = node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".linear_max")
         .as_double();
+    
+      const std::string steering_min_param = polygon_name_ + "." + velocity_polygon_name + ".steering_angle_min";
+      const std::string steering_max_param = polygon_name_ + "." + velocity_polygon_name + ".steering_angle_max";
+      const std::string theta_min_param = polygon_name_ + "." + velocity_polygon_name + ".theta_min";
+      const std::string theta_max_param = polygon_name_ + "." + velocity_polygon_name + ".theta_max";
 
-      // theta_min param
-      double theta_min;
-      nav2_util::declare_parameter_if_not_declared(
-        node, polygon_name_ + "." + velocity_polygon_name + ".theta_min",
-        rclcpp::PARAMETER_DOUBLE);
-      theta_min =
-        node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".theta_min").as_double();
+      bool use_steering_angle = false;
+      double steering_angle_min = 0.0;
+      double steering_angle_max = 0.0;
+      double theta_min = 0.0;
+      double theta_max = 0.0;
 
-      // theta_max param
-      double theta_max;
       nav2_util::declare_parameter_if_not_declared(
-        node, polygon_name_ + "." + velocity_polygon_name + ".theta_max",
-        rclcpp::PARAMETER_DOUBLE);
-      theta_max =
-        node->get_parameter(polygon_name_ + "." + velocity_polygon_name + ".theta_max").as_double();
+        node, steering_min_param, rclcpp::PARAMETER_DOUBLE);
+      nav2_util::declare_parameter_if_not_declared(
+        node, steering_max_param, rclcpp::PARAMETER_DOUBLE);
+
+      if (node->has_parameter(steering_min_param) && node->has_parameter(steering_max_param)) {
+        use_steering_angle = true;
+        steering_angle_min = node->get_parameter(steering_min_param).as_double();
+        steering_angle_max = node->get_parameter(steering_max_param).as_double();
+      } else {
+        nav2_util::declare_parameter_if_not_declared(node, theta_min_param, rclcpp::PARAMETER_DOUBLE);
+        nav2_util::declare_parameter_if_not_declared(node, theta_max_param, rclcpp::PARAMETER_DOUBLE);
+
+        if (node->has_parameter(theta_min_param) && node->has_parameter(theta_max_param)) {
+          theta_min = node->get_parameter(theta_min_param).as_double();
+          theta_max = node->get_parameter(theta_max_param).as_double();
+        } else {
+          RCLCPP_ERROR(
+            logger_, 
+            "[%s]: Either steering_angle parameters or theta parameters must be set for %s", 
+            polygon_name_.c_str(),
+            velocity_polygon_name.c_str());
+          return false;
+        }
+      }
 
       // direction_end_angle param and direction_start_angle param
       double direction_end_angle = 0.0;
@@ -170,9 +195,12 @@ bool VelocityPolygon::getParameters(
 
       SubPolygonParameter sub_polygon = {
         poly, velocity_polygon_name, linear_min, linear_max, theta_min,
-        theta_max, direction_end_angle, direction_start_angle,
+        theta_max, steering_angle_min, steering_angle_max, use_steering_angle,
+        direction_end_angle, direction_start_angle,
         slowdown_ratio, linear_limit, angular_limit, time_before_collision, simulation_time_step,
-        min_vel_before_stop};
+        min_vel_before_stop
+      };
+      
       sub_polygons_.push_back(sub_polygon);
     }
   } catch (const std::exception & ex) {
@@ -181,6 +209,7 @@ bool VelocityPolygon::getParameters(
       ex.what());
     return false;
   }
+  
   return true;
 }
 
@@ -223,9 +252,22 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 bool VelocityPolygon::isInRange(
   const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon)
 {
-  bool in_range =
-    (cmd_vel_in.x <= sub_polygon.linear_max_ && cmd_vel_in.x >= sub_polygon.linear_min_ &&
-    cmd_vel_in.tw <= sub_polygon.theta_max_ && cmd_vel_in.tw >= sub_polygon.theta_min_);
+  bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ && cmd_vel_in.x >= sub_polygon.linear_min_;
+
+  if (sub_polygon.use_steering_angle_) {
+    double steering_angle = 0.0;
+    if (std::abs(cmd_vel_in.x) > 1e-6) {  
+      steering_angle = std::atan2(cmd_vel_in.tw * wheelbase_, cmd_vel_in.x);
+    } else if (std::abs(cmd_vel_in.tw) > 1e-6) {
+      steering_angle = cmd_vel_in.tw > 0 ? M_PI_2 : -M_PI_2;
+    }
+
+    in_range &= (steering_angle <= sub_polygon.steering_angle_max_ && 
+                steering_angle >= sub_polygon.steering_angle_min_);
+  } else {
+    in_range &= (cmd_vel_in.tw <= sub_polygon.theta_max_ && 
+                cmd_vel_in.tw >= sub_polygon.theta_min_);
+  }
 
   if (holonomic_) {
     // Additionally check if moving direction in angle range(start -> end) for holonomic case

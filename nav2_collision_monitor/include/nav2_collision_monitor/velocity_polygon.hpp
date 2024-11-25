@@ -77,6 +77,8 @@ protected:
     * @param linear_max_ The maximum linear velocity
     * @param theta_min_ The minimum angular velocity
     * @param theta_max_ The maximum angular velocity
+    * @param steering_angle_min_ The minimum steering angle
+    * @param steering_angle_max_ The maxomum steering angle
     * @param direction_end_angle_ The end angle of the direction(For holonomic robot only)
     * @param direction_start_angle_ The start angle of the direction(For holonomic robot only)
     * @param slowdown_ratio_ Robot slowdown (share of its actual speed)
@@ -94,6 +96,9 @@ protected:
     double linear_max_;
     double theta_min_;
     double theta_max_;
+    double steering_angle_min_;
+    double steering_angle_max_;
+    bool use_steering_angle_;
     double direction_end_angle_;
     double direction_start_angle_;
     double slowdown_ratio_;
@@ -118,6 +123,8 @@ protected:
   // Variables
   /// @brief Flag to indicate if the robot is holonomic
   bool holonomic_;
+  /// @brief Distance between front and rear axes
+  double wheelbase_;
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
 };  // class VelocityPolygon
