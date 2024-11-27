@@ -102,30 +102,70 @@ bool VelocityPolygon::getParameters(
       double theta_min = 0.0;
       double theta_max = 0.0;
 
-      nav2_util::declare_parameter_if_not_declared(
-        node, steering_min_param, rclcpp::PARAMETER_DOUBLE);
-      nav2_util::declare_parameter_if_not_declared(
-        node, steering_max_param, rclcpp::PARAMETER_DOUBLE);
-      steering_angle_min = node->get_parameter(steering_min_param).as_double();
-      steering_angle_max = node->get_parameter(steering_max_param).as_double();
-      
-      if (steering_angle_min != 0.0 || steering_angle_max != 0.0) {
-        use_steering_angle = true;
-      } else {
-        nav2_util::declare_parameter_if_not_declared(node, theta_min_param, rclcpp::PARAMETER_DOUBLE);
-        nav2_util::declare_parameter_if_not_declared(node, theta_max_param, rclcpp::PARAMETER_DOUBLE);
-        
-        theta_min = node->get_parameter(theta_min_param).as_double();
-        theta_max = node->get_parameter(theta_max_param).as_double();
-        
-        if (theta_min == 0.0 && theta_max == 0.0) {
-          RCLCPP_ERROR(
-            logger_, 
-            "[%s]: Either steering_angle parameters or theta parameters must be set for %s", 
-            polygon_name_.c_str(),
-            velocity_polygon_name.c_str());
-          return false;
+      bool has_steering_params = false;
+      bool has_theta_params = false;
+
+      try {
+        nav2_util::declare_parameter_if_not_declared(
+          node, steering_min_param, rclcpp::PARAMETER_DOUBLE);
+        nav2_util::declare_parameter_if_not_declared(
+          node, steering_max_param, rclcpp::PARAMETER_DOUBLE);
+
+        steering_angle_min = node->get_parameter(steering_min_param).as_double();
+        steering_angle_max = node->get_parameter(steering_max_param).as_double();
+        has_steering_params = true;
+      } catch (const rclcpp::exceptions::ParameterNotDeclaredException &) {
+        RCLCPP_DEBUG(logger_, "steering_angle parameters not found, will check theta parameters");
+      } catch (const rclcpp::exceptions::ParameterUninitializedException &) {
+        RCLCPP_DEBUG(logger_, "steering_angle parameters not initialized");
+      }
+
+      if (!has_steering_params) {
+        try {
+          nav2_util::declare_parameter_if_not_declared(
+            node, theta_min_param, rclcpp::PARAMETER_DOUBLE);
+          nav2_util::declare_parameter_if_not_declared(
+            node, theta_max_param, rclcpp::PARAMETER_DOUBLE);
+
+          theta_min = node->get_parameter(theta_min_param).as_double();
+          theta_max = node->get_parameter(theta_max_param).as_double();
+          has_theta_params = true;
+        } catch (const rclcpp::exceptions::ParameterNotDeclaredException &) {
+          RCLCPP_DEBUG(logger_, "Theta parameters not found");
+        } catch (const rclcpp::exceptions::ParameterUninitializedException &) {
+          RCLCPP_DEBUG(logger_, "Theta parameters not initialized");
         }
+      }
+
+      if (has_steering_params) {
+        use_steering_angle = true;
+        RCLCPP_INFO(
+          logger_, 
+          "[%s]: Using steering_angle parameters for %s (min: %f, max: %f)", 
+          polygon_name_.c_str(),
+          velocity_polygon_name.c_str(),
+          steering_angle_min,
+          steering_angle_max
+        );
+      } else if (has_theta_params) {
+        use_steering_angle = false;
+        RCLCPP_INFO(
+          logger_, 
+          "[%s]: Using theta parameters for %s (min: %f, max: %f)", 
+          polygon_name_.c_str(),
+          velocity_polygon_name.c_str(),
+          theta_min,
+          theta_max
+        );
+      } else {
+        RCLCPP_ERROR(
+          logger_, 
+          "[%s]: Neither steering_angle parameters nor theta parameters are set for %s", 
+          polygon_name_.c_str(),
+          velocity_polygon_name.c_str()
+        );
+        
+        return false;
       }
 
       // direction_end_angle param and direction_start_angle param
