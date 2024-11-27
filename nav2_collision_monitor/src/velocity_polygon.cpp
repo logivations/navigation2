@@ -106,19 +106,19 @@ bool VelocityPolygon::getParameters(
         node, steering_min_param, rclcpp::PARAMETER_DOUBLE);
       nav2_util::declare_parameter_if_not_declared(
         node, steering_max_param, rclcpp::PARAMETER_DOUBLE);
-
-      if (node->has_parameter(steering_min_param) && node->has_parameter(steering_max_param)) {
+      steering_angle_min = node->get_parameter(steering_min_param).as_double();
+      steering_angle_max = node->get_parameter(steering_max_param).as_double();
+      
+      if (steering_angle_min != 0.0 || steering_angle_max != 0.0) {
         use_steering_angle = true;
-        steering_angle_min = node->get_parameter(steering_min_param).as_double();
-        steering_angle_max = node->get_parameter(steering_max_param).as_double();
       } else {
         nav2_util::declare_parameter_if_not_declared(node, theta_min_param, rclcpp::PARAMETER_DOUBLE);
         nav2_util::declare_parameter_if_not_declared(node, theta_max_param, rclcpp::PARAMETER_DOUBLE);
-
-        if (node->has_parameter(theta_min_param) && node->has_parameter(theta_max_param)) {
-          theta_min = node->get_parameter(theta_min_param).as_double();
-          theta_max = node->get_parameter(theta_max_param).as_double();
-        } else {
+        
+        theta_min = node->get_parameter(theta_min_param).as_double();
+        theta_max = node->get_parameter(theta_max_param).as_double();
+        
+        if (theta_min == 0.0 && theta_max == 0.0) {
           RCLCPP_ERROR(
             logger_, 
             "[%s]: Either steering_angle parameters or theta parameters must be set for %s", 
