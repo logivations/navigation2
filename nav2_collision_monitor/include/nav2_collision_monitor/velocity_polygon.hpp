@@ -136,8 +136,6 @@ protected:
   // Variables
   /// @brief Flag to indicate if the robot is holonomic
   bool holonomic_;
-  // /// @brief Distance between front and rear axes
-  // double wheelbase_;
   /// @brief Steering transform name
   std::string steering_link_name_{"steering_link"};
   /// @brief Current steering angle
