@@ -276,7 +276,7 @@ double VelocityPolygon::getSteeringAngleFromTF() {
     double roll, pitch, yaw;
     tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
 
-    return yaw;  // This is your steering angle
+    return yaw;
   } catch (tf2::TransformException & ex) {
     RCLCPP_WARN(
       logger_,
