@@ -344,10 +344,24 @@ bool VelocityPolygon::isInRange(const Velocity & cmd_vel_in, const SubPolygonPar
 
     in_range &= current_steering_angle_ <= sub_polygon.steering_angle_max_ && 
                 current_steering_angle_ >= sub_polygon.steering_angle_min_;
-    } else {
-      in_range &= cmd_vel_in.tw <= sub_polygon.theta_max_ && 
+  } else {
+    in_range &= cmd_vel_in.tw <= sub_polygon.theta_max_ && 
                   cmd_vel_in.tw >= sub_polygon.theta_min_;
+  }
+
+  if (holonomic_) {
+    // Additionally check if moving direction in angle range(start -> end) for holonomic case
+    const double direction = std::atan2(cmd_vel_in.y, cmd_vel_in.x);
+    if (sub_polygon.direction_start_angle_ <= sub_polygon.direction_end_angle_) {
+      in_range &=
+        (direction >= sub_polygon.direction_start_angle_ &&
+        direction <= sub_polygon.direction_end_angle_);
+    } else {
+      in_range &=
+        (direction >= sub_polygon.direction_start_angle_ ||
+        direction <= sub_polygon.direction_end_angle_);
     }
+  }
 
   return in_range;
 }
