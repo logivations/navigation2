@@ -123,6 +123,12 @@ protected:
    */
   bool isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon_param);
 
+  /**
+   * @brief Returns current steering angle based on steering_link_name_ transform
+     @return current steering angle
+   */
+  double getSteeringAngleFromTF();
+
   // Clock
   rclcpp::Clock::SharedPtr clock_;
   // Current subpolygon name
@@ -130,8 +136,12 @@ protected:
   // Variables
   /// @brief Flag to indicate if the robot is holonomic
   bool holonomic_;
-  /// @brief Distance between front and rear axes
-  double wheelbase_;
+  // /// @brief Distance between front and rear axes
+  // double wheelbase_;
+  /// @brief Steering transform name
+  std::string steering_link_name_{"steering_link"};
+  /// @brief Current steering angle
+  double current_steering_angle_;
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
 };

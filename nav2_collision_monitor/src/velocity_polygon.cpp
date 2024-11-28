@@ -59,10 +59,6 @@ bool VelocityPolygon::getParameters(
       node, polygon_name_ + ".holonomic", rclcpp::ParameterValue(false));
     holonomic_ = node->get_parameter(polygon_name_ + ".holonomic").as_bool();
 
-    nav2_util::declare_parameter_if_not_declared(
-      node, polygon_name_ + ".wheelbase", rclcpp::ParameterValue(1.0));
-    wheelbase_ = node->get_parameter(polygon_name_ + ".wheelbase").as_double();
-
     for (std::string velocity_polygon_name : velocity_polygons) {
       // polygon points parameter
       std::vector<Point> poly;
@@ -168,6 +164,14 @@ bool VelocityPolygon::getParameters(
         return false;
       }
 
+      nav2_util::declare_parameter_if_not_declared(
+        node,
+        polygon_name_ + ".steering_link",
+        rclcpp::ParameterValue("steering_link")
+      );
+
+      steering_link_name_ = node->get_parameter(polygon_name_ + ".steering_link").as_string();
+
       // direction_end_angle param and direction_start_angle param
       double direction_end_angle = 0.0;
       double direction_start_angle = 0.0;
@@ -253,6 +257,36 @@ bool VelocityPolygon::getParameters(
   return true;
 }
 
+double VelocityPolygon::getSteeringAngleFromTF() {
+  geometry_msgs::msg::TransformStamped transform;
+  try {
+    transform = tf_buffer_->lookupTransform(
+      base_frame_id_,
+      steering_link_name_,
+      tf2::TimePointZero
+    );
+
+    tf2::Quaternion q(
+      transform.transform.rotation.x,
+      transform.transform.rotation.y,
+      transform.transform.rotation.z,
+      transform.transform.rotation.w
+    );
+
+    double roll, pitch, yaw;
+    tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+
+    return yaw;  // This is your steering angle
+  } catch (tf2::TransformException & ex) {
+    RCLCPP_WARN(
+      logger_,
+      "Could not get steering angle transform: %s",
+      ex.what()
+    );
+    return 0.0;
+  }
+}
+
 void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 {
   for (auto & sub_polygon : sub_polygons_) {
@@ -293,39 +327,27 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
   return;
 }
 
-bool VelocityPolygon::isInRange(
-  const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon)
-{
-  bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ && cmd_vel_in.x >= sub_polygon.linear_min_;
+bool VelocityPolygon::isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon) {
+  bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ && 
+                  cmd_vel_in.x >= sub_polygon.linear_min_;
 
   if (sub_polygon.use_steering_angle_) {
-    double steering_angle = 0.0;
-    if (std::abs(cmd_vel_in.x) > 1e-6) {  
-      steering_angle = std::atan2(cmd_vel_in.tw * wheelbase_, cmd_vel_in.x);
-    } else if (std::abs(cmd_vel_in.tw) > 1e-6) {
-      steering_angle = cmd_vel_in.tw > 0 ? M_PI_2 : -M_PI_2;
-    }
+    current_steering_angle_ = getSteeringAngleFromTF();
 
-    in_range &= (steering_angle <= sub_polygon.steering_angle_max_ && 
-                steering_angle >= sub_polygon.steering_angle_min_);
-  } else {
-    in_range &= (cmd_vel_in.tw <= sub_polygon.theta_max_ && 
-                cmd_vel_in.tw >= sub_polygon.theta_min_);
-  }
+    RCLCPP_DEBUG(
+      logger_,
+      "Current steering angle: %.2f (limits: %.2f to %.2f)",
+      current_steering_angle_,
+      sub_polygon.steering_angle_min_,
+      sub_polygon.steering_angle_max_
+    );
 
-  if (holonomic_) {
-    // Additionally check if moving direction in angle range(start -> end) for holonomic case
-    const double direction = std::atan2(cmd_vel_in.y, cmd_vel_in.x);
-    if (sub_polygon.direction_start_angle_ <= sub_polygon.direction_end_angle_) {
-      in_range &=
-        (direction >= sub_polygon.direction_start_angle_ &&
-        direction <= sub_polygon.direction_end_angle_);
+    in_range &= current_steering_angle_ <= sub_polygon.steering_angle_max_ && 
+                current_steering_angle_ >= sub_polygon.steering_angle_min_;
     } else {
-      in_range &=
-        (direction >= sub_polygon.direction_start_angle_ ||
-        direction <= sub_polygon.direction_end_angle_);
+      in_range &= cmd_vel_in.tw <= sub_polygon.theta_max_ && 
+                  cmd_vel_in.tw >= sub_polygon.theta_min_;
     }
-  }
 
   return in_range;
 }
