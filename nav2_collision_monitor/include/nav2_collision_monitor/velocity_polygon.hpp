@@ -125,7 +125,7 @@ protected:
 
   /**
    * @brief Returns current steering angle based on steering_link_name_ transform
-     @return current steering angle
+   * @return current steering angle
    */
   double getSteeringAngleFromTF();
 
