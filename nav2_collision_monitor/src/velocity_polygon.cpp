@@ -59,6 +59,10 @@ bool VelocityPolygon::getParameters(
       node, polygon_name_ + ".holonomic", rclcpp::ParameterValue(false));
     holonomic_ = node->get_parameter(polygon_name_ + ".holonomic").as_bool();
 
+    nav2_util::declare_parameter_if_not_declared(
+      node, polygon_name_ + ".wheelbase", rclcpp::ParameterValue(1.0));
+    wheelbase_ = node->get_parameter(polygon_name_ + ".wheelbase").as_double();
+
     for (std::string velocity_polygon_name : velocity_polygons) {
       // polygon points parameter
       std::vector<Point> poly;
@@ -164,14 +168,6 @@ bool VelocityPolygon::getParameters(
         return false;
       }
 
-      nav2_util::declare_parameter_if_not_declared(
-        node,
-        polygon_name_ + ".steering_link",
-        rclcpp::ParameterValue("steering_link")
-      );
-
-      steering_link_name_ = node->get_parameter(polygon_name_ + ".steering_link").as_string();
-
       // direction_end_angle param and direction_start_angle param
       double direction_end_angle = 0.0;
       double direction_start_angle = 0.0;
@@ -257,36 +253,6 @@ bool VelocityPolygon::getParameters(
   return true;
 }
 
-double VelocityPolygon::getSteeringAngleFromTF() {
-  geometry_msgs::msg::TransformStamped transform;
-  try {
-    transform = tf_buffer_->lookupTransform(
-      base_frame_id_,
-      steering_link_name_,
-      tf2::TimePointZero
-    );
-
-    tf2::Quaternion q(
-      transform.transform.rotation.x,
-      transform.transform.rotation.y,
-      transform.transform.rotation.z,
-      transform.transform.rotation.w
-    );
-
-    double roll, pitch, yaw;
-    tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-
-    return yaw;
-  } catch (tf2::TransformException & ex) {
-    RCLCPP_WARN(
-      logger_,
-      "Could not get steering angle transform: %s",
-      ex.what()
-    );
-    return 0.0;
-  }
-}
-
 void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 {
   for (auto & sub_polygon : sub_polygons_) {
@@ -327,16 +293,39 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
   return;
 }
 
+// double VelocityPolygon::normalizeAngle(double angle) {
+//     while (angle > M_PI) angle -= 2 * M_PI;
+//     while (angle < -M_PI) angle += 2 * M_PI;
+//     return angle;
+// }
+
+// double VelocityPolygon::calculateSteeringAngle(const Velocity& cmd_vel) {
+//     if (std::abs(cmd_vel.x) < 1e-6) {
+//         return (std::abs(cmd_vel.tw) < 1e-6) ? 
+//                0.0 : 
+//                (cmd_vel.tw > 0 ? M_PI/2 : -M_PI/2);
+//     }
+
+//     double angle = std::atan2(wheelbase_ * cmd_vel.tw, cmd_vel.x);
+//     return normalizeAngle(angle);
+// }
+
 bool VelocityPolygon::isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon) {
   bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ && 
                   cmd_vel_in.x >= sub_polygon.linear_min_;
 
   if (sub_polygon.use_steering_angle_) {
-    current_steering_angle_ = getSteeringAngleFromTF();
+    if (std::abs(cmd_vel_in.x) < 1e-6) {
+      current_steering_angle_ = (std::abs(cmd_vel_in.tw) < 1e-6) ? 
+                               0.0 : 
+                               (cmd_vel_in.tw > 0 ? M_PI/2 : -M_PI/2);
+    } else {
+      current_steering_angle_ = std::atan2(wheelbase_ * cmd_vel_in.tw, cmd_vel_in.x);
+    }
 
     RCLCPP_DEBUG(
       logger_,
-      "Current steering angle: %.2f (limits: %.2f to %.2f)",
+      "Calculated steering angle: %.2f (limits: %.2f to %.2f)",
       current_steering_angle_,
       sub_polygon.steering_angle_min_,
       sub_polygon.steering_angle_max_
