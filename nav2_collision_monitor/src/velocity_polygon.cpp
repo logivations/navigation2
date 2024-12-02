@@ -293,23 +293,6 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
   return;
 }
 
-// double VelocityPolygon::normalizeAngle(double angle) {
-//     while (angle > M_PI) angle -= 2 * M_PI;
-//     while (angle < -M_PI) angle += 2 * M_PI;
-//     return angle;
-// }
-
-// double VelocityPolygon::calculateSteeringAngle(const Velocity& cmd_vel) {
-//     if (std::abs(cmd_vel.x) < 1e-6) {
-//         return (std::abs(cmd_vel.tw) < 1e-6) ? 
-//                0.0 : 
-//                (cmd_vel.tw > 0 ? M_PI/2 : -M_PI/2);
-//     }
-
-//     double angle = std::atan2(wheelbase_ * cmd_vel.tw, cmd_vel.x);
-//     return normalizeAngle(angle);
-// }
-
 bool VelocityPolygon::isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon) {
   bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ && 
                   cmd_vel_in.x >= sub_polygon.linear_min_;
@@ -320,22 +303,29 @@ bool VelocityPolygon::isInRange(const Velocity & cmd_vel_in, const SubPolygonPar
                                0.0 : 
                                (cmd_vel_in.tw > 0 ? M_PI/2 : -M_PI/2);
     } else {
-      current_steering_angle_ = std::atan2(wheelbase_ * cmd_vel_in.tw, cmd_vel_in.x);
+      double angular_vel = cmd_vel_in.tw;
+      if (cmd_vel_in.x < 0) {
+        angular_vel = -angular_vel;
+      }
+
+      current_steering_angle_ = std::atan2(wheelbase_ * angular_vel, std::abs(cmd_vel_in.x));
     }
 
     RCLCPP_DEBUG(
       logger_,
-      "Calculated steering angle: %.2f (limits: %.2f to %.2f)",
+      "Calculated steering angle: %.2f (limits: %.2f to %.2f), linear_vel: %.2f, angular_vel: %.2f",
       current_steering_angle_,
       sub_polygon.steering_angle_min_,
-      sub_polygon.steering_angle_max_
+      sub_polygon.steering_angle_max_,
+      cmd_vel_in.x,
+      cmd_vel_in.tw
     );
 
     in_range &= current_steering_angle_ <= sub_polygon.steering_angle_max_ && 
                 current_steering_angle_ >= sub_polygon.steering_angle_min_;
   } else {
     in_range &= cmd_vel_in.tw <= sub_polygon.theta_max_ && 
-                  cmd_vel_in.tw >= sub_polygon.theta_min_;
+                cmd_vel_in.tw >= sub_polygon.theta_min_;
   }
 
   if (holonomic_) {

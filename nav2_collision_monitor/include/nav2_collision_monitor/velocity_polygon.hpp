@@ -123,13 +123,6 @@ protected:
    */
   bool isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon_param);
 
-
-  // to do 
-  // double normalizeAngle(double angle);
-
-  // to do 
-  // double calculateSteeringAngle(const Velocity& cmd_vel);
-
   // Clock
   rclcpp::Clock::SharedPtr clock_;
   // Current subpolygon name
