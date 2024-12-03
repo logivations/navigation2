@@ -297,6 +297,10 @@ bool VelocityPolygon::isInRange(const Velocity & cmd_vel_in, const SubPolygonPar
   bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ && 
                   cmd_vel_in.x >= sub_polygon.linear_min_;
 
+  if (!in_range) {
+    return false;
+  }
+
   if (sub_polygon.use_steering_angle_) {
     if (std::abs(cmd_vel_in.x) < 1e-6) {
       current_steering_angle_ = (std::abs(cmd_vel_in.tw) < 1e-6) ? 
