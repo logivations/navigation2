@@ -23,6 +23,7 @@
 #include "nav2_collision_monitor/polygon.hpp"
 #include "nav2_collision_monitor/types.hpp"
 #include "nav2_util/lifecycle_node.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.h"
 
@@ -61,6 +62,11 @@ public:
   bool getParameters(
     std::string & /*polygon_sub_topic*/, std::string & polygon_pub_topic,
     std::string & /*footprint_topic*/) override;
+  
+  /**
+   * @brief Returns current polygon name
+   */
+  std::string getCurrentSubPolygonName() const { return current_subpolygon_name_; }
 
   /**
    * @brief Overriden updatePolygon function for VelocityPolygon
@@ -114,13 +120,14 @@ protected:
 
   // Clock
   rclcpp::Clock::SharedPtr clock_;
-
+  // Current subpolygon name
+  std::string current_subpolygon_name_;
   // Variables
   /// @brief Flag to indicate if the robot is holonomic
   bool holonomic_;
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
-};  // class VelocityPolygon
+};
 
 }  // namespace nav2_collision_monitor
 

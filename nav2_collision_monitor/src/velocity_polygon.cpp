@@ -190,6 +190,8 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
     if (isInRange(cmd_vel_in, sub_polygon)) {
       // Set the polygon that is within the speed range
       poly_ = sub_polygon.poly_;
+      
+      current_subpolygon_name_ = sub_polygon.velocity_polygon_name_;
 
       // Update visualization polygon
       polygon_.polygon.points.clear();
@@ -211,6 +213,8 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
       return;
     }
   }
+
+  current_subpolygon_name_ = "none";
 
   // Log for uncovered velocity
   RCLCPP_WARN_THROTTLE(
