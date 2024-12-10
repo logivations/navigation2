@@ -646,6 +646,8 @@ void ControllerServer::setPlannerPath(const nav_msgs::msg::Path & path)
 
   end_pose_ = path.poses.back();
   end_pose_.header.frame_id = path.header.frame_id;
+  end_pose_.header.stamp.sec = path.header.stamp.sec;
+  end_pose_.header.stamp.nanosec = path.header.stamp.nanosec;
   goal_checkers_[current_goal_checker_]->reset();
 
   RCLCPP_DEBUG(
