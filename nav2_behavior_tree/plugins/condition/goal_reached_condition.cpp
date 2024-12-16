@@ -65,6 +65,8 @@ void GoalReachedCondition::initialize()
   getInput("global_frame", global_frame_);
   getInput("robot_base_frame", robot_base_frame_);
   getInput("xy_goal_tolerance", goal_reached_tol_);
+  getInput("x_goal_tolerance", goal_reached_tol_x_);
+  getInput("y_goal_tolerance", goal_reached_tol_y_);
   getInput("yaw_goal_tolerance", goal_reached_tol_yaw_);
 
   tf_ = config().blackboard->get<std::shared_ptr<tf2_ros::Buffer>>("tf_buffer");
@@ -93,8 +95,13 @@ bool GoalReachedCondition::isGoalReached()
   double dx = goal.pose.position.x - current_pose.pose.position.x;
   double dy = goal.pose.position.y - current_pose.pose.position.y;
 
-  return (dx * dx + dy * dy) <= (goal_reached_tol_ * goal_reached_tol_) &&
-         dangle <= goal_reached_tol_yaw_;
+  // Check conditions for x, y, and xy tolerances
+  bool within_xy_tolerance = (dx * dx + dy * dy) <= (goal_reached_tol_ * goal_reached_tol_);
+  bool within_x_tolerance = fabs(dx) <= goal_reached_tol_x_;
+  bool within_y_tolerance = fabs(dy) <= goal_reached_tol_y_;
+  bool within_yaw_tolerance = dangle <= goal_reached_tol_yaw_;
+
+  return within_xy_tolerance && within_x_tolerance && within_y_tolerance && within_yaw_tolerance;
 }
 
 }  // namespace nav2_behavior_tree
