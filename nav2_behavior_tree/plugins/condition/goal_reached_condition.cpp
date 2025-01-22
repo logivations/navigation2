@@ -89,16 +89,27 @@ bool GoalReachedCondition::isGoalReached()
   geometry_msgs::msg::PoseStamped goal;
   getInput("goal", goal);
 
+  // Transform to goal frame
+  tf2::Transform goal_frame_transform;
+  goal_frame_transform.setOrigin(tf2::Vector3(goal.pose.position.x, goal.pose.position.y, 0.0));
+  goal_frame_transform.setRotation(tf2::Quaternion(goal.pose.orientation.x, goal.pose.orientation.y, goal.pose.orientation.z, goal.pose.orientation.w));
+
+  tf2::Transform current_pose_in_goal_frame = goal_frame_transform.inverse() * tf2::Transform(tf2::Quaternion(current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w), 
+  tf2::Vector3(current_pose.pose.position.x, current_pose.pose.position.y, current_pose.pose.position.z));
+
+  double x_in_goal_frame = current_pose_in_goal_frame.getOrigin().x();
+  double y_in_goal_frame = current_pose_in_goal_frame.getOrigin().y();
+
+  RCLCPP_INFO(node_->get_logger(), "current_pose_in_goal_frame x: %f, y: %f", x_in_goal_frame, y_in_goal_frame);
+
   double current_yaw = tf2::getYaw(current_pose.pose.orientation);
   double goal_yaw = tf2::getYaw(goal.pose.orientation);
   double dangle = fabs(angles::shortest_angular_distance(goal_yaw, current_yaw));
-  double dx = goal.pose.position.x - current_pose.pose.position.x;
-  double dy = goal.pose.position.y - current_pose.pose.position.y;
 
   // Check conditions for x, y, and xy tolerances
-  bool within_xy_tolerance = (dx * dx + dy * dy) <= (goal_reached_tol_ * goal_reached_tol_);
-  bool within_x_tolerance = fabs(dx) <= goal_reached_tol_x_;
-  bool within_y_tolerance = fabs(dy) <= goal_reached_tol_y_;
+  bool within_xy_tolerance = (x_in_goal_frame * x_in_goal_frame + y_in_goal_frame * y_in_goal_frame) <= (goal_reached_tol_ * goal_reached_tol_);
+  bool within_x_tolerance = fabs(x_in_goal_frame) <= goal_reached_tol_x_;
+  bool within_y_tolerance = fabs(y_in_goal_frame) <= goal_reached_tol_y_;
   bool within_yaw_tolerance = dangle <= goal_reached_tol_yaw_;
 
   return within_xy_tolerance && within_x_tolerance && within_y_tolerance && within_yaw_tolerance;
