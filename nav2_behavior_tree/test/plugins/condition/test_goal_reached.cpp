@@ -45,7 +45,7 @@ public:
       R"(
       <root main_tree_to_execute = "MainTree" >
         <BehaviorTree ID="MainTree">
-            <GoalReached goal="{goal}" xy_goal_tolerance="0.1" />
+            <GoalReached goal="{goal}" xy_goal_tolerance="0.1" x_goal_tolerance="0.1" y_goal_tolerance="0.1"/>
         </BehaviorTree>
       </root>)";
 
