@@ -97,8 +97,8 @@ bool GoalReachedCondition::isGoalReached()
   tf2::Transform current_pose_in_goal_frame = goal_frame_transform.inverse() * tf2::Transform(tf2::Quaternion(current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w), 
   tf2::Vector3(current_pose.pose.position.x, current_pose.pose.position.y, current_pose.pose.position.z));
 
-  double x_in_goal_frame = current_pose_in_goal_frame.getOrigin().x();
-  double y_in_goal_frame = current_pose_in_goal_frame.getOrigin().y();
+  double x_in_goal_frame = fabs(current_pose_in_goal_frame.getOrigin().x());
+  double y_in_goal_frame = fabs(current_pose_in_goal_frame.getOrigin().y());
 
   RCLCPP_INFO(node_->get_logger(), "current_pose_in_goal_frame x: %f, y: %f", x_in_goal_frame, y_in_goal_frame);
 
@@ -107,9 +107,9 @@ bool GoalReachedCondition::isGoalReached()
   double dangle = fabs(angles::shortest_angular_distance(goal_yaw, current_yaw));
 
   // Check conditions for x, y, and xy tolerances
-  bool within_xy_tolerance = (x_in_goal_frame * x_in_goal_frame + y_in_goal_frame * y_in_goal_frame) <= (goal_reached_tol_ * goal_reached_tol_);
-  bool within_x_tolerance = fabs(x_in_goal_frame) <= goal_reached_tol_x_;
-  bool within_y_tolerance = fabs(y_in_goal_frame) <= goal_reached_tol_y_;
+  bool within_xy_tolerance = ((x_in_goal_frame <= goal_reached_tol_) && (y_in_goal_frame <= goal_reached_tol_));
+  bool within_x_tolerance = x_in_goal_frame <= goal_reached_tol_x_;
+  bool within_y_tolerance = y_in_goal_frame <= goal_reached_tol_y_;
   bool within_yaw_tolerance = dangle <= goal_reached_tol_yaw_;
 
   return within_xy_tolerance && within_x_tolerance && within_y_tolerance && within_yaw_tolerance;
