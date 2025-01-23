@@ -85,10 +85,6 @@ bool GoalReachedCondition::isGoalReached()
     RCLCPP_DEBUG(node_->get_logger(), "Current robot pose is not available.");
     return false;
   }
-  RCLCPP_INFO(node_->get_logger(), "current_pose x: %f, y: %f", current_pose.pose.orientation.x, current_pose.pose.orientation.y);
-
-  // RCLCPP_INFO(node_->get_logger(), "x_goal_tolerance %f", goal_reached_tol_x_);
-  // RCLCPP_INFO(node_->get_logger(), "y_goal_tolerance %f", goal_reached_tol_y_);
   geometry_msgs::msg::PoseStamped goal;
   getInput("goal", goal);
 
@@ -110,7 +106,7 @@ bool GoalReachedCondition::isGoalReached()
   double dangle = fabs(angles::shortest_angular_distance(goal_yaw, current_yaw));
 
   // Check conditions for x, y, and xy tolerances
-  bool within_xy_tolerance = (x_in_goal_frame * x_in_goal_frame + y_in_goal_frame * y_in_goal_frame) <= (goal_reached_tol_ * goal_reached_tol_);    //  ((x_in_goal_frame <= goal_reached_tol_) && (y_in_goal_frame <= goal_reached_tol_));
+  bool within_xy_tolerance = (x_in_goal_frame * x_in_goal_frame + y_in_goal_frame * y_in_goal_frame) <= (goal_reached_tol_ * goal_reached_tol_);  
   bool within_x_tolerance = x_in_goal_frame <= goal_reached_tol_x_;
   bool within_y_tolerance = y_in_goal_frame <= goal_reached_tol_y_;
   bool within_yaw_tolerance = dangle <= goal_reached_tol_yaw_;
