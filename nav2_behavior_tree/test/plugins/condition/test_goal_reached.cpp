@@ -106,6 +106,8 @@ TEST_F(GoalReachedConditionTestFixture, test_behavior)
 TEST_F(GoalReachedConditionTestFixture, test_tolerance_cases)
 {
   geometry_msgs::msg::Pose pose;
+  pose.position.x = 1.0;
+  pose.position.y = 0.0;
   
   {
     std::string xml_txt =
