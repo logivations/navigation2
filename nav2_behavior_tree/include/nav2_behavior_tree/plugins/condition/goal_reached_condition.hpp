@@ -17,6 +17,7 @@
 
 #include <string>
 #include <memory>
+#include <limits>
 
 #include "rclcpp/rclcpp.hpp"
 #include "behaviortree_cpp_v3/condition_node.h"
@@ -74,7 +75,9 @@ public:
     return {
       BT::InputPort<geometry_msgs::msg::PoseStamped>("goal", "Destination"),
       BT::InputPort<std::string>("global_frame", std::string("map"), "Global frame"),
-      BT::InputPort<double>("xy_goal_tolerance", 0.1, "xy goal tolerance"),
+      BT::InputPort<double>("x_goal_tolerance", std::numeric_limits<double>::infinity(), "x goal tolerance"),
+      BT::InputPort<double>("y_goal_tolerance", std::numeric_limits<double>::infinity(), "y goal tolerance"),
+      BT::InputPort<double>("xy_goal_tolerance", std::numeric_limits<double>::infinity(), "xy goal tolerance"),
       BT::InputPort<double>("yaw_goal_tolerance", 0.1, "yaw goal tolerance"),
       BT::InputPort<std::string>("robot_base_frame", std::string("base_link"), "Robot base frame")
     };
@@ -93,6 +96,8 @@ private:
 
   bool initialized_;
   double goal_reached_tol_;
+  double goal_reached_tol_x_;
+  double goal_reached_tol_y_ ;
   double goal_reached_tol_yaw_;
   std::string global_frame_;
   std::string robot_base_frame_;
