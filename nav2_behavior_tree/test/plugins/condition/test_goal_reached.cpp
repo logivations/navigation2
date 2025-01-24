@@ -243,22 +243,39 @@ TEST_F(GoalReachedConditionTestFixture, test_tolerance_cases)
     EXPECT_EQ(tree_->tickRoot(), BT::NodeStatus::SUCCESS);  
   }
  
-  // {
-  //   pose.position.x = 1.5;
-  //   pose.position.y = 1.5;  
+  {
+    pose.position.x = 1.5;
+    pose.position.y = 1.5;  
 
-  //   std::string xml_txt =
-  //     R"(
-  //     <root main_tree_to_execute = "MainTree" >
-  //       <BehaviorTree ID="MainTree">
-  //         <GoalReached goal="{goal}" xy_goal_tolerance="1.5" />
-  //       </BehaviorTree>
-  //     </root>)";
-  //   SetUp(xml_txt, 0.0, 0.0);
-  //   transform_handler_->updateRobotPose(pose);
-  //   std::this_thread::sleep_for(500ms);
-  //   EXPECT_EQ(tree_->tickRoot(), BT::NodeStatus::SUCCESS);  
-  // }
+    std::string xml_txt =
+      R"(
+      <root main_tree_to_execute = "MainTree" >
+        <BehaviorTree ID="MainTree">
+          <GoalReached goal="{goal}" xy_goal_tolerance="2.25" />
+        </BehaviorTree>
+      </root>)";
+    SetUp(xml_txt, 0.0, 0.0);
+    transform_handler_->updateRobotPose(pose);
+    std::this_thread::sleep_for(500ms);
+    EXPECT_EQ(tree_->tickRoot(), BT::NodeStatus::SUCCESS);  
+  }
+
+  {
+    pose.position.x = 1.5;
+    pose.position.y = 1.5;  
+
+    std::string xml_txt =
+      R"(
+      <root main_tree_to_execute = "MainTree" >
+        <BehaviorTree ID="MainTree">
+          <GoalReached goal="{goal}" xy_goal_tolerance="1.25" />
+        </BehaviorTree>
+      </root>)";
+    SetUp(xml_txt, 0.0, 0.0);
+    transform_handler_->updateRobotPose(pose);
+    std::this_thread::sleep_for(500ms);
+    EXPECT_EQ(tree_->tickRoot(), BT::NodeStatus::FAILURE);  
+  }
   
 }
 
