@@ -99,8 +99,6 @@ bool GoalReachedCondition::isGoalReached()
   double x_in_goal_frame = fabs(current_pose_in_goal_frame.getOrigin().x());
   double y_in_goal_frame = fabs(current_pose_in_goal_frame.getOrigin().y());
 
-  RCLCPP_INFO(node_->get_logger(), "current_pose_in_goal_frame x: %f, y: %f", x_in_goal_frame, y_in_goal_frame);
-
   double current_yaw = tf2::getYaw(current_pose.pose.orientation);
   double goal_yaw = tf2::getYaw(goal.pose.orientation);
   double dangle = fabs(angles::shortest_angular_distance(goal_yaw, current_yaw));
