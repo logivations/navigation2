@@ -136,6 +136,9 @@ public:
       should_send_request_ = true;
       should_fail_not_sent_request_ = true;
 
+      // Clear the input request to make sure we have no leftover from previous calls
+      request_ = std::make_shared<typename ServiceT::Request>();
+
       // user defined callback, may modify "should_send_request_".
       on_tick();
 
