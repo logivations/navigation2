@@ -56,7 +56,8 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-      BT::InputPort<int>("number_of_retries", 1, "Number of retries")
+      BT::InputPort<int>("number_of_retries", 1, "Number of retries"),
+      BT::InputPort<bool>("recover_before_failing", false,"Run the recovery part, and then fail anyway"),
     };
   }
 
@@ -64,6 +65,7 @@ private:
   unsigned int current_child_idx_;
   unsigned int number_of_retries_;
   unsigned int retry_count_;
+  bool recover_before_failing_;
 
   /**
    * @brief The main override required by a BT action

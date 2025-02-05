@@ -24,13 +24,15 @@ RecoveryNode::RecoveryNode(
 : BT::ControlNode::ControlNode(name, conf),
   current_child_idx_(0),
   number_of_retries_(1),
-  retry_count_(0)
+  retry_count_(0),
+  recover_before_failing_(false)
 {
 }
 
 BT::NodeStatus RecoveryNode::tick()
 {
   getInput("number_of_retries", number_of_retries_);
+  getInput("recover_before_failing", recover_before_failing_);
   const unsigned children_count = children_nodes_.size();
 
   if (children_count != 2) {
@@ -59,6 +61,8 @@ BT::NodeStatus RecoveryNode::tick()
               ControlNode::haltChild(0);
               current_child_idx_++;
               break;
+            } else if (recover_before_failing_) {
+              current_child_idx_++; // Execute recovery before failing
             } else {
               // reset node and return failure when max retries has been exceeded
               halt();
