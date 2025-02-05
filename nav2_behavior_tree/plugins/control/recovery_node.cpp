@@ -57,15 +57,19 @@ BT::NodeStatus RecoveryNode::tick()
         case BT::NodeStatus::FAILURE:
           {
             if (retry_count_ < number_of_retries_) {
+              // halt first child and tick second child in next iteration
               ControlNode::haltChild(0);
               current_child_idx_++;
-              break; 
-            } else if (recover_before_failing_) {
-              current_child_idx_++; // Execute recovery before failing
               break;
             } else {
-              halt();
-              return BT::NodeStatus::FAILURE;
+              if (recover_before_failing_) {
+                ControlNode::haltChild(0);
+                current_child_idx_++;
+                break;
+              } else {
+                halt();
+                return BT::NodeStatus::FAILURE;
+              }
             }
           }
 
