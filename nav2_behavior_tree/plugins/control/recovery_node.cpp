@@ -66,9 +66,14 @@ BT::NodeStatus RecoveryNode::tick()
               ControlNode::haltChild(0);
               current_child_idx_ = 1; 
               TreeNode * recovery_child_node = children_nodes_[current_child_idx_];
-              recovery_child_node->executeTick();
-              halt();
-              return BT::NodeStatus::FAILURE;
+              BT::NodeStatus recovery_status = recovery_child_node->executeTick();
+              if (recovery_status == BT::NodeStatus::RUNNING) {
+                // Recovery is still in progress, so wait
+                return BT::NodeStatus::RUNNING;
+              } else {
+                halt();
+                return BT::NodeStatus::FAILURE;
+              } 
             } else {
               // reset node and return failure when max retries has been exceeded
               halt();
