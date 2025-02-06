@@ -61,15 +61,18 @@ BT::NodeStatus RecoveryNode::tick()
               ControlNode::haltChild(0);
               current_child_idx_++;
               break;
+            } else if (recover_before_failing_) {
+              // Run recovery before failing
+              ControlNode::haltChild(0);
+              current_child_idx_ = 1; 
+              TreeNode * recovery_child_node = children_nodes_[current_child_idx_];
+              recovery_child_node->executeTick();
+              halt();
+              return BT::NodeStatus::FAILURE;
             } else {
-              if (recover_before_failing_) {
-                ControlNode::haltChild(0);
-                current_child_idx_++;
-                break;
-              } else {
-                halt();
-                return BT::NodeStatus::FAILURE;
-              }
+              // reset node and return failure when max retries has been exceeded
+              halt();
+              return BT::NodeStatus::FAILURE;
             }
           }
 
