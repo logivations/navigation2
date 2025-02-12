@@ -255,6 +255,15 @@ int Polygon::getPointsInside(const std::vector<Point> & points) const
   return num;
 }
 
+void Polygon::getPointsInside(const std::vector<Point> & points, std::vector<Point>& points_inside) const
+{
+  for (const Point & point : points) {
+    if (isPointInside(point)) {
+      points_inside.push_back(point);
+    }
+  }
+}
+
 double Polygon::getCollisionTime(
   const std::vector<Point> & collision_points,
   const Velocity & velocity) const

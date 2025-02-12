@@ -446,33 +446,6 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     }
   }
 
-  if (collision_points_marker_pub_->get_subscription_count() > 0) {
-    // visualize collision points with markers
-    auto marker_array = std::make_unique<visualization_msgs::msg::MarkerArray>();
-    visualization_msgs::msg::Marker marker;
-    marker.header.frame_id = get_parameter("base_frame_id").as_string();
-    marker.header.stamp = rclcpp::Time(0, 0);
-    marker.ns = "collision_points";
-    marker.id = 0;
-    marker.type = visualization_msgs::msg::Marker::POINTS;
-    marker.action = visualization_msgs::msg::Marker::ADD;
-    marker.scale.x = 0.02;
-    marker.scale.y = 0.02;
-    marker.color.r = 1.0;
-    marker.color.a = 1.0;
-    marker.lifetime = rclcpp::Duration(0, 0);
-
-    for (const auto & point : collision_points) {
-      geometry_msgs::msg::Point p;
-      p.x = point.x;
-      p.y = point.y;
-      p.z = 0.0;
-      marker.points.push_back(p);
-    }
-    marker_array->markers.push_back(marker);
-    collision_points_marker_pub_->publish(std::move(marker_array));
-  }
-
   const double velocity_threshold = 0.1;
 
   bool robot_stopped = std::abs(last_odom_msg_.linear.x) < velocity_threshold &&
@@ -560,8 +533,14 @@ bool CollisionMonitor::processStopSlowdownLimit(
     return false;
   }
 
-  if (polygon->getPointsInside(collision_points) >= polygon->getMinPoints()) {
-    if (polygon->getActionType() == STOP) {
+  std::vector<Point> collision_points_inside_polygon;
+  polygon->getPointsInside(collision_points, collision_points_inside_polygon);
+
+  if (static_cast<int>(collision_points_inside_polygon.size()) >= polygon->getMinPoints()) {
+    if (polygon->getActionType() == STOP) { 
+      
+      publishCollisionPoints(collision_points_inside_polygon);
+
       // Setting up zero velocity for STOP model
       robot_action.polygon_name = polygon->getName();
       robot_action.action_type = STOP;
@@ -706,6 +685,36 @@ void CollisionMonitor::publishPolygons() const
     if (polygon->getEnabled()) {
       polygon->publish();
     }
+  }
+}
+
+void CollisionMonitor::publishCollisionPoints(const std::vector<Point> & collision_points) const
+{
+  if (collision_points_marker_pub_->get_subscription_count() > 0) {
+      // visualize collision points with markers
+      auto marker_array = std::make_unique<visualization_msgs::msg::MarkerArray>();
+      visualization_msgs::msg::Marker marker;
+      marker.header.frame_id = get_parameter("base_frame_id").as_string();
+      marker.header.stamp = rclcpp::Time(0, 0);
+      marker.ns = "collision_points";
+      marker.id = 0;
+      marker.type = visualization_msgs::msg::Marker::POINTS;
+      marker.action = visualization_msgs::msg::Marker::ADD;
+      marker.scale.x = 0.02;
+      marker.scale.y = 0.02;
+      marker.color.r = 1.0;
+      marker.color.a = 1.0;
+      marker.lifetime = rclcpp::Duration(0, 0);
+
+      for (const auto & point : collision_points) {
+        geometry_msgs::msg::Point p;
+        p.x = point.x;
+        p.y = point.y;
+        p.z = 0.0;
+        marker.points.push_back(p);
+      }
+      marker_array->markers.push_back(marker);
+      collision_points_marker_pub_->publish(std::move(marker_array));
   }
 }
 

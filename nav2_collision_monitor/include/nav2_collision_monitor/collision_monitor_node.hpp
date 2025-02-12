@@ -199,6 +199,8 @@ protected:
    */
   void publishPolygons() const;
 
+  void publishCollisionPoints(const std::vector<Point>& collision_points) const;
+
   // ----- Variables -----
 
   /// @brief TF buffer
