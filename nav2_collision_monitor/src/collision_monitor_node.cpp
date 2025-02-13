@@ -421,12 +421,6 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
   }
 
   // Points array collected from different data sources in a robot base frame
-  std::vector<Point> collision_points;
-
-  // By default - there is no action
-  Action robot_action{DO_NOTHING, cmd_vel_in, ""};
-  // Polygon causing robot action (if any)
-  std::shared_ptr<Polygon> action_polygon;
 
   // Fill collision_points array from different data sources
   for (std::shared_ptr<Source> source : sources_) {
@@ -450,6 +444,12 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
   bool robot_stopped = std::abs(last_odom_msg_.linear.x) < velocity_threshold &&
                        std::abs(last_odom_msg_.linear.y) < velocity_threshold &&
                        std::abs(last_odom_msg_.angular.z) < velocity_threshold;
+
+
+  // By default - there is no action
+  Action robot_action{DO_NOTHING, cmd_vel_in, ""};
+  // Polygon causing robot action (if any)
+  std::shared_ptr<Polygon> action_polygon;
 
   for (std::shared_ptr<Polygon> polygon : polygons_) {
     if (!polygon->getEnabled()) {
