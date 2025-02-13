@@ -56,11 +56,16 @@ public:
     callback_group_executor_.add_callback_group(callback_group_, node_->get_node_base_interface());
 
     // Get the required items from the blackboard
-    bt_loop_duration_ =
+    auto bt_loop_duration =
       config().blackboard->template get<std::chrono::milliseconds>("bt_loop_duration");
     server_timeout_ =
       config().blackboard->template get<std::chrono::milliseconds>("server_timeout");
     getInput<std::chrono::milliseconds>("server_timeout", server_timeout_);
+    wait_for_service_timeout_ =
+      config().blackboard->template get<std::chrono::milliseconds>("wait_for_service_timeout");
+
+    // timeout should be less than bt_loop_duration to be able to finish the current tick
+    max_timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(bt_loop_duration * 0.5);
 
     // Initialize the input and output messages
     goal_ = typename ActionT::Goal();
@@ -93,10 +98,11 @@ public:
 
     // Make sure the server is actually there before continuing
     RCLCPP_DEBUG(node_->get_logger(), "Waiting for \"%s\" action server", action_name.c_str());
-    if (!action_client_->wait_for_action_server(20s)) {
+    if (!action_client_->wait_for_action_server(wait_for_service_timeout_)) {
       RCLCPP_ERROR(
-        node_->get_logger(), "\"%s\" action server not available after waiting for 20 s",
-        action_name.c_str());
+        node_->get_logger(), "\"%s\" action server not available after waiting for %.2fs",
+        action_name.c_str(),
+        wait_for_service_timeout_.count() / 1000.0);
       throw std::runtime_error(
               std::string("Action server ") + action_name +
               std::string(" not available"));
@@ -162,7 +168,7 @@ public:
   }
 
   /**
-   * @brief Function to perform some user-defined operation whe the action is aborted.
+   * @brief Function to perform some user-defined operation when the action is aborted.
    * @return BT::NodeStatus Returns FAILURE by default, user may override return another value
    */
   virtual BT::NodeStatus on_aborted()
@@ -266,7 +272,7 @@ public:
         // Action related failure that should not fail the tree, but the node
         return BT::NodeStatus::FAILURE;
       } else {
-        // Internal exception to propogate to the tree
+        // Internal exception to propagate to the tree
         throw e;
       }
     }
@@ -300,6 +306,7 @@ public:
   void halt() override
   {
     if (should_cancel_goal()) {
+      auto future_result = action_client_->async_get_result(goal_handle_);
       auto future_cancel = action_client_->async_cancel_goal(goal_handle_);
       if (callback_group_executor_.spin_until_future_complete(future_cancel, server_timeout_) !=
         rclcpp::FutureReturnCode::SUCCESS)
@@ -308,6 +315,16 @@ public:
           node_->get_logger(),
           "Failed to cancel action server for %s", action_name_.c_str());
       }
+
+      if (callback_group_executor_.spin_until_future_complete(future_result, server_timeout_) !=
+        rclcpp::FutureReturnCode::SUCCESS)
+      {
+        RCLCPP_ERROR(
+          node_->get_logger(),
+          "Failed to get result for %s in node halt!", action_name_.c_str());
+      }
+
+      on_cancelled();
     }
 
     setStatus(BT::NodeStatus::IDLE);
@@ -391,7 +408,7 @@ protected:
       return false;
     }
 
-    auto timeout = remaining > bt_loop_duration_ ? bt_loop_duration_ : remaining;
+    auto timeout = remaining > max_timeout_ ? max_timeout_ : remaining;
     auto result =
       callback_group_executor_.spin_until_future_complete(*future_goal_handle_, timeout);
     elapsed += timeout;
@@ -447,7 +464,10 @@ protected:
   std::chrono::milliseconds server_timeout_;
 
   // The timeout value for BT loop execution
-  std::chrono::milliseconds bt_loop_duration_;
+  std::chrono::milliseconds max_timeout_;
+
+  // The timeout value for waiting for a service to response
+  std::chrono::milliseconds wait_for_service_timeout_;
 
   // To track the action server acknowledgement when a new goal is sent
   std::shared_ptr<std::shared_future<typename rclcpp_action::ClientGoalHandle<ActionT>::SharedPtr>>

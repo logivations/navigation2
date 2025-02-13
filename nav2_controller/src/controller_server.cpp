@@ -174,7 +174,7 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
         progress_checker_ids_[i].c_str(), progress_checker_types_[i].c_str());
       progress_checker->initialize(node, progress_checker_ids_[i]);
       progress_checkers_.insert({progress_checker_ids_[i], progress_checker});
-    } catch (const pluginlib::PluginlibException & ex) {
+    } catch (const std::exception & ex) {
       RCLCPP_FATAL(
         get_logger(),
         "Failed to create progress_checker. Exception: %s", ex.what());
@@ -291,7 +291,10 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Activating");
 
-  costmap_ros_->activate();
+  const auto costmap_ros_state = costmap_ros_->activate();
+  if (costmap_ros_state.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    return nav2_util::CallbackReturn::FAILURE;
+  }
   narrow_costmap_ros_->activate();
   sensor_costmap_ros_->activate();
   ControllerMap::iterator it;
@@ -330,21 +333,9 @@ ControllerServer::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
    * unordered_set iteration. Once this issue is resolved, we can maybe make a stronger
    * ordering assumption: https://github.com/ros2/rclcpp/issues/2096
    */
-  if (costmap_ros_->get_current_state().id() ==
-    lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE)
-  {
-    costmap_ros_->deactivate();
-  }
-  if (narrow_costmap_ros_->get_current_state().id() ==
-    lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE)
-  {
-    narrow_costmap_ros_->deactivate();
-  }
-  if (sensor_costmap_ros_->get_current_state().id() ==
-    lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE)
-  {
-    sensor_costmap_ros_->deactivate();
-  }
+  costmap_ros_->deactivate();
+  narrow_costmap_ros_->deactivate();
+  sensor_costmap_ros_->deactivate();
 
   publishZeroVelocity();
   vel_publisher_->on_deactivate();
@@ -370,21 +361,9 @@ ControllerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 
   goal_checkers_.clear();
   progress_checkers_.clear();
-  if (costmap_ros_->get_current_state().id() ==
-    lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE)
-  {
-    costmap_ros_->cleanup();
-  }
-  if (narrow_costmap_ros_->get_current_state().id() ==
-    lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE)
-  {
-    narrow_costmap_ros_->cleanup();
-  }
-  if (sensor_costmap_ros_->get_current_state().id() ==
-    lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE)
-  {
-    sensor_costmap_ros_->cleanup();
-  }
+
+  costmap_ros_->cleanup();
+
 
   // Release any allocated resources
   action_server_.reset();
@@ -490,7 +469,12 @@ void ControllerServer::computeControl()
   RCLCPP_INFO(get_logger(), "Received a goal, begin computing control effort.");
 
   try {
-    std::string c_name = action_server_->get_current_goal()->controller_id;
+    auto goal = action_server_->get_current_goal();
+    if (!goal) {
+      return;  //  goal would be nullptr if action_server_ is inactivate.
+    }
+
+    std::string c_name = goal->controller_id;
     std::string current_controller;
     if (findControllerId(c_name, current_controller)) {
       RCLCPP_INFO(get_logger(), "Selected controller: %s.", c_name.c_str());
@@ -499,7 +483,7 @@ void ControllerServer::computeControl()
       throw nav2_core::InvalidController("Failed to find controller name: " + c_name);
     }
 
-    std::string gc_name = action_server_->get_current_goal()->goal_checker_id;
+    std::string gc_name = goal->goal_checker_id;
     std::string current_goal_checker;
     if (findGoalCheckerId(gc_name, current_goal_checker)) {
       current_goal_checker_ = current_goal_checker;
@@ -507,7 +491,7 @@ void ControllerServer::computeControl()
       throw nav2_core::ControllerException("Failed to find goal checker name: " + gc_name);
     }
 
-    std::string pc_name = action_server_->get_current_goal()->progress_checker_id;
+    std::string pc_name = goal->progress_checker_id;
     std::string current_progress_checker;
     if (findProgressCheckerId(pc_name, current_progress_checker)) {
       current_progress_checker_ = current_progress_checker;
@@ -515,7 +499,7 @@ void ControllerServer::computeControl()
       throw nav2_core::ControllerException("Failed to find progress checker name: " + pc_name);
     }
 
-    setPlannerPath(action_server_->get_current_goal()->path);
+    setPlannerPath(goal->path);
     progress_checkers_[current_progress_checker_]->reset();
 
     last_valid_cmd_time_ = now();
@@ -523,6 +507,8 @@ void ControllerServer::computeControl()
     auto begin = std::chrono::steady_clock::now();
     double real_frequency = controller_frequency_;
     while (rclcpp::ok()) {
+      auto start_time = this->now();
+
       if (action_server_ == nullptr || !action_server_->is_server_active()) {
         RCLCPP_DEBUG(get_logger(), "Action server unavailable or inactive. Stopping.");
         return;
@@ -556,14 +542,12 @@ void ControllerServer::computeControl()
         break;
       }
 
+      auto cycle_duration = this->now() - start_time;
       if (!loop_rate.sleep()) {
-        auto end = std::chrono::steady_clock::now();
-        double period = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
-        begin = end;
-        real_frequency = 1.0e6 / period;
         RCLCPP_WARN(
-          get_logger(), "Control loop missed its desired rate of %.4fHz. Achieved rate: %.4fHz",
-          controller_frequency_, real_frequency);
+          get_logger(),
+          "Control loop missed its desired rate of %.4f Hz. Current loop rate is %.4f Hz.",
+          controller_frequency_, 1 / cycle_duration.seconds());
       }
     }
   } catch (nav2_core::InvalidController & e) {

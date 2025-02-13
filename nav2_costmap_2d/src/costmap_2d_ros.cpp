@@ -61,8 +61,8 @@ namespace nav2_costmap_2d
 Costmap2DROS::Costmap2DROS(const std::string & name, const bool & use_sim_time, const bool & use_intra_process_comms)
 : Costmap2DROS(name, "/", name, use_sim_time, use_intra_process_comms) {}
 
-Costmap2DROS::Costmap2DROS()
-: nav2_util::LifecycleNode("costmap", ""),
+Costmap2DROS::Costmap2DROS(const rclcpp::NodeOptions & options)
+: nav2_util::LifecycleNode("costmap", "", options),
   name_("costmap"),
   default_plugins_{"static_layer", "obstacle_layer", "inflation_layer"},
   default_types_{
@@ -71,6 +71,7 @@ Costmap2DROS::Costmap2DROS()
     "nav2_costmap_2d::InflationLayer"}
 {
   declare_parameter("map_topic", rclcpp::ParameterValue(std::string("map")));
+  is_lifecycle_follower_ = false;
   init();
 }
 
@@ -109,8 +110,6 @@ void Costmap2DROS::init()
 {
   RCLCPP_INFO(get_logger(), "Creating Costmap");
 
-  std::vector<std::string> clearable_layers{"obstacle_layer", "voxel_layer", "range_layer"};
-
   declare_parameter("always_send_full_costmap", rclcpp::ParameterValue(false));
   declare_parameter("map_vis_z", rclcpp::ParameterValue(0.0));
   declare_parameter("footprint_padding", rclcpp::ParameterValue(0.01f));
@@ -131,11 +130,11 @@ void Costmap2DROS::init()
   declare_parameter("rolling_window", rclcpp::ParameterValue(false));
   declare_parameter("track_unknown_space", rclcpp::ParameterValue(false));
   declare_parameter("transform_tolerance", rclcpp::ParameterValue(0.3));
+  declare_parameter("initial_transform_timeout", rclcpp::ParameterValue(60.0));
   declare_parameter("trinary_costmap", rclcpp::ParameterValue(true));
   declare_parameter("unknown_cost_value", rclcpp::ParameterValue(static_cast<unsigned char>(0xff)));
   declare_parameter("update_frequency", rclcpp::ParameterValue(5.0));
   declare_parameter("use_maximum", rclcpp::ParameterValue(false));
-  declare_parameter("clearable_layers", rclcpp::ParameterValue(clearable_layers));
 }
 
 Costmap2DROS::~Costmap2DROS()
@@ -146,7 +145,13 @@ nav2_util::CallbackReturn
 Costmap2DROS::on_configure(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Configuring");
-  getParameters();
+  try {
+    getParameters();
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(
+      get_logger(), "Failed to configure costmap! %s.", e.what());
+    return nav2_util::CallbackReturn::FAILURE;
+  }
 
   callback_group_ = create_callback_group(
     rclcpp::CallbackGroupType::MutuallyExclusive, false);
@@ -261,13 +266,6 @@ Costmap2DROS::on_activate(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Activating");
 
-  footprint_pub_->on_activate();
-  costmap_publisher_->on_activate();
-
-  for (auto & layer_pub : layer_publishers_) {
-    layer_pub->on_activate();
-  }
-
   // First, make sure that the transform between the robot base frame
   // and the global frame is available
 
@@ -275,6 +273,9 @@ Costmap2DROS::on_activate(const rclcpp_lifecycle::State & /*state*/)
 
   RCLCPP_INFO(get_logger(), "Checking transform");
   rclcpp::Rate r(2);
+  const auto initial_transform_timeout = rclcpp::Duration::from_seconds(
+    initial_transform_timeout_);
+  const auto initial_transform_timeout_point = now() + initial_transform_timeout;
   while (rclcpp::ok() &&
     !tf_buffer_->canTransform(
       global_frame_, robot_base_frame_, tf2::TimePointZero, &tf_error))
@@ -284,10 +285,27 @@ Costmap2DROS::on_activate(const rclcpp_lifecycle::State & /*state*/)
       " to become available, tf error: %s",
       robot_base_frame_.c_str(), global_frame_.c_str(), tf_error.c_str());
 
+    // Check timeout
+    if (now() > initial_transform_timeout_point) {
+      RCLCPP_ERROR(
+        get_logger(), "Failed to activate %s because transform from %s to %s did not become available before timeout",
+        get_name(), robot_base_frame_.c_str(), global_frame_.c_str());
+
+      return nav2_util::CallbackReturn::FAILURE;
+    }
+
     // The error string will accumulate and errors will typically be the same, so the last
     // will do for the warning above. Reset the string here to avoid accumulation
     tf_error.clear();
     r.sleep();
+  }
+
+  // Activate publishers
+  footprint_pub_->on_activate();
+  costmap_publisher_->on_activate();
+
+  for (auto & layer_pub : layer_publishers_) {
+    layer_pub->on_activate();
   }
 
   // Create a thread to handle updating the map
@@ -336,6 +354,7 @@ nav2_util::CallbackReturn
 Costmap2DROS::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Cleaning up");
+  executor_thread_.reset();
 
   costmap_publisher_.reset();
   clear_costmap_service_.reset();
@@ -350,8 +369,6 @@ Costmap2DROS::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   footprint_sub_.reset();
   footprint_pub_.reset();
 
-
-  executor_thread_.reset();
   return nav2_util::CallbackReturn::SUCCESS;
 }
 
@@ -383,6 +400,7 @@ Costmap2DROS::getParameters()
   get_parameter("rolling_window", rolling_window_);
   get_parameter("track_unknown_space", track_unknown_space_);
   get_parameter("transform_tolerance", transform_tolerance_);
+  get_parameter("initial_transform_timeout", initial_transform_timeout_);
   get_parameter("update_frequency", map_update_frequency_);
   get_parameter("width", map_width_meters_);
   get_parameter("plugins", plugin_names_);
@@ -429,6 +447,18 @@ Costmap2DROS::getParameters()
         get_logger(), "The footprint parameter is invalid: \"%s\", using radius (%lf) instead",
         footprint_.c_str(), robot_radius_);
     }
+  }
+
+  // 4. The width and height of map cannot be negative or 0 (to avoid abnoram memory usage)
+  if (map_width_meters_ <= 0) {
+    RCLCPP_ERROR(
+      get_logger(), "You try to set width of map to be negative or zero,"
+      " this isn't allowed, please give a positive value.");
+  }
+  if (map_height_meters_ <= 0) {
+    RCLCPP_ERROR(
+      get_logger(), "You try to set height of map to be negative or zero,"
+      " this isn't allowed, please give a positive value.");
   }
 }
 
@@ -481,6 +511,9 @@ Costmap2DROS::mapUpdateLoop(double frequency)
 
     // Execute after start() will complete plugins activation
     if (!stopped_) {
+      // Lock while modifying layered costmap and publishing values
+      std::scoped_lock<std::mutex> lock(_dynamic_parameter_mutex);
+
       // Measure the execution time of the updateMap method
       timer.start();
       updateMap();
@@ -681,6 +714,7 @@ Costmap2DROS::dynamicParametersCallback(std::vector<rclcpp::Parameter> parameter
 {
   auto result = rcl_interfaces::msg::SetParametersResult();
   bool resize_map = false;
+  std::lock_guard<std::mutex> lock_reinit(_dynamic_parameter_mutex);
 
   for (auto parameter : parameters) {
     const auto & type = parameter.get_type();
@@ -776,6 +810,7 @@ Costmap2DROS::dynamicParametersCallback(std::vector<rclcpp::Parameter> parameter
     layered_costmap_->resizeMap(
       (unsigned int)(map_width_meters_ / resolution_),
       (unsigned int)(map_height_meters_ / resolution_), resolution_, origin_x_, origin_y_);
+    updateMap();
   }
 
   result.successful = true;
