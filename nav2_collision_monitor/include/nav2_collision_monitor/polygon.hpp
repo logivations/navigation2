@@ -159,6 +159,13 @@ public:
   virtual int getPointsInside(const std::vector<Point> & points) const;
 
   /**
+   * @brief Gets points inside given polygon
+   * @param points Input array of points to be checked
+   * @param points_inside Output array of points inside polygon
+   */
+  virtual void getPointsInside(const std::vector<Point> & points, std::vector<Point>& points_inside) const;
+
+  /**
    * @brief Obtains estimated (simulated) time before a collision.
    * Applicable for APPROACH model.
    * @param collision_points Array of 2D obstacle points

@@ -199,6 +199,12 @@ protected:
    */
   void publishPolygons() const;
 
+   /**
+   * @brief Collision points publishing routine. Made for visualization.
+   * @param collision_points collision points to publish
+   */
+  void publishCollisionPoints(const std::vector<Point>& collision_points) const;
+
   // ----- Variables -----
 
   /// @brief TF buffer
