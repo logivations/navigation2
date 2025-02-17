@@ -66,9 +66,10 @@ void Scan::configure()
     std::bind(&Scan::dataCallback, this, std::placeholders::_1));
 }
 
-bool Scan::getData(
+template <typename PointType>
+bool Scan::getDataImpl(
   const rclcpp::Time & curr_time,
-  std::vector<Point> & data) const
+  std::vector<PointType> & data) const
 {
   // Ignore data from the source if it is not being published yet or
   // not being published for a long time
@@ -116,12 +117,39 @@ bool Scan::getData(
       tf2::Vector3 p_v3_b = tf_transform * p_v3_s;
 
       // Refill data array
-      data.push_back({p_v3_b.x(), p_v3_b.y()});
+      if constexpr (std::is_same_v<PointType, Point>) {
+        data.push_back({p_v3_b.x(), p_v3_b.y()});
+      } else {
+        data.push_back({p_v3_b.x(), p_v3_b.y(), p_v3_b.z()});
+      }
     }
     angle += data_->angle_increment;
   }
   return true;
 }
+
+template bool Scan::getDataImpl<Point>(
+  const rclcpp::Time & curr_time,
+  std::vector<Point> & data) const;
+
+template bool Scan::getDataImpl<Point3D>(
+  const rclcpp::Time & curr_time,
+  std::vector<Point3D> & data) const;
+
+bool Scan::getData(
+  const rclcpp::Time & curr_time,
+  std::vector<Point> & data) const
+{
+  return getDataImpl(curr_time, data);
+}
+
+bool Scan::getData(
+  const rclcpp::Time & curr_time,
+  std::vector<Point3D> & data) const
+{
+  return getDataImpl(curr_time, data);
+}
+
 
 void Scan::dataCallback(sensor_msgs::msg::LaserScan::ConstSharedPtr msg)
 {

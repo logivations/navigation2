@@ -67,9 +67,10 @@ void Range::configure()
     std::bind(&Range::dataCallback, this, std::placeholders::_1));
 }
 
-bool Range::getData(
+template <typename PointType>
+bool Range::getDataImpl(
   const rclcpp::Time & curr_time,
-  std::vector<Point> & data) const
+  std::vector<PointType> & data) const
 {
   // Ignore data from the source if it is not being published yet or
   // not being published for a long time
@@ -129,7 +130,11 @@ bool Range::getData(
     tf2::Vector3 p_v3_b = tf_transform * p_v3_s;
 
     // Refill data array
-    data.push_back({p_v3_b.x(), p_v3_b.y()});
+    if constexpr (std::is_same_v<PointType, Point>) {
+      data.push_back({p_v3_b.x(), p_v3_b.y()});
+    } else {
+      data.push_back({p_v3_b.x(), p_v3_b.y(), p_v3_b.z()});
+    }
   }
 
   // Make sure that last (field_of_view / 2) point will be in the data array
@@ -143,9 +148,35 @@ bool Range::getData(
   tf2::Vector3 p_v3_b = tf_transform * p_v3_s;
 
   // Refill data array
-  data.push_back({p_v3_b.x(), p_v3_b.y()});
+    if constexpr (std::is_same_v<PointType, Point>) {
+      data.push_back({p_v3_b.x(), p_v3_b.y()});
+    } else {
+      data.push_back({p_v3_b.x(), p_v3_b.y(), p_v3_b.z()});
+    }
 
   return true;
+}
+
+template bool Range::getDataImpl<Point>(
+  const rclcpp::Time & curr_time,
+  std::vector<Point> & data) const;
+
+template bool Range::getDataImpl<Point3D>(
+  const rclcpp::Time & curr_time,
+  std::vector<Point3D> & data) const;
+
+bool Range::getData(
+  const rclcpp::Time & curr_time,
+  std::vector<Point> & data) const
+{
+  return getDataImpl(curr_time, data);
+}
+
+bool Range::getData(
+  const rclcpp::Time & curr_time,
+  std::vector<Point3D> & data) const
+{
+  return getDataImpl(curr_time, data);
 }
 
 void Range::getParameters(std::string & source_topic)

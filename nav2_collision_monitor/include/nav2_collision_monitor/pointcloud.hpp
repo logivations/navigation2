@@ -65,17 +65,32 @@ public:
   void configure();
 
   /**
+   * @brief getDataImpl specification for Point
+   */
+  bool getData(
+    const rclcpp::Time & curr_time,
+    std::vector<Point> & data) const;
+
+    /**
+   * @brief getDataImpl specification for Point3D
+   */
+  bool getData(
+    const rclcpp::Time & curr_time,
+    std::vector<Point3D> & data) const;
+
+protected:
+  /**
    * @brief Adds latest data from pointcloud source to the data array.
    * @param curr_time Current node time for data interpolation
    * @param data Array where the data from source to be added.
    * Added data is transformed to base_frame_id_ coordinate system at curr_time.
    * @return false if an invalid source should block the robot
    */
-  bool getData(
-    const rclcpp::Time & curr_time,
-    std::vector<Point> & data) const;
+  template <typename PointType>
+  bool getDataImpl(
+  const rclcpp::Time & curr_time,
+  std::vector<PointType> & data) const;
 
-protected:
   /**
    * @brief Getting sensor-specific ROS-parameters
    * @param source_topic Output name of source subscription topic

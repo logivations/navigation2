@@ -41,6 +41,28 @@ void transformPoints(const Pose & pose, std::vector<Point> & points)
   }
 }
 
+void transformPoints(const Pose & pose, std::vector<Point3D> & points)
+{
+  const double cos_theta = std::cos(pose.theta);
+  const double sin_theta = std::sin(pose.theta);
+
+  for (Point3D & point : points) {
+    // p = R*p' + pose
+    // p' = Rt * (p - pose)
+    // where:
+    //   p - point coordinates in initial frame
+    //   p' - point coordinates in a new frame
+    //   R - rotation matrix =
+    //     [cos_theta -sin_theta]
+    //     [sin_theta  cos_theta]
+    //   Rt - transposed (inverted) rotation matrix
+    const double mul_x = point.x - pose.x;
+    const double mul_y = point.y - pose.y;
+    point.x = mul_x * cos_theta + mul_y * sin_theta;
+    point.y = -mul_x * sin_theta + mul_y * cos_theta;
+  }
+}
+
 void projectState(const double & dt, Pose & pose, Velocity & velocity)
 {
   const double theta = velocity.tw * dt;

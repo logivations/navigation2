@@ -168,7 +168,7 @@ protected:
    */
   bool processStopSlowdownLimit(
     const std::shared_ptr<Polygon> polygon,
-    const std::vector<Point> & collision_points,
+    const std::vector<Point3D> & collision_points,
     const Velocity & velocity,
     Action & robot_action) const;
 
@@ -182,7 +182,7 @@ protected:
    */
   bool processApproach(
     const std::shared_ptr<Polygon> polygon,
-    const std::vector<Point> & collision_points,
+    const std::vector<Point3D> & collision_points,
     const Velocity & velocity,
     Action & robot_action) const;
 
@@ -203,7 +203,7 @@ protected:
    * @brief Collision points publishing routine. Made for visualization.
    * @param collision_points collision points to publish
    */
-  void publishCollisionPoints(const std::vector<Point>& collision_points) const;
+  void publishCollisionPoints(const std::vector<Point3D>& collision_points) const;
 
   // ----- Variables -----
 

@@ -65,6 +65,14 @@ struct Point
   double y;  // y-coordinate of point
 };
 
+/// @brief 3D point
+struct Point3D
+{
+  double x;  // x-coordinate of point
+  double y;  // y-coordinate of point
+  double z;  // z-coordinate of point
+};
+
 /// @brief 2D Pose
 struct Pose
 {

@@ -67,9 +67,10 @@ void PolygonSource::configure()
     std::bind(&PolygonSource::dataCallback, this, std::placeholders::_1));
 }
 
-bool PolygonSource::getData(
+template <typename PointType>
+bool PolygonSource::getDataImpl(
   const rclcpp::Time & curr_time,
-  std::vector<Point> & data) const
+  std::vector<PointType> & data) const
 {
   // Ignore data from the source if it is not being published yet or
   // not published for a long time
@@ -121,6 +122,29 @@ bool PolygonSource::getData(
   return true;
 
 }
+
+template bool PolygonSource::getDataImpl<Point>(
+  const rclcpp::Time & curr_time,
+  std::vector<Point> & data) const;
+
+template bool PolygonSource::getDataImpl<Point3D>(
+  const rclcpp::Time & curr_time,
+  std::vector<Point3D> & data) const;
+
+bool PolygonSource::getData(
+  const rclcpp::Time & curr_time,
+  std::vector<Point> & data) const
+{
+  return getDataImpl(curr_time, data);
+}
+
+bool PolygonSource::getData(
+  const rclcpp::Time & curr_time,
+  std::vector<Point3D> & data) const
+{
+  return getDataImpl(curr_time, data);
+}
+
 void PolygonSource::convertPolygonStampedToPoints(
   const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point> & data) const
 {
@@ -146,6 +170,36 @@ void PolygonSource::convertPolygonStampedToPoints(
       Point p;
       p.x = current_point.x + j * dx;
       p.y = current_point.y + j * dy;
+      data.push_back(p);
+    }
+  }
+}
+void PolygonSource::convertPolygonStampedToPoints(
+  const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point3D> & data) const
+{
+  // Iterate over the vertices of the polygon
+  for (size_t i = 0; i < polygon.polygon.points.size(); ++i) {
+    const auto & current_point = polygon.polygon.points[i];
+    const auto & next_point = polygon.polygon.points[(i + 1) % polygon.polygon.points.size()];
+
+    // Calculate the distance between the current and next points
+    double segment_length =
+      std::hypot(next_point.x - current_point.x, next_point.y - current_point.y);
+
+    // Calculate the number of points to sample in the current segment
+    size_t num_points_in_segment =
+      std::max(static_cast<size_t>(segment_length / sampling_distance_), static_cast<size_t>(1));
+
+    // Calculate the step size for each pair of vertices
+    const double dx = (next_point.x - current_point.x) / num_points_in_segment;
+    const double dy = (next_point.y - current_point.y) / num_points_in_segment;
+
+    // Sample the points with equal spacing
+    for (size_t j = 0; j <= num_points_in_segment; ++j) {
+      Point3D p;
+      p.x = current_point.x + j * dx;
+      p.y = current_point.y + j * dy;
+      p.z = 0.0;
       data.push_back(p);
     }
   }

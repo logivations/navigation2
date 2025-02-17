@@ -74,6 +74,10 @@ public:
   virtual bool getData(
     const rclcpp::Time & curr_time,
     std::vector<Point> & data) const = 0;
+  
+  virtual bool getData(
+    const rclcpp::Time & curr_time,
+    std::vector<Point3D> & data) const = 0;
 
   /**
    * @brief Obtains source enabled state

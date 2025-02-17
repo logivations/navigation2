@@ -79,6 +79,15 @@ void Circle::getPointsInside(const std::vector<Point> & points, std::vector<Poin
   }
 }
 
+void Circle::getPointsInside(const std::vector<Point3D> & points, std::vector<Point3D>& points_inside) const
+{
+    for (Point3D point : points) {
+    if (point.x * point.x + point.y * point.y < radius_squared_) {
+      points_inside.push_back(point);
+    }
+  }
+}
+
 bool Circle::getParameters(
   std::string & polygon_sub_topic,
   std::string & polygon_pub_topic,

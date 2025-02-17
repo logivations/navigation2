@@ -99,9 +99,10 @@ PointCloud::dynamicParametersCallback(
   return result;
 }
 
-bool PointCloud::getData(
+template <typename PointType>
+bool PointCloud::getDataImpl(
   const rclcpp::Time & curr_time,
-  std::vector<Point> & data) const
+  std::vector<PointType> & data) const
 {
   // Ignore data from the source if it is not being published yet or
   // not published for a long time
@@ -147,12 +148,37 @@ bool PointCloud::getData(
     tf2::Vector3 p_v3_s(*iter_x, *iter_y, *iter_z);
     tf2::Vector3 p_v3_b = tf_transform * p_v3_s;
 
-    // Refill data array
-    if (p_v3_b.z() >= min_height_ && p_v3_b.z() <= max_height_) {
-      data.push_back({p_v3_b.x(), p_v3_b.y()});
+  if (p_v3_b.z() >= min_height_ && p_v3_b.z() <= max_height_) {
+      if constexpr (std::is_same_v<PointType, Point>) {
+        data.push_back({p_v3_b.x(), p_v3_b.y()});
+      } else {
+        data.push_back({p_v3_b.x(), p_v3_b.y(), p_v3_b.z()});
+      }
     }
   }
   return true;
+}
+
+template bool PointCloud::getDataImpl<Point>(
+  const rclcpp::Time & curr_time,
+  std::vector<Point> & data) const;
+
+template bool PointCloud::getDataImpl<Point3D>(
+  const rclcpp::Time & curr_time,
+  std::vector<Point3D> & data) const;
+
+bool PointCloud::getData(
+  const rclcpp::Time & curr_time,
+  std::vector<Point> & data) const
+{
+  return getDataImpl(curr_time, data);
+}
+
+bool PointCloud::getData(
+  const rclcpp::Time & curr_time,
+  std::vector<Point3D> & data) const
+{
+  return getDataImpl(curr_time, data);
 }
 
 void PointCloud::getParameters(std::string & source_topic)

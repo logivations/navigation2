@@ -422,7 +422,7 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
   }
 
   // Points array collected from different data sources in a robot base frame
-  std::vector<Point> collision_points;
+  std::vector<Point3D> collision_points;
 
   // By default - there is no action
   Action robot_action{DO_NOTHING, cmd_vel_in, ""};
@@ -525,7 +525,7 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
 
 bool CollisionMonitor::processStopSlowdownLimit(
   const std::shared_ptr<Polygon> polygon,
-  const std::vector<Point> & collision_points,
+  const std::vector<Point3D> & collision_points,
   const Velocity & velocity,
   Action & robot_action) const
 {
@@ -533,7 +533,7 @@ bool CollisionMonitor::processStopSlowdownLimit(
     return false;
   }
 
-  std::vector<Point> collision_points_inside_polygon;
+  std::vector<Point3D> collision_points_inside_polygon;
   polygon->getPointsInside(collision_points, collision_points_inside_polygon);
 
   if (static_cast<int>(collision_points_inside_polygon.size()) >= polygon->getMinPoints()) {
@@ -586,7 +586,7 @@ bool CollisionMonitor::processStopSlowdownLimit(
 
 bool CollisionMonitor::processApproach(
   const std::shared_ptr<Polygon> polygon,
-  const std::vector<Point> & collision_points,
+  const std::vector<Point3D> & collision_points,
   const Velocity & velocity,
   Action & robot_action) const
 {
@@ -688,14 +688,14 @@ void CollisionMonitor::publishPolygons() const
   }
 }
 
-void CollisionMonitor::publishCollisionPoints(const std::vector<Point> & collision_points) const
+void CollisionMonitor::publishCollisionPoints(const std::vector<Point3D> & collision_points) const
 {
   if (collision_points_marker_pub_->get_subscription_count() > 0) {
       // visualize collision points with markers
       auto marker_array = std::make_unique<visualization_msgs::msg::MarkerArray>();
       visualization_msgs::msg::Marker marker;
       marker.header.frame_id = get_parameter("base_frame_id").as_string();
-      marker.header.stamp = rclcpp::Time(0, 0);
+      marker.header.stamp = this->now();
       marker.ns = "collision_points";
       marker.id = 0;
       marker.type = visualization_msgs::msg::Marker::POINTS;
@@ -710,7 +710,7 @@ void CollisionMonitor::publishCollisionPoints(const std::vector<Point> & collisi
         geometry_msgs::msg::Point p;
         p.x = point.x;
         p.y = point.y;
-        p.z = 0.0;
+        p.z = point.z;
         marker.points.push_back(p);
       }
       marker_array->markers.push_back(marker);

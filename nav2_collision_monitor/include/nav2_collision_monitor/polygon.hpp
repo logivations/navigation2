@@ -165,16 +165,33 @@ public:
    */
   virtual void getPointsInside(const std::vector<Point> & points, std::vector<Point>& points_inside) const;
 
+    /**
+   * @brief Gets number of points inside given polygon
+   * @param points Input array of Points3D to be checked
+   * @return Number of points inside polygon. If there are no points,
+   * returns zero value.
+   */
+  virtual int getPointsInside(const std::vector<Point3D> & points) const;
+
+    /**
+   * @brief Gets points inside given polygon
+   * @param points Input array of Points3D to be checked
+   * @param points_inside Output array of Points3D inside polygon
+   */
+  virtual void getPointsInside(const std::vector<Point3D> & points, std::vector<Point3D>& points_inside) const;
+
   /**
-   * @brief Obtains estimated (simulated) time before a collision.
-   * Applicable for APPROACH model.
-   * @param collision_points Array of 2D obstacle points
-   * @param velocity Simulated robot velocity
-   * @return Estimated time before a collision. If there is no collision,
-   * return value will be negative.
+   * @brief getCollisionTimeImpl Point type specification
    */
   double getCollisionTime(
     const std::vector<Point> & collision_points,
+    const Velocity & velocity) const;
+
+      /**
+   * @brief getCollisionTimeImpl Point3D type specification
+   */
+  double getCollisionTime(
+    const std::vector<Point3D> & collision_points,
     const Velocity & velocity) const;
 
   /**
@@ -183,6 +200,19 @@ public:
   void publish();
 
 protected:
+  /**
+   * @brief Obtains estimated (simulated) time before a collision.
+   * Applicable for APPROACH model.
+   * @param collision_points Array of 2D obstacle points
+   * @param velocity Simulated robot velocity
+   * @return Estimated time before a collision. If there is no collision,
+   * return value will be negative.
+   */
+  template<typename PointType>
+  double getCollisionTimeImpl(
+    const std::vector<PointType> & collision_points,
+    const Velocity & velocity) const;
+
   /**
    * @brief Supporting routine obtaining ROS-parameters common for all shapes
    * @param polygon_pub_topic Output name of polygon publishing topic

@@ -73,6 +73,13 @@ public:
    */
   void getPointsInside(const std::vector<Point> & points, std::vector<Point>& points_inside) const override;
 
+    /**
+   * @brief Gets points inside given polygon
+   * @param points Input array of Points3D to be checked
+   * @param points_inside Output array of Points3D inside polygon
+   */
+  void getPointsInside(const std::vector<Point3D> & points, std::vector<Point3D>& points_inside) const override;
+
   /**
    * @brief Specifies that the shape is always set for a circle object
    */

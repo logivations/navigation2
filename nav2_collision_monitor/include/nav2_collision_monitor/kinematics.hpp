@@ -31,6 +31,14 @@ namespace nav2_collision_monitor
 void transformPoints(const Pose & pose, std::vector<Point> & points);
 
 /**
+ * @brief Do a transformation of points' coordinates from the frame coinciding with the (0,0)
+ * origin to the non-existing in ROS frame, which origin is equal to pose
+ * @param pose Origin of the new frame
+ * @param points Array of Points3D whose coordinates will be transformed
+ */
+void transformPoints(const Pose & pose, std::vector<Point3D> & points);
+
+/**
  * @brief Linearly projects pose towards to velocity direction on dt time interval.
  * Turns the velocity on twist angle for dt time interval.
  * @param dt Time step (in seconds). Should be relatively small

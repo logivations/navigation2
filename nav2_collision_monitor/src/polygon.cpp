@@ -264,8 +264,29 @@ void Polygon::getPointsInside(const std::vector<Point> & points, std::vector<Poi
   }
 }
 
-double Polygon::getCollisionTime(
-  const std::vector<Point> & collision_points,
+int Polygon::getPointsInside(const std::vector<Point3D> & points) const
+{
+  int num = 0;
+  for (const Point3D & point : points) {
+    if (isPointInside(reinterpret_cast<const Point&>(point))) {
+      num++;
+    }
+  }
+  return num;
+}
+
+void Polygon::getPointsInside(const std::vector<Point3D> & points, std::vector<Point3D>& points_inside) const
+{
+  for (const Point3D & point : points) {
+    if (isPointInside(reinterpret_cast<const Point&>(point))) {
+      points_inside.push_back(point);
+    }
+  }
+}
+
+template<typename PointType>
+double Polygon::getCollisionTimeImpl(
+  const std::vector<PointType> & collision_points,
   const Velocity & velocity) const
 {
   // Initial robot pose is {0,0} in base_footprint coordinates
@@ -273,7 +294,7 @@ double Polygon::getCollisionTime(
   Velocity vel = velocity;
 
   // Array of points transformed to the frame concerned with pose on each simulation step
-  std::vector<Point> points_transformed;
+  std::vector<PointType> points_transformed;
 
   // Robot movement simulation
   for (double time = 0.0; time <= time_before_collision_; time += simulation_time_step_) {
@@ -293,6 +314,29 @@ double Polygon::getCollisionTime(
   // There is no collision
   return -1.0;
 }
+
+template double Polygon::getCollisionTimeImpl<Point>(
+  const std::vector<Point> & collision_points,
+  const Velocity & velocity) const;
+
+template double Polygon::getCollisionTimeImpl<Point3D>(
+  const std::vector<Point3D> & collision_points,
+  const Velocity & velocity) const;
+
+double Polygon::getCollisionTime(
+  const std::vector<Point> & collision_points,
+  const Velocity & velocity) const
+{
+  return getCollisionTimeImpl(collision_points, velocity);
+}
+
+double Polygon::getCollisionTime(
+  const std::vector<Point3D> & collision_points,
+  const Velocity & velocity) const
+{
+  return getCollisionTimeImpl(collision_points, velocity);
+}
+
 
 void Polygon::publish()
 {
