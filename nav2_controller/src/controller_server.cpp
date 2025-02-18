@@ -504,8 +504,6 @@ void ControllerServer::computeControl()
 
     last_valid_cmd_time_ = now();
     rclcpp::WallRate loop_rate(controller_frequency_);
-    auto begin = std::chrono::steady_clock::now();
-    double real_frequency = controller_frequency_;
     while (rclcpp::ok()) {
       auto start_time = this->now();
 
