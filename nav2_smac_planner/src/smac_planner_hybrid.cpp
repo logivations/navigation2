@@ -52,14 +52,11 @@ void SmacPlannerHybrid::configure(
   std::string name, std::shared_ptr<tf2_ros::Buffer>/*tf*/,
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros)
 {
-  RCLCPP_INFO(_logger, "Configuring %s of type SmacPlannerHybrid 1", name.c_str());
   _node = parent;
   auto node = parent.lock();
   _logger = node->get_logger();
   _clock = node->get_clock();
-  RCLCPP_INFO(_logger, "Configuring %s of type SmacPlannerHybrid 2", name.c_str());
   _costmap = costmap_ros->getCostmap();
-  RCLCPP_INFO(_logger, "Configuring %s of type SmacPlannerHybrid 3", name.c_str());
   _costmap_ros = costmap_ros;
   _name = name;
   _global_frame = costmap_ros->getGlobalFrameID();
