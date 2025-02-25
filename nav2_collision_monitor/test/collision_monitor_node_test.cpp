@@ -154,7 +154,7 @@ public:
   void setPolygonVelocityVectors(
     const std::string & polygon_name,
     const std::vector<std::string> & polygons);
-  
+
   // Setting TF chains
   void sendTransforms(const rclcpp::Time & stamp);
 
@@ -712,6 +712,19 @@ bool Tester::waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout)
   return false;
 }
 
+bool Tester::waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout)
+{
+  rclcpp::Time start_time = cm_->now();
+  while (rclcpp::ok() && cm_->now() - start_time <= rclcpp::Duration(timeout)) {
+    if (collision_points_marker_msg_) {
+      return true;
+    }
+    rclcpp::spin_some(cm_->get_node_base_interface());
+    std::this_thread::sleep_for(10ms);
+  }
+  return false;
+}
+
 void Tester::cmdVelOutCallback(geometry_msgs::msg::Twist::SharedPtr msg)
 {
   cmd_vel_out_ = msg;
@@ -855,7 +868,8 @@ TEST_F(Tester, testProcessApproach)
   // 3. Obstacle is inside robot footprint
   publishScan(0.5, curr_time);
   ASSERT_TRUE(waitData(0.5, 500ms, curr_time));
-  publishCmdVel(0.5, 0.2, 0.0);
+  // Publish impossible cmd_vel to ensure robot footprint is checked
+  publishCmdVel(1000000000.0, 0.2, 0.0);
   ASSERT_TRUE(waitCmdVel(500ms));
   ASSERT_NEAR(cmd_vel_out_->linear.x, 0.0, EPSILON);
   ASSERT_NEAR(cmd_vel_out_->linear.y, 0.0, EPSILON);

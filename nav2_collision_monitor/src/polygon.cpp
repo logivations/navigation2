@@ -79,6 +79,9 @@ bool Polygon::configure()
       "[%s]: Subscribing on %s topic for polygon",
       polygon_name_.c_str(), polygon_sub_topic.c_str());
     rclcpp::QoS polygon_qos = rclcpp::SystemDefaultsQoS().keep_last(1);  // set to default
+    if (polygon_subscribe_transient_local_) {
+      polygon_qos.transient_local();
+    }
     polygon_sub_ = node->create_subscription<geometry_msgs::msg::PolygonStamped>(
       polygon_sub_topic, polygon_qos,
       std::bind(&Polygon::polygonCallback, this, std::placeholders::_1));
@@ -273,7 +276,12 @@ double Polygon::getCollisionTime(
   Velocity vel = velocity;
 
   // Array of points transformed to the frame concerned with pose on each simulation step
-  std::vector<Point> points_transformed;
+  std::vector<Point> points_transformed = collision_points;
+
+  // Check static polygon
+  if (getPointsInside(points_transformed) >= min_points_) {
+    return 0.0;
+  }
 
   // Robot movement simulation
   for (double time = 0.0; time <= time_before_collision_; time += simulation_time_step_) {
@@ -484,6 +492,10 @@ bool Polygon::getParameters(
       footprint_topic =
         node->get_parameter(polygon_name_ + ".footprint_topic").as_string();
     }
+    nav2_util::declare_parameter_if_not_declared(
+      node, polygon_name_ + ".polygon_subscribe_transient_local", rclcpp::ParameterValue(false));
+    polygon_subscribe_transient_local_ =
+      node->get_parameter(polygon_name_ + ".polygon_subscribe_transient_local").as_bool();
   } catch (const std::exception & ex) {
     RCLCPP_ERROR(
       logger_,

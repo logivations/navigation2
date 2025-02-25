@@ -142,7 +142,7 @@ bool SmootherServer::loadSmootherPlugins()
         node, smoother_ids_[i], tf_, costmap_sub_,
         footprint_sub_);
       smoothers_.insert({smoother_ids_[i], smoother});
-    } catch (const pluginlib::PluginlibException & ex) {
+    } catch (const std::exception & ex) {
       RCLCPP_FATAL(
         get_logger(), "Failed to create smoother. Exception: %s",
         ex.what());
@@ -265,7 +265,12 @@ void SmootherServer::smoothPlan()
 
   auto result = std::make_shared<Action::Result>();
   try {
-    std::string c_name = action_server_->get_current_goal()->smoother_id;
+    auto goal = action_server_->get_current_goal();
+    if (!goal) {
+      return;  //  if action_server_ is inactivate, goal would be a nullptr
+    }
+
+    std::string c_name = goal->smoother_id;
     std::string current_smoother;
     if (findSmootherId(c_name, current_smoother)) {
       current_smoother_ = current_smoother;
@@ -274,7 +279,6 @@ void SmootherServer::smoothPlan()
     }
 
     // Perform smoothing
-    auto goal = action_server_->get_current_goal();
     result->path = goal->path;
 
     if (!validate(result->path)) {

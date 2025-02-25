@@ -72,7 +72,6 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & /*state*/)
     std::bind(&CollisionMonitor::odomInCallback, this, std::placeholders::_1));
   cmd_vel_out_pub_ = this->create_publisher<geometry_msgs::msg::Twist>(
     cmd_vel_out_topic, 1);
-
   active_polygons_pub_ = this->create_publisher<nav2_msgs::msg::ActiveVelocityPolygons>(
     "~/active_velocity_polygons", 1);
 
@@ -449,7 +448,7 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
   const double velocity_threshold = 0.1;
 
   bool robot_stopped = std::abs(last_odom_msg_.linear.x) < velocity_threshold &&
-                       std::abs(last_odom_msg_.linear.y) < velocity_threshold && 
+                       std::abs(last_odom_msg_.linear.y) < velocity_threshold &&
                        std::abs(last_odom_msg_.angular.z) < velocity_threshold;
 
   for (std::shared_ptr<Polygon> polygon : polygons_) {
@@ -501,14 +500,14 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in)
     notifyActionState(robot_action, action_polygon);
   }
 
-  // Publish requred robot velocity
+  // Publish required robot velocity
   publishVelocity(robot_action);
 
   // Publish polygons for better visualization
   publishPolygons();
 
   auto msg = std::make_unique<nav2_msgs::msg::ActiveVelocityPolygons>();
-  
+
   for (const auto& polygon : polygons_) {
     if (auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon)) {
       nav2_msgs::msg::VelocityPolygonPair pair;
