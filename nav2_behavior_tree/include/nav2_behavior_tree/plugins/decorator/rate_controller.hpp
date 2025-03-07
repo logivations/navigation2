@@ -39,11 +39,6 @@ public:
     const BT::NodeConfiguration & conf);
 
   /**
-   * @brief Function to read parameters and initialize class variables
-   */
-  void initialize();
-
-  /**
    * @brief Creates list of BT ports
    * @return BT::PortsList Containing node-specific ports
    */
@@ -64,7 +59,6 @@ private:
   std::chrono::time_point<std::chrono::high_resolution_clock> start_;
   double period_;
   bool first_time_;
-  bool initialized_;
 };
 
 }  // namespace nav2_behavior_tree

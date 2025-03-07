@@ -27,12 +27,7 @@ IsBatteryLowCondition::IsBatteryLowCondition(
   battery_topic_("/battery_status"),
   min_battery_(0.0),
   is_voltage_(false),
-  is_battery_low_(false),
-  initialized_(false)
-{
-}
-
-void IsBatteryLowCondition::initialize()
+  is_battery_low_(false)
 {
   getInput("min_battery", min_battery_);
   getInput("battery_topic", battery_topic_);
@@ -50,15 +45,10 @@ void IsBatteryLowCondition::initialize()
     rclcpp::SystemDefaultsQoS(),
     std::bind(&IsBatteryLowCondition::batteryCallback, this, std::placeholders::_1),
     sub_option);
-  initialized_ = true;
 }
 
 BT::NodeStatus IsBatteryLowCondition::tick()
 {
-  if (!initialized_) {
-    initialize();
-  }
-
   callback_group_executor_.spin_some();
   if (is_battery_low_) {
     return BT::NodeStatus::SUCCESS;
