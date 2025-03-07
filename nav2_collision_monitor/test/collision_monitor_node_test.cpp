@@ -456,6 +456,43 @@ void Tester::addPolygonVelocitySubPolygon(
     rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".theta_max", theta_max));
 }
 
+void Tester::addPolygonVelocitySubPolygon(
+  const std::string & polygon_name, const std::string & sub_polygon_name,
+  const double linear_min, const double linear_max,
+  const double theta_min, const double theta_max,
+  const double size)
+{
+  const std::string points = "[[" +
+    std::to_string(size) + ", " + std::to_string(size) + "], [" +
+    std::to_string(size) + ", " + std::to_string(-size) + "], [" +
+    std::to_string(-size) + ", " + std::to_string(-size) + "], [" +
+    std::to_string(-size) + ", " + std::to_string(size) + "]]";
+  cm_->declare_parameter(
+    polygon_name + "." + sub_polygon_name + ".points", rclcpp::ParameterValue(points));
+  cm_->set_parameter(
+    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".points", points));
+
+  cm_->declare_parameter(
+    polygon_name + "." + sub_polygon_name + ".linear_min", rclcpp::ParameterValue(linear_min));
+  cm_->set_parameter(
+    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".linear_min", linear_min));
+
+  cm_->declare_parameter(
+    polygon_name + "." + sub_polygon_name + ".linear_max", rclcpp::ParameterValue(linear_max));
+  cm_->set_parameter(
+    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".linear_max", linear_max));
+
+  cm_->declare_parameter(
+    polygon_name + "." + sub_polygon_name + ".theta_min", rclcpp::ParameterValue(theta_min));
+  cm_->set_parameter(
+    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".theta_min", theta_min));
+
+  cm_->declare_parameter(
+    polygon_name + "." + sub_polygon_name + ".theta_max", rclcpp::ParameterValue(theta_max));
+  cm_->set_parameter(
+    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".theta_max", theta_max));
+}
+
 void Tester::addSource(
   const std::string & source_name, const SourceType type)
 {
@@ -750,6 +787,19 @@ bool Tester::waitActionState(const std::chrono::nanoseconds & timeout)
   rclcpp::Time start_time = cm_->now();
   while (rclcpp::ok() && cm_->now() - start_time <= rclcpp::Duration(timeout)) {
     if (action_state_) {
+      return true;
+    }
+    rclcpp::spin_some(cm_->get_node_base_interface());
+    std::this_thread::sleep_for(10ms);
+  }
+  return false;
+}
+
+bool Tester::waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout)
+{
+  rclcpp::Time start_time = cm_->now();
+  while (rclcpp::ok() && cm_->now() - start_time <= rclcpp::Duration(timeout)) {
+    if (collision_points_marker_msg_) {
       return true;
     }
     rclcpp::spin_some(cm_->get_node_base_interface());

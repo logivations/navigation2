@@ -155,7 +155,7 @@ bool BtActionServer<ActionT>::on_configure()
     node->get_node_logging_interface(),
     node->get_node_waitables_interface(),
     action_name_, std::bind(&BtActionServer<ActionT>::executeCallback, this),
-    nullptr, std::chrono::milliseconds(500), false, server_options);
+    nullptr, std::chrono::milliseconds(500), true, server_options);
 
   // Get parameters for BT timeouts
   int bt_loop_duration;
@@ -227,11 +227,16 @@ bool BtActionServer<ActionT>::loadBehaviorTree(const std::string & bt_xml_filena
   // Empty filename is default for backward compatibility
   auto filename = bt_xml_filename.empty() ? default_bt_xml_filename_ : bt_xml_filename;
 
+  // This is removed as part of the changes about BT hashing as we still want to check for
+  // changes in the xml file even if current_bt_xml_filename_ == filename
+
   // Use previous BT if it is the existing one and always reload flag is not set to true
-  if (!always_reload_bt_xml_ && current_bt_xml_filename_ == filename) {
-    RCLCPP_DEBUG(logger_, "BT will not be reloaded as the given xml is already loaded");
-    return true;
-  }
+  //if (!always_reload_bt_xml_ && current_bt_xml_filename_ == filename) {
+  //  RCLCPP_DEBUG(logger_, "BT will not be reloaded as the given xml is already loaded");
+  //  return true;
+  //}
+
+
 
   // Read the input BT XML from the specified file into a string
   std::ifstream xml_file(filename);
@@ -243,6 +248,30 @@ bool BtActionServer<ActionT>::loadBehaviorTree(const std::string & bt_xml_filena
 
   // Create the Behavior Tree from the XML input
   try {
+      auto xml_string = std::string(
+        std::istreambuf_iterator<char>(xml_file),
+        std::istreambuf_iterator<char>());
+
+      std::hash<std::string> hasher;
+
+      std::size_t tree_hash = hasher(xml_string);
+
+      // if a tree was used before we fetch it from the cached trees not to create it one more time
+      if (std::find(cached_tree_hashes.begin(), cached_tree_hashes.end(), tree_hash) != cached_tree_hashes.end())
+      {
+        RCLCPP_DEBUG(logger_, "BT will not be loaded as it exists in cache");
+        tree_ = &cached_trees[tree_hash];
+      }
+      else
+      {
+        RCLCPP_DEBUG(logger_, "BT will be loaded as it doesn't exist in cache");
+
+        // Create the Behavior Tree from the XML input
+        cached_trees[tree_hash] = bt_->createTreeFromText(xml_string, blackboard_);
+        cached_tree_hashes.push_back(tree_hash);
+        tree_ = &cached_trees[tree_hash];
+      }
+
     tree_ = bt_->createTreeFromFile(filename, blackboard_);
     for (auto & subtree : tree_.subtrees) {
       auto & blackboard = subtree->blackboard;
@@ -258,10 +287,22 @@ bool BtActionServer<ActionT>::loadBehaviorTree(const std::string & bt_xml_filena
     return false;
   }
 
-  topic_logger_ = std::make_unique<RosTopicLogger>(client_node_, tree_);
+  topic_logger_ = std::make_unique<RosTopicLogger>(client_node_, *tree_);
 
   current_bt_xml_filename_ = filename;
   return true;
+}
+
+template<class ActionT>
+void BtActionServer<ActionT>::resetBlackboard()
+{
+  blackboard_->clear();
+  blackboard_->set<rclcpp::Node::SharedPtr>("node", client_node_);  // NOLINT
+  blackboard_->set<std::chrono::milliseconds>("server_timeout", default_server_timeout_);  // NOLINT
+  blackboard_->set<std::chrono::milliseconds>("bt_loop_duration", bt_loop_duration_);  // NOLINT
+  blackboard_->set<std::chrono::milliseconds>(
+            "wait_for_service_timeout",
+            wait_for_service_timeout_);
 }
 
 template<class ActionT>
@@ -272,7 +313,7 @@ void BtActionServer<ActionT>::executeCallback()
     cleanErrorCodes();
     return;
   }
-
+  RCLCPP_INFO(logger_, "Action server name is %s", action_name_.c_str());
   auto is_canceling = [&]() {
       if (action_server_ == nullptr) {
         RCLCPP_DEBUG(logger_, "Action server unavailable. Canceling.");
@@ -294,7 +335,10 @@ void BtActionServer<ActionT>::executeCallback()
     };
 
   // Execute the BT that was previously created in the configure step
-  nav2_behavior_tree::BtStatus rc = bt_->run(&tree_, on_loop, is_canceling, bt_loop_duration_);
+  nav2_behavior_tree::BtStatus rc = bt_->run(tree_, on_loop, is_canceling, bt_loop_duration_);
+
+  // send remaining logs
+  topic_logger_->flush();
 
   // Make sure that the Bt is not in a running state from a previous execution
   // note: if all the ControlNodes are implemented correctly, this is not needed.

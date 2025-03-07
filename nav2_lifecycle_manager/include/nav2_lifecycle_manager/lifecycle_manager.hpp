@@ -252,6 +252,11 @@ protected:
   bool attempt_respawn_reconnection_;
 
   NodeState managed_nodes_state_{NodeState::UNCONFIGURED};
+  std::string inactive_nodes = "";
+  std::string unconfigured_nodes = "";
+  std::string nodes_in_error_state = "";
+  size_t active_nodes_count = 0;
+
   diagnostic_updater::Updater diagnostics_updater_;
 
   rclcpp::Time bond_respawn_start_time_{0};

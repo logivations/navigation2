@@ -82,6 +82,7 @@ void ObstacleLayer::onInitialize()
 
   declareParameter("enabled", rclcpp::ParameterValue(true));
   declareParameter("footprint_clearing_enabled", rclcpp::ParameterValue(true));
+  declareParameter("clear_after_master_grid_update", rclcpp::ParameterValue(false));
   declareParameter("min_obstacle_height", rclcpp::ParameterValue(0.0));
   declareParameter("max_obstacle_height", rclcpp::ParameterValue(2.0));
   declareParameter("combination_method", rclcpp::ParameterValue(1));
@@ -94,6 +95,7 @@ void ObstacleLayer::onInitialize()
 
   node->get_parameter(name_ + "." + "enabled", enabled_);
   node->get_parameter(name_ + "." + "footprint_clearing_enabled", footprint_clearing_enabled_);
+  node->get_parameter(name_ + "." + "clear_after_master_grid_update", clear_after_master_grid_update_);
   node->get_parameter(name_ + "." + "min_obstacle_height", min_obstacle_height_);
   node->get_parameter(name_ + "." + "max_obstacle_height", max_obstacle_height_);
   node->get_parameter("track_unknown_space", track_unknown_space);
@@ -559,8 +561,14 @@ ObstacleLayer::updateCosts(
     case CombinationMethod::MaxWithoutUnknownOverwrite:
       updateWithMaxWithoutUnknownOverwrite(master_grid, min_i, min_j, max_i, max_j);
       break;
+    case 2:  // Minimum
+      updateWithMin(master_grid, min_i, min_j, max_i, max_j);
+      break;
     default:  // Nothing
       break;
+  }
+  if (clear_after_master_grid_update_) {
+    resetMaps();
   }
 }
 

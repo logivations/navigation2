@@ -202,7 +202,7 @@ StaticLayer::processMap(const nav_msgs::msg::OccupancyGrid & new_map)
     !layered_costmap_->isSizeLocked()))
   {
     // Update the size of the layered costmap (and all layers, including this one)
-    RCLCPP_INFO(
+    RCLCPP_DEBUG(
       logger_,
       "StaticLayer: Resizing costmap to %d X %d at %f m/pix", size_x, size_y,
       new_map.info.resolution);
@@ -282,7 +282,7 @@ StaticLayer::interpretValue(unsigned char value)
 }
 
 void
-StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::SharedPtr new_map)
+StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr new_map)
 {
   if (!nav2_util::validateMsg(*new_map)) {
     RCLCPP_ERROR(logger_, "Received map message is malformed. Rejecting.");

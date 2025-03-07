@@ -137,6 +137,7 @@ public:
       // reset the flag to send the request or not,
       // allowing the user the option to set it in on_tick
       should_send_request_ = true;
+      should_fail_not_sent_request_ = true;
 
       // Clear the input request to make sure we have no leftover from previous calls
       request_ = std::make_shared<typename ServiceT::Request>();
@@ -145,7 +146,11 @@ public:
       on_tick();
 
       if (!should_send_request_) {
-        return BT::NodeStatus::FAILURE;
+        if (should_fail_not_sent_request_) {
+            return BT::NodeStatus::FAILURE;
+        } else {
+            return BT::NodeStatus::SUCCESS;
+        }
       }
 
       future_result_ = service_client_->async_send_request(request_).share();
@@ -265,6 +270,7 @@ protected:
 
   // Can be set in on_tick or on_wait_for_result to indicate if a request should be sent.
   bool should_send_request_;
+  bool should_fail_not_sent_request_;
 };
 
 }  // namespace nav2_behavior_tree

@@ -37,6 +37,10 @@ void DriveOnHeadingAction::initialize()
   getInput("speed", speed);
   double time_allowance;
   getInput("time_allowance", time_allowance);
+  bool free_goal_vel;
+  getInput("free_goal_vel", free_goal_vel);
+  bool check_local_costmap;
+  getInput("check_local_costmap", check_local_costmap);
 
   // Populate the input message
   goal_.target.x = dist;
@@ -44,6 +48,8 @@ void DriveOnHeadingAction::initialize()
   goal_.target.z = 0.0;
   goal_.speed = speed;
   goal_.time_allowance = rclcpp::Duration::from_seconds(time_allowance);
+  goal_.free_goal_vel = free_goal_vel;
+  goal_.check_local_costmap = check_local_costmap;
   initalized_ = true;
 }
 

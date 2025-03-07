@@ -31,6 +31,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ParticleCloud.msg"
   "msg/MissedWaypoint.msg"
   "srv/GetCost.srv"
+  "msg/VelocityPolygonPair.msg"
+  "msg/ActiveVelocityPolygons.msg"
   "srv/GetCostmap.srv"
   "srv/IsPathValid.srv"
   "srv/ClearCostmapExceptRegion.srv"

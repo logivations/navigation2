@@ -23,6 +23,7 @@
 #include "nav2_collision_monitor/polygon.hpp"
 #include "nav2_collision_monitor/types.hpp"
 #include "nav2_util/lifecycle_node.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.h"
 
@@ -63,6 +64,11 @@ public:
     std::string & /*footprint_topic*/) override;
 
   /**
+   * @brief Returns current polygon name
+   */
+  std::string getCurrentSubPolygonName() const { return current_subpolygon_name_; }
+
+  /**
    * @brief Overriden updatePolygon function for VelocityPolygon
    * @param cmd_vel_in Robot twist command input
    */
@@ -70,15 +76,21 @@ public:
 
 protected:
   /**
-    * @brief Custom struc to store the parameters of the sub-polygon
+    * @brief Custom struct to store the parameters of the sub-polygon
     * @param poly_ The points of the sub-polygon
     * @param velocity_polygon_name_ The name of the sub-polygon
     * @param linear_min_ The minimum linear velocity
     * @param linear_max_ The maximum linear velocity
     * @param theta_min_ The minimum angular velocity
     * @param theta_max_ The maximum angular velocity
+    * @param steering_angle_min_ The minimum steering angle
+    * @param steering_angle_max_ The maxomum steering angle
     * @param direction_end_angle_ The end angle of the direction(For holonomic robot only)
     * @param direction_start_angle_ The start angle of the direction(For holonomic robot only)
+    * @param slowdown_ratio_ Robot slowdown (share of its actual speed)
+    * @param linear_limit_ Robot linear limit
+    * @param angular_limit_ Robot angular limit
+    * @param time_before_collision_ Time before collision in seconds
     */
   struct SubPolygonParameter
   {
@@ -88,8 +100,15 @@ protected:
     double linear_max_;
     double theta_min_;
     double theta_max_;
+    double steering_angle_min_;
+    double steering_angle_max_;
+    bool use_steering_angle_;
     double direction_end_angle_;
     double direction_start_angle_;
+    double slowdown_ratio_;
+    double linear_limit_;
+    double angular_limit_;
+    double time_before_collision_;
   };
 
   /**
@@ -102,10 +121,15 @@ protected:
 
   // Clock
   rclcpp::Clock::SharedPtr clock_;
-
+  // Current subpolygon name
+  std::string current_subpolygon_name_;
   // Variables
   /// @brief Flag to indicate if the robot is holonomic
   bool holonomic_;
+  /// @brief Current steering angle
+  double current_steering_angle_;
+  /// @brief Distance between front and rear axes
+  double wheelbase_;
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
 };  // class VelocityPolygon
