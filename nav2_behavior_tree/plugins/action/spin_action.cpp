@@ -37,8 +37,6 @@ void SpinAction::initialize()
   bool check_local_costmap;
   getInput("check_local_costmap", check_local_costmap);
   goal_.check_local_costmap = check_local_costmap;
-
-  initialized_ = true;
 }
 
 void SpinAction::on_tick()
