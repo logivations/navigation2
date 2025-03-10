@@ -76,7 +76,7 @@ public:
     return {
       BT::InputPort<geometry_msgs::msg::PoseStamped>("goal", "Destination"),
       BT::InputPort<std::string>("global_frame", "Global frame"),
-      BT::InputPort<std::string>("robot_base_frame", "Robot base frame")
+      BT::InputPort<std::string>("robot_base_frame", "Robot base frame"),
       BT::InputPort<double>("x_goal_tolerance", std::numeric_limits<double>::infinity(), "x goal tolerance"),
       BT::InputPort<double>("y_goal_tolerance", std::numeric_limits<double>::infinity(), "y goal tolerance"),
       BT::InputPort<double>("xy_goal_tolerance", std::numeric_limits<double>::infinity(), "xy goal tolerance"),
