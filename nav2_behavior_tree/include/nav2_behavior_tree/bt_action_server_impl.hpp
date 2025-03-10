@@ -272,7 +272,6 @@ bool BtActionServer<ActionT>::loadBehaviorTree(const std::string & bt_xml_filena
         tree_ = &cached_trees[tree_hash];
       }
 
-    tree_ = bt_->createTreeFromFile(filename, blackboard_);
     for (auto & subtree : tree_.subtrees) {
       auto & blackboard = subtree->blackboard;
       blackboard->set("node", client_node_);
