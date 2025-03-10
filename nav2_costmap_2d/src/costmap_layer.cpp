@@ -283,6 +283,8 @@ CombinationMethod CostmapLayer::combination_method_from_int(const int value)
       return CombinationMethod::Max;
     case 2:
       return CombinationMethod::MaxWithoutUnknownOverwrite;
+    case 3:
+      return CombinationMethod::Min;
     default:
       RCLCPP_WARN(
         logger_,

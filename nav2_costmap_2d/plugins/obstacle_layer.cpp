@@ -561,7 +561,7 @@ ObstacleLayer::updateCosts(
     case CombinationMethod::MaxWithoutUnknownOverwrite:
       updateWithMaxWithoutUnknownOverwrite(master_grid, min_i, min_j, max_i, max_j);
       break;
-    case 2:  // Minimum
+    case CombinationMethod::Min:
       updateWithMin(master_grid, min_i, min_j, max_i, max_j);
       break;
     default:  // Nothing
