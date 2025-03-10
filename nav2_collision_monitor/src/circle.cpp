@@ -70,15 +70,6 @@ int Circle::getPointsInside(const std::vector<Point> & points) const
   return num;
 }
 
-void Circle::getPointsInside(const std::vector<Point> & points, std::vector<Point>& points_inside) const
-{
-    for (Point point : points) {
-    if (point.x * point.x + point.y * point.y < radius_squared_) {
-      points_inside.push_back(point);
-    }
-  }
-}
-
 bool Circle::isShapeSet()
 {
   if (radius_squared_ == -1.0) {
