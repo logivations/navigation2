@@ -181,7 +181,7 @@ public:
    */
   void haltTree()
   {
-    tree_.haltTree();
+    tree_->haltTree();
   }
 
   void resetBlackboard();

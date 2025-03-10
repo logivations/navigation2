@@ -186,7 +186,8 @@ VelocitySmoother::on_activate(const rclcpp_lifecycle::State &)
   double timer_duration_ms = 1000.0 / smoothing_frequency_;
   timer_ = this->create_wall_timer(
     std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
-    std::bind(&VelocitySmoother::smootherTimer, this));
+    [this]() { smootherTimer(false); }
+    );
 
   smoothertimer_treshold_ = 1.0 / smoothing_frequency_;
   dyn_params_handler_ = this->add_on_set_parameters_callback(
@@ -349,14 +350,14 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     current_ = last_cmd_;
     auto odom = odom_smoother_->getTwist();
 
-    current_.linear.x = std::clamp(
-      current_.linear.x,
+    current_.twist.linear.x = std::clamp(
+      current_.twist.linear.x,
       odom.linear.x - max_deltas_[0],
       odom.linear.x + max_deltas_[0]
     );
 
-    current_.angular.z = std::clamp(
-      current_.angular.z,
+    current_.twist.angular.z = std::clamp(
+      current_.twist.angular.z,
       odom.angular.z - max_deltas_[2],
       odom.angular.z + max_deltas_[2]
     );
@@ -445,7 +446,8 @@ VelocitySmoother::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
         double timer_duration_ms = 1000.0 / smoothing_frequency_;
         timer_ = this->create_wall_timer(
           std::chrono::milliseconds(static_cast<int>(timer_duration_ms)),
-          std::bind(&VelocitySmoother::smootherTimer, this));
+          [this]() { smootherTimer(false); }
+        );
         smoothertimer_treshold_ = 1.0 / smoothing_frequency_;
       } else if (name == "velocity_timeout") {
         velocity_timeout_ = rclcpp::Duration::from_seconds(parameter.as_double());

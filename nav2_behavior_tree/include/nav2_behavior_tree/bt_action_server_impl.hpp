@@ -216,7 +216,7 @@ bool BtActionServer<ActionT>::on_cleanup()
   plugin_lib_names_.clear();
   current_bt_xml_filename_.clear();
   blackboard_.reset();
-  bt_->haltAllActions(tree_);
+  bt_->haltAllActions(*tree_);
   bt_.reset();
   return true;
 }
@@ -248,9 +248,19 @@ bool BtActionServer<ActionT>::loadBehaviorTree(const std::string & bt_xml_filena
 
   // Create the Behavior Tree from the XML input
   try {
-      auto xml_string = std::string(
-        std::istreambuf_iterator<char>(xml_file),
-        std::istreambuf_iterator<char>());
+      if (!xml_file.is_open() || xml_file.fail()) {
+          RCLCPP_ERROR(logger_, "Failed to open behavior tree XML file: %s", filename.c_str());
+          return false;  // Exit early if the file is invalid
+      }
+
+      if (xml_file.peek() == std::ifstream::traits_type::eof()) {
+          RCLCPP_ERROR(logger_, "Behavior tree XML file is empty: %s", filename.c_str());
+          return false;
+      }
+
+      std::ostringstream buffer;
+      buffer << xml_file.rdbuf();
+      std::string xml_string = buffer.str();
 
       std::hash<std::string> hasher;
 
@@ -272,7 +282,7 @@ bool BtActionServer<ActionT>::loadBehaviorTree(const std::string & bt_xml_filena
         tree_ = &cached_trees[tree_hash];
       }
 
-    for (auto & subtree : tree_.subtrees) {
+    for (auto & subtree : tree_->subtrees) {
       auto & blackboard = subtree->blackboard;
       blackboard->set("node", client_node_);
       blackboard->set<std::chrono::milliseconds>("server_timeout", default_server_timeout_);
@@ -341,7 +351,7 @@ void BtActionServer<ActionT>::executeCallback()
 
   // Make sure that the Bt is not in a running state from a previous execution
   // note: if all the ControlNodes are implemented correctly, this is not needed.
-  bt_->haltAllActions(tree_);
+  bt_->haltAllActions(*tree_);
 
   // Give server an opportunity to populate the result message or simple give
   // an indication that the action is complete.

@@ -103,7 +103,7 @@ void
 BehaviorTreeEngine::haltAllActions(BT::Tree & tree)
 {
   // this halt signal should propagate through the entire tree.
-  tree.haltTree();
+  tree->haltTree();
 }
 
 }  // namespace nav2_behavior_tree
