@@ -522,19 +522,19 @@ void ControllerServer::computeControl()
       }
 
       if (action_server_->is_cancel_requested()) {
+        bool free_goal_vel = action_server_->get_current_goal()->free_goal_vel;
+
         if (controllers_[current_controller_]->cancel()) {
           RCLCPP_INFO(get_logger(), "Cancellation was successful. Stopping the robot.");
           action_server_->terminate_all();
-          bool free_goal_vel = action_server_->get_current_goal()->free_goal_vel;
-            if (!free_goal_vel){
-              RCLCPP_INFO(get_logger(), "Goal was canceled. Stopping the robot.");
-              publishZeroVelocity();
-            }
-            else {
-              RCLCPP_INFO(get_logger(), "Goal was canceled.");
-            }
-            return;
-
+          if (!free_goal_vel){
+            RCLCPP_INFO(get_logger(), "Goal was canceled. Stopping the robot.");
+            publishZeroVelocity();
+          }
+          else {
+            RCLCPP_INFO(get_logger(), "Goal was canceled.");
+          }
+          return;
         } else {
           RCLCPP_INFO_THROTTLE(
             get_logger(), *get_clock(), 1000, "Waiting for the controller to finish cancellation");
