@@ -24,8 +24,7 @@ DriveOnHeadingAction::DriveOnHeadingAction(
   const std::string & xml_tag_name,
   const std::string & action_name,
   const BT::NodeConfiguration & conf)
-: BtActionNode<nav2_msgs::action::DriveOnHeading>(xml_tag_name, action_name, conf),
-  initalized_(false)
+: BtActionNode<nav2_msgs::action::DriveOnHeading>(xml_tag_name, action_name, conf)
 {
 }
 
@@ -50,12 +49,11 @@ void DriveOnHeadingAction::initialize()
   goal_.time_allowance = rclcpp::Duration::from_seconds(time_allowance);
   goal_.free_goal_vel = free_goal_vel;
   goal_.check_local_costmap = check_local_costmap;
-  initalized_ = true;
 }
 
 void DriveOnHeadingAction::on_tick()
 {
-  if (!initalized_) {
+  if (!BT::isStatusActive(status())) {
     initialize();
   }
 }
