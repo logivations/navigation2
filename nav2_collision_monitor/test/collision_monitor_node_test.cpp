@@ -808,19 +808,6 @@ bool Tester::waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout)
   return false;
 }
 
-bool Tester::waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout)
-{
-  rclcpp::Time start_time = cm_->now();
-  while (rclcpp::ok() && cm_->now() - start_time <= rclcpp::Duration(timeout)) {
-    if (collision_points_marker_msg_) {
-      return true;
-    }
-    rclcpp::spin_some(cm_->get_node_base_interface());
-    std::this_thread::sleep_for(10ms);
-  }
-  return false;
-}
-
 void Tester::cmdVelOutCallback(geometry_msgs::msg::Twist::SharedPtr msg)
 {
   cmd_vel_out_ = msg;
