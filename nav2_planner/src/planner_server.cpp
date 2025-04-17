@@ -67,6 +67,10 @@ PlannerServer::PlannerServer(const rclcpp::NodeOptions & options)
   costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
     "global_costmap", std::string{get_namespace()}, "global_costmap",
     get_parameter("use_sim_time").as_bool(), options.use_intra_process_comms());
+
+  no_waiting_costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
+    "global_no_waiting_zones_costmap", std::string{get_namespace()}, "global_no_waiting_zones_costmap",
+    get_parameter("use_sim_time").as_bool(), options.use_intra_process_comms());
 }
 
 PlannerServer::~PlannerServer()
@@ -77,6 +81,7 @@ PlannerServer::~PlannerServer()
    */
   planners_.clear();
   costmap_thread_.reset();
+  no_waiting_costmap_thread_.reset();
 }
 
 nav2_util::CallbackReturn
@@ -95,6 +100,7 @@ PlannerServer::on_configure(const rclcpp_lifecycle::State & state)
 
   // Launch a thread to run the costmap node
   costmap_thread_ = std::make_unique<nav2_util::NodeThread>(costmap_ros_);
+  no_waiting_costmap_thread_ = std::make_unique<nav2_util::NodeThread>(no_waiting_costmap_ros_);
 
   RCLCPP_DEBUG(
     get_logger(), "Costmap size: %d,%d",
@@ -231,6 +237,7 @@ PlannerServer::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
    * ordering assumption: https://github.com/ros2/rclcpp/issues/2096
    */
   costmap_ros_->deactivate();
+  no_waiting_costmap_ros_->deactivate();
 
   PlannerMap::iterator it;
   for (it = planners_.begin(); it != planners_.end(); ++it) {
@@ -256,6 +263,7 @@ PlannerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   tf_.reset();
 
   costmap_ros_->cleanup();
+  no_waiting_costmap_ros_->cleanup();
 
   PlannerMap::iterator it;
   for (it = planners_.begin(); it != planners_.end(); ++it) {
@@ -264,6 +272,7 @@ PlannerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 
   planners_.clear();
   costmap_thread_.reset();
+  no_waiting_costmap_thread_.reset();
   costmap_ = nullptr;
   return nav2_util::CallbackReturn::SUCCESS;
 }
