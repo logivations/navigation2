@@ -81,11 +81,6 @@ ControllerServer::ControllerServer(const rclcpp::NodeOptions & options)
   sensor_costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
     "sensor_local_costmap", std::string{get_namespace()}, "sensor_local_costmap",
     get_parameter("use_sim_time").as_bool(), options.use_intra_process_comms());
-
-  // The costmap node is used by BT to validate that a path can be driven on
-  global_no_waiting_zone_costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
-    "global_no_waiting_zones_costmap", std::string{get_namespace()}, "global_no_waiting_zones_costmap",
-    get_parameter("use_sim_time").as_bool(), options.use_intra_process_comms());
 }
 
 ControllerServer::~ControllerServer()
@@ -152,12 +147,10 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & state)
   costmap_ros_->configure();
   narrow_costmap_ros_->configure();
   sensor_costmap_ros_->configure();
-  global_no_waiting_zone_costmap_ros_->configure();
   // Launch a thread to run the costmap node
   costmap_thread_ = std::make_unique<nav2_util::NodeThread>(costmap_ros_);
   narrow_costmap_thread_ = std::make_unique<nav2_util::NodeThread>(narrow_costmap_ros_);
   sensor_costmap_thread_ = std::make_unique<nav2_util::NodeThread>(sensor_costmap_ros_);
-  global_no_waiting_zone_costmap_thread_ = std::make_unique<nav2_util::NodeThread>(global_no_waiting_zone_costmap_ros_);
 
   for (size_t i = 0; i != progress_checker_ids_.size(); i++) {
     try {
@@ -301,7 +294,6 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
   }
   narrow_costmap_ros_->activate();
   sensor_costmap_ros_->activate();
-  global_no_waiting_zone_costmap_ros_->activate();
   ControllerMap::iterator it;
   for (it = controllers_.begin(); it != controllers_.end(); ++it) {
     it->second->activate();
@@ -341,7 +333,6 @@ ControllerServer::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
   costmap_ros_->deactivate();
   narrow_costmap_ros_->deactivate();
   sensor_costmap_ros_->deactivate();
-  global_no_waiting_zone_costmap_ros_->deactivate();
 
   // Always publish a zero velocity when deactivating the controller server
   geometry_msgs::msg::TwistStamped velocity;
