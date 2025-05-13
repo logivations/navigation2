@@ -145,7 +145,7 @@ bool SimpleGoalChecker::isGoalReached(
   bool within_x_tolerance = x_in_goal_frame <= x_goal_tolerance_;
   bool within_y_tolerance = y_in_goal_frame <= y_goal_tolerance_;
 
-  return (fabs(dyaw) =< yaw_goal_tolerance_) && within_x_tolerance && within_y_tolerance;
+  return (fabs(dyaw) <= yaw_goal_tolerance_) && within_x_tolerance && within_y_tolerance;
 }
 
 bool SimpleGoalChecker::getTolerances(
