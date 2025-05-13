@@ -118,7 +118,7 @@ bool SimpleGoalChecker::isGoalReached(
     goal_frame_transform.setOrigin(tf2::Vector3(goal_pose.position.x, goal_pose.position.y, 0.0));
     goal_frame_transform.setRotation(tf2::Quaternion(goal_pose.orientation.x, goal_pose.orientation.y, goal_pose.orientation.z, goal_pose.orientation.w));
 
-    tf2::Transform query_pose_in_goal_frame = goal_frame_transform.inverse() * 
+    tf2::Transform query_pose_in_goal_frame = goal_frame_transform.inverse() *
       tf2::Transform(tf2::Quaternion(query_pose.orientation.x, query_pose.orientation.y, query_pose.orientation.z, query_pose.orientation.w),
                     tf2::Vector3(query_pose.position.x, query_pose.position.y, query_pose.position.z));
 
@@ -145,7 +145,7 @@ bool SimpleGoalChecker::isGoalReached(
   bool within_x_tolerance = x_in_goal_frame <= x_goal_tolerance_;
   bool within_y_tolerance = y_in_goal_frame <= y_goal_tolerance_;
 
-  return (fabs(dyaw) < yaw_goal_tolerance_) && within_x_tolerance && within_y_tolerance;
+  return (fabs(dyaw) =< yaw_goal_tolerance_) && within_x_tolerance && within_y_tolerance;
 }
 
 bool SimpleGoalChecker::getTolerances(
