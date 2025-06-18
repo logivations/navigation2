@@ -144,14 +144,26 @@ bool ConstrainedSmoother::smooth(nav_msgs::msg::Path & path, const rclcpp::Durat
 
   // populate final path
   geometry_msgs::msg::PoseStamped pose;
-  pose.header = path.poses.front().header;
+  const auto original_header = path.poses.front().header;
+
+  // Save original z-coordinates before clearing
+  std::vector<double> original_z_coords;
+  original_z_coords.reserve(path.poses.size());
+  for (const auto& p : path.poses) {
+    original_z_coords.push_back(p.pose.position.z);
+  }
+
   path.poses.clear();
   path.poses.reserve(path_world.size());
-  for (auto & pw : path_world) {
-    pose.pose.position.x = pw[0];
-    pose.pose.position.y = pw[1];
-    pose.pose.orientation.z = sin(pw[2] / 2);
-    pose.pose.orientation.w = cos(pw[2] / 2);
+
+  for (size_t i = 0; i < path_world.size(); ++i) {
+    pose.header = original_header;
+    pose.pose.position.x = path_world[i][0];
+    pose.pose.position.y = path_world[i][1];
+    pose.pose.position.z = (i < original_z_coords.size()) ? original_z_coords[i] : 0.0;
+
+    pose.pose.orientation.z = sin(path_world[i][2] / 2.0);
+    pose.pose.orientation.w = cos(path_world[i][2] / 2.0);
 
     path.poses.push_back(pose);
   }
