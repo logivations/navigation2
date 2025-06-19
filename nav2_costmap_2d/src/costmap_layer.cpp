@@ -289,7 +289,7 @@ CombinationMethod CostmapLayer::combination_method_from_int(const int value)
       RCLCPP_WARN(
         logger_,
         "Param combination_method: %i. Possible values are  0 (Overwrite) or 1 (Maximum) or "
-        "2 (Maximum without overwriting the master's NO_INFORMATION values)."
+        "2 (Maximum without overwriting the master's NO_INFORMATION values) or 3 (Min - Allows a sensor to clear a certain area of the map)."
         "The default value 1 will be used", value);
       return CombinationMethod::Max;
   }
