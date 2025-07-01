@@ -775,7 +775,6 @@ PlannerServer::dynamicParametersCallback(std::vector<rclcpp::Parameter> paramete
   return result;
 }
 
-
 void PlannerServer::exceptionWarning(
   const geometry_msgs::msg::PoseStamped & start,
   const geometry_msgs::msg::PoseStamped & goal,
