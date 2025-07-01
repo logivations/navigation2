@@ -398,7 +398,12 @@ bool PlannerServer::validatePath(
 
 void PlannerServer::computePlanThroughPoses()
 {
-  std::lock_guard<std::mutex> lock(dynamic_params_lock_);
+  // Lock only briefly to copy the shared parameter
+  double local_max_planner_duration;
+  {
+    std::lock_guard<std::mutex> lock(dynamic_params_lock_);
+    local_max_planner_duration = max_planner_duration_;
+  }
 
   auto start_time = this->now();
 
@@ -472,11 +477,12 @@ void PlannerServer::computePlanThroughPoses()
     auto cycle_duration = this->now() - start_time;
     result->planning_time = cycle_duration;
 
-    if (max_planner_duration_ && cycle_duration.seconds() > max_planner_duration_) {
+    // Use the local copy here
+    if (local_max_planner_duration > 0 && cycle_duration.seconds() > local_max_planner_duration) {
       RCLCPP_WARN(
         get_logger(),
         "Planner loop missed its desired rate of %.4f Hz. Current loop rate is %.4f Hz",
-        1 / max_planner_duration_, 1 / cycle_duration.seconds());
+        1 / local_max_planner_duration, 1 / cycle_duration.seconds());
     }
 
     action_server_poses_->succeeded_current(result);
@@ -526,10 +532,13 @@ void PlannerServer::computePlanThroughPoses()
   }
 }
 
-void
-PlannerServer::computePlan()
+void PlannerServer::computePlan()
 {
-  std::lock_guard<std::mutex> lock(dynamic_params_lock_);
+  double local_max_planner_duration;
+  {
+    std::lock_guard<std::mutex> lock(dynamic_params_lock_);
+    local_max_planner_duration = max_planner_duration_;
+  }
 
   auto start_time = this->now();
 
@@ -575,11 +584,11 @@ PlannerServer::computePlan()
     auto cycle_duration = this->now() - start_time;
     result->planning_time = cycle_duration;
 
-    if (max_planner_duration_ && cycle_duration.seconds() > max_planner_duration_) {
+    if (local_max_planner_duration > 0 && cycle_duration.seconds() > local_max_planner_duration) {
       RCLCPP_WARN(
         get_logger(),
         "Planner loop missed its desired rate of %.4f Hz. Current loop rate is %.4f Hz",
-        1 / max_planner_duration_, 1 / cycle_duration.seconds());
+        1 / local_max_planner_duration, 1 / cycle_duration.seconds());
     }
     action_server_pose_->succeeded_current(result);
   } catch (nav2_core::InvalidPlanner & ex) {
@@ -740,7 +749,6 @@ void PlannerServer::isPathValid(
 rcl_interfaces::msg::SetParametersResult
 PlannerServer::dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters)
 {
-  std::lock_guard<std::mutex> lock(dynamic_params_lock_);
   rcl_interfaces::msg::SetParametersResult result;
   for (auto parameter : parameters) {
     const auto & type = parameter.get_type();
@@ -749,12 +757,14 @@ PlannerServer::dynamicParametersCallback(std::vector<rclcpp::Parameter> paramete
     if (type == ParameterType::PARAMETER_DOUBLE) {
       if (name == "expected_planner_frequency") {
         if (parameter.as_double() > 0) {
+          std::lock_guard<std::mutex> lock(dynamic_params_lock_);
           max_planner_duration_ = 1 / parameter.as_double();
         } else {
           RCLCPP_WARN(
             get_logger(),
             "The expected planner frequency parameter is %.4f Hz. The value should to be greater"
             " than 0.0 to turn on duration overrrun warning messages", parameter.as_double());
+          std::lock_guard<std::mutex> lock(dynamic_params_lock_);
           max_planner_duration_ = 0.0;
         }
       }
@@ -764,6 +774,7 @@ PlannerServer::dynamicParametersCallback(std::vector<rclcpp::Parameter> paramete
   result.successful = true;
   return result;
 }
+
 
 void PlannerServer::exceptionWarning(
   const geometry_msgs::msg::PoseStamped & start,
