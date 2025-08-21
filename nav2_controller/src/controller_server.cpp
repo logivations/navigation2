@@ -53,7 +53,6 @@ ControllerServer::ControllerServer(const rclcpp::NodeOptions & options)
 
   declare_parameter("action_server_result_timeout", 10.0);
 
-  declare_parameter("global_plan_pub_rate", rclcpp::ParameterValue(1.0));
   declare_parameter("progress_checker_plugins", default_progress_checker_ids_);
   declare_parameter("goal_checker_plugins", default_goal_checker_ids_);
   declare_parameter("controller_plugins", default_ids_);
