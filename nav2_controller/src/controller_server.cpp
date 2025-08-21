@@ -283,8 +283,6 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & state)
 
   // Create global plan publisher
   global_plan_publisher_ = create_publisher<nav_msgs::msg::Path>("global_plan", 1);
-  get_parameter("global_plan_pub_rate", global_plan_pub_rate_);
-  last_global_plan_pub_time_ = rclcpp::Time(0);
 
   return nav2_util::CallbackReturn::SUCCESS;
 }
@@ -669,18 +667,7 @@ void ControllerServer::setPlannerPath(const nav_msgs::msg::Path & path)
     end_pose_.pose.position.x, end_pose_.pose.position.y);
 
   current_path_ = path;
-
-   // Publish global plan with optional rate limiting
-  auto now_time = now();
-  double time_since_last_pub = (now_time - last_global_plan_pub_time_).seconds();
-
-  if (global_plan_pub_rate_ <= 0.0 || time_since_last_pub >= (1.0 / global_plan_pub_rate_)) {
-    if (global_plan_publisher_->get_subscription_count() > 0) {
-      RCLCPP_DEBUG(get_logger(), "Publishing global plan with %zu poses", path.poses.size());
-      global_plan_publisher_->publish(path);
-    }
-    last_global_plan_pub_time_ = now_time;
-  }
+  global_plan_publisher_->publish(path);
 }
 
 void ControllerServer::computeAndPublishVelocity()

@@ -274,9 +274,6 @@ protected:
   bool use_realtime_priority_;
   rclcpp::Duration costmap_update_timeout_;
 
-  rclcpp::Time last_global_plan_pub_time_;
-  double global_plan_pub_rate_;
-
   // Whether we've published the single controller warning yet
   geometry_msgs::msg::PoseStamped end_pose_;
 
