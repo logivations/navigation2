@@ -53,6 +53,7 @@ ControllerServer::ControllerServer(const rclcpp::NodeOptions & options)
 
   declare_parameter("action_server_result_timeout", 10.0);
 
+  declare_parameter("global_plan_pub_rate", rclcpp::ParameterValue(1.0));
   declare_parameter("progress_checker_plugins", default_progress_checker_ids_);
   declare_parameter("goal_checker_plugins", default_goal_checker_ids_);
   declare_parameter("controller_plugins", default_ids_);
@@ -280,6 +281,11 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & state)
     speed_limit_topic, rclcpp::QoS(10),
     std::bind(&ControllerServer::speedLimitCallback, this, std::placeholders::_1));
 
+  // Create global plan publisher
+  global_plan_publisher_ = create_publisher<nav_msgs::msg::Path>("global_plan", 1);
+  get_parameter("global_plan_pub_rate", global_plan_pub_rate_);
+  last_global_plan_pub_time_ = rclcpp::Time(0);
+
   return nav2_util::CallbackReturn::SUCCESS;
 }
 
@@ -383,6 +389,7 @@ ControllerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   sensor_costmap_thread_.reset();
   vel_publisher_.reset();
   speed_limit_sub_.reset();
+  global_plan_publisher_.reset();
 
   return nav2_util::CallbackReturn::SUCCESS;
 }
@@ -662,6 +669,18 @@ void ControllerServer::setPlannerPath(const nav_msgs::msg::Path & path)
     end_pose_.pose.position.x, end_pose_.pose.position.y);
 
   current_path_ = path;
+
+   // Publish global plan with optional rate limiting
+  auto now_time = now();
+  double time_since_last_pub = (now_time - last_global_plan_pub_time_).seconds();
+
+  if (global_plan_pub_rate_ <= 0.0 || time_since_last_pub >= (1.0 / global_plan_pub_rate_)) {
+    if (global_plan_publisher_->get_subscription_count() > 0) {
+      RCLCPP_DEBUG(get_logger(), "Publishing global plan with %zu poses", path.poses.size());
+      global_plan_publisher_->publish(path);
+    }
+    last_global_plan_pub_time_ = now_time;
+  }
 }
 
 void ControllerServer::computeAndPublishVelocity()

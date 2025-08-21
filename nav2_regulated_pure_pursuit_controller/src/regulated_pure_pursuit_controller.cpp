@@ -72,7 +72,6 @@ void RegulatedPurePursuitController::configure(
   node->get_parameter("controller_frequency", control_frequency);
   control_duration_ = 1.0 / control_frequency;
 
-  global_path_pub_ = node->create_publisher<nav_msgs::msg::Path>("received_global_plan", 1);
   carrot_pub_ = node->create_publisher<geometry_msgs::msg::PointStamped>("lookahead_point", 1);
   curvature_carrot_pub_ = node->create_publisher<geometry_msgs::msg::PointStamped>(
     "curvature_lookahead_point", 1);
@@ -87,7 +86,6 @@ void RegulatedPurePursuitController::cleanup()
     "Cleaning up controller: %s of type"
     " regulated_pure_pursuit_controller::RegulatedPurePursuitController",
     plugin_name_.c_str());
-  global_path_pub_.reset();
   carrot_pub_.reset();
   curvature_carrot_pub_.reset();
   is_rotating_to_heading_pub_.reset();
@@ -100,7 +98,6 @@ void RegulatedPurePursuitController::activate()
     "Activating controller: %s of type "
     "regulated_pure_pursuit_controller::RegulatedPurePursuitController",
     plugin_name_.c_str());
-  global_path_pub_->on_activate();
   carrot_pub_->on_activate();
   curvature_carrot_pub_->on_activate();
   is_rotating_to_heading_pub_->on_activate();
@@ -113,7 +110,6 @@ void RegulatedPurePursuitController::deactivate()
     "Deactivating controller: %s of type "
     "regulated_pure_pursuit_controller::RegulatedPurePursuitController",
     plugin_name_.c_str());
-  global_path_pub_->on_deactivate();
   carrot_pub_->on_deactivate();
   curvature_carrot_pub_->on_deactivate();
   is_rotating_to_heading_pub_->on_deactivate();
@@ -183,7 +179,6 @@ geometry_msgs::msg::TwistStamped RegulatedPurePursuitController::computeVelocity
   // Transform path to robot base frame
   auto transformed_plan = path_handler_->transformGlobalPlan(
     pose, params_->max_robot_pose_search_dist, params_->interpolate_curvature_after_goal);
-  global_path_pub_->publish(transformed_plan);
 
   // Find look ahead distance and point on path and publish
   double lookahead_dist = getLookAheadDistance(speed);

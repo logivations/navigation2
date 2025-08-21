@@ -236,6 +236,7 @@ protected:
   std::unique_ptr<nav_2d_utils::OdomSubscriber> odom_sub_;
   std::unique_ptr<nav2_util::TwistPublisher> vel_publisher_;
   rclcpp::Subscription<nav2_msgs::msg::SpeedLimit>::SharedPtr speed_limit_sub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr global_plan_publisher_;
 
   // Progress Checker Plugin
   pluginlib::ClassLoader<nav2_core::ProgressChecker> progress_checker_loader_;
@@ -272,6 +273,9 @@ protected:
   double failure_tolerance_;
   bool use_realtime_priority_;
   rclcpp::Duration costmap_update_timeout_;
+
+  rclcpp::Time last_global_plan_pub_time_;
+  double global_plan_pub_rate_;
 
   // Whether we've published the single controller warning yet
   geometry_msgs::msg::PoseStamped end_pose_;
