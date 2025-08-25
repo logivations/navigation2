@@ -280,6 +280,9 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & state)
     speed_limit_topic, rclcpp::QoS(10),
     std::bind(&ControllerServer::speedLimitCallback, this, std::placeholders::_1));
 
+  // Create global plan publisher
+  global_plan_publisher_ = create_publisher<nav_msgs::msg::Path>("global_plan", 1);
+
   return nav2_util::CallbackReturn::SUCCESS;
 }
 
@@ -383,6 +386,7 @@ ControllerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   sensor_costmap_thread_.reset();
   vel_publisher_.reset();
   speed_limit_sub_.reset();
+  global_plan_publisher_.reset();
 
   return nav2_util::CallbackReturn::SUCCESS;
 }
@@ -662,6 +666,7 @@ void ControllerServer::setPlannerPath(const nav_msgs::msg::Path & path)
     end_pose_.pose.position.x, end_pose_.pose.position.y);
 
   current_path_ = path;
+  global_plan_publisher_->publish(path);
 }
 
 void ControllerServer::computeAndPublishVelocity()
