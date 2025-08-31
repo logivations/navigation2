@@ -320,8 +320,21 @@ bool RegulatedPurePursuitController::shouldRotateToGoalHeading(
   const geometry_msgs::msg::PoseStamped & carrot_pose)
 {
   // Whether we should rotate robot to goal heading
-  double dist_to_goal = std::hypot(carrot_pose.pose.position.x, carrot_pose.pose.position.y);
-  return params_->use_rotate_to_heading && dist_to_goal < goal_dist_tol_;
+  if (!params_->use_rotate_to_heading) {
+    return false;
+  }
+
+  double dist_to_goal = std::hypot(
+    carrot_pose.pose.position.x, carrot_pose.pose.position.y);
+
+  if (params_->stateful) {
+    if (!has_reached_xy_tolerance_ && dist_to_goal < goal_dist_tol_) {
+      has_reached_xy_tolerance_ = true;
+    }
+    return has_reached_xy_tolerance_;
+  }
+
+  return dist_to_goal < goal_dist_tol_;
 }
 
 void RegulatedPurePursuitController::rotateToHeading(
@@ -337,6 +350,12 @@ void RegulatedPurePursuitController::rotateToHeading(
   const double min_feasible_angular_speed = curr_speed.angular.z - params_->max_angular_accel * dt;
   const double max_feasible_angular_speed = curr_speed.angular.z + params_->max_angular_accel * dt;
   angular_vel = std::clamp(angular_vel, min_feasible_angular_speed, max_feasible_angular_speed);
+
+  // Check if we need to slow down to avoid overshooting
+  double max_vel_to_stop = std::sqrt(2 * params_->max_angular_accel * fabs(angle_to_path));
+  if (fabs(angular_vel) > max_vel_to_stop) {
+    angular_vel = sign * max_vel_to_stop;
+  }
 }
 
 geometry_msgs::msg::Point RegulatedPurePursuitController::circleSegmentIntersection(
@@ -466,6 +485,7 @@ void RegulatedPurePursuitController::applyConstraints(
 
 void RegulatedPurePursuitController::setPlan(const nav_msgs::msg::Path & path)
 {
+  has_reached_xy_tolerance_ = false;
   path_handler_->setPlan(path);
 }
 
@@ -493,6 +513,7 @@ void RegulatedPurePursuitController::reset()
 {
   cancelling_ = false;
   finished_cancelling_ = false;
+  has_reached_xy_tolerance_ = false;
 }
 
 double RegulatedPurePursuitController::findVelocitySignChange(
