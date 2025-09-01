@@ -323,6 +323,7 @@ ObstacleLayer::dynamicParametersCallback(
       }
     } else if (param_type == ParameterType::PARAMETER_INTEGER) {
       if (param_name == name_ + "." + "combination_method") {
+        RCLCPP_INFO(logger_, "Set new combination method parameter value %ld", parameter.as_int());
         combination_method_ = combination_method_from_int(parameter.as_int());
       }
     }
