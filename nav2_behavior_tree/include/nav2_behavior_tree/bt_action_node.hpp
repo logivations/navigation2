@@ -47,7 +47,7 @@ public:
     const std::string & xml_tag_name,
     const std::string & action_name,
     const BT::NodeConfiguration & conf)
-  : BT::ActionNodeBase(xml_tag_name, conf), action_name_(action_name), should_send_goal_(true)
+  : BT::ActionNodeBase(xml_tag_name, conf), action_name_(action_name), should_send_goal_(true), should_abort_with_failure_(true)
   {
     node_ = config().blackboard->template get<rclcpp::Node::SharedPtr>("node");
     callback_group_ = node_->create_callback_group(
@@ -193,6 +193,8 @@ public:
     if (!BT::isStatusActive(status())) {
       // reset the flag to send the goal or not, allowing the user the option to set it in on_tick
       should_send_goal_ = true;
+      // reset the flag to abort with failure, allowing user to force success
+      should_abort_with_failure_ = true;
 
       // Clear the input and output messages to make sure we have no leftover from previous calls
       goal_ = typename ActionT::Goal();
@@ -205,7 +207,11 @@ public:
       setStatus(BT::NodeStatus::RUNNING);
 
       if (!should_send_goal_) {
-        return BT::NodeStatus::FAILURE;
+        if(should_abort_with_failure_){
+          return BT::NodeStatus::FAILURE;
+        } else {
+          return BT::NodeStatus::SUCCESS;
+        }
       }
       send_new_goal();
     }
@@ -484,6 +490,9 @@ protected:
 
   // Can be set in on_tick or on_wait_for_result to indicate if a goal should be sent.
   bool should_send_goal_;
+  
+  // Can be set in on_tick or on_wait_for_result to indicate if an aborted action should return failure.
+  bool should_abort_with_failure_;
 };
 
 }  // namespace nav2_behavior_tree
