@@ -204,7 +204,7 @@ class NavTester(Node):
                 self.error_msg(
                     f'Exception while calling service: {future.exception()!r}'
                 )
-            time.sleep(1)
+            time.sleep(5)
 
     def shutdown(self) -> None:
         self.info_msg('Shutting down')
@@ -407,7 +407,7 @@ def main(argv: list[str] = sys.argv[1:]):  # type: ignore[no-untyped-def]
     testers = get_testers(args)
 
     # wait a few seconds to make sure entire stacks are up
-    time.sleep(1)
+    time.sleep(10)
 
     passed = False
     for tester in testers:
