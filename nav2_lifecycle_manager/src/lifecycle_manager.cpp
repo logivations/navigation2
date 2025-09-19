@@ -46,7 +46,7 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   declare_parameter("service_timeout", 5.0);
   declare_parameter("bond_respawn_max_duration", 10.0);
   declare_parameter("attempt_respawn_reconnection", true);
-  declare_parameter("parallel_state_transitions", rclcpp::ParameterValue(false));
+  declare_parameter("parallel_state_transitions", rclcpp::ParameterValue(true));
 
   registerRclPreshutdownCallback();
 
