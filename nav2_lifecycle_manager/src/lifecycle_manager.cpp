@@ -16,6 +16,7 @@
 #include "nav2_lifecycle_manager/lifecycle_manager.hpp"
 
 #include <chrono>
+#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -48,6 +49,8 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   attempt_respawn_reconnection_ = nav2::declare_or_get_parameter(
     node, "attempt_respawn_reconnection", true);
   bond_heartbeat_period_ = nav2::declare_or_get_parameter(node, "bond_heartbeat_period", 0.25);
+  parallel_state_transitions_ = nav2::declare_or_get_parameter(
+    node, "parallel_state_transitions", true);
 
   registerRclPreshutdownCallback();
 
@@ -316,34 +319,104 @@ LifecycleManager::changeStateForNode(const std::string & node_name, std::uint8_t
 bool
 LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_change)
 {
-  // Hard change will continue even if a node fails
-  if (transition == Transition::TRANSITION_CONFIGURE ||
-    transition == Transition::TRANSITION_ACTIVATE)
-  {
-    for (auto & node_name : node_names_) {
-      try {
-        if (!changeStateForNode(node_name, transition) && !hard_change) {
-          return false;
-        }
-      } catch (const std::runtime_error & e) {
-        RCLCPP_ERROR(
-          get_logger(),
-          "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
-        return false;
+  /* Function partially created using claude */
+  size_t active_nodes_count = 0;
+  std::string nodes_in_error_state = "";
+  std::string unconfigured_nodes = "";
+  std::string inactive_nodes = "";
+  std::string delimiter(", ");
+
+  if (parallel_state_transitions_) {
+    // Parallel execution
+    std::vector<std::future<bool>> futures;
+    std::vector<std::string> processing_nodes;
+
+    // Hard change will continue even if a node fails
+    if (transition == Transition::TRANSITION_CONFIGURE ||
+      transition == Transition::TRANSITION_ACTIVATE)
+    {
+      // Launch all state changes in parallel
+      for (auto & node_name : node_names_) {
+        futures.emplace_back(std::async(std::launch::async, [this, node_name, transition]() {
+            try {
+              return changeStateForNode(node_name, transition);
+            } catch (const std::runtime_error & e) {
+              RCLCPP_ERROR(
+              get_logger(),
+              "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
+              return false;
+            }
+        }));
+        processing_nodes.push_back(node_name);
+      }
+    } else {
+      // For deactivation/cleanup, process in reverse order but still in parallel
+      std::vector<std::string> reverse_nodes(node_names_.rbegin(), node_names_.rend());
+      for (auto & node_name : reverse_nodes) {
+        futures.emplace_back(std::async(std::launch::async, [this, node_name, transition]() {
+            try {
+              return changeStateForNode(node_name, transition);
+            } catch (const std::runtime_error & e) {
+              RCLCPP_ERROR(
+              get_logger(),
+              "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
+              return false;
+            }
+        }));
+        processing_nodes.push_back(node_name);
       }
     }
+
+    // Wait for all futures and collect results
+    for (size_t i = 0; i < futures.size(); ++i) {
+      bool success = futures[i].get();
+      const std::string & node_name = processing_nodes[i];
+
+      if (!success && !hard_change) {
+        uint8_t state = node_map_[node_name]->get_state();
+        if (!strcmp(reinterpret_cast<char *>(&state), "Inactive")) {
+          inactive_nodes += node_name + delimiter;
+        } else {
+          unconfigured_nodes += node_name + delimiter;
+        }
+      } else if (success) {
+        ++active_nodes_count;
+      }
+    }
+    if (active_nodes_count != node_names_.size()) {
+      return false;
+    }
+
   } else {
-    std::vector<std::string>::reverse_iterator rit;
-    for (rit = node_names_.rbegin(); rit != node_names_.rend(); ++rit) {
-      try {
-        if (!changeStateForNode(*rit, transition) && !hard_change) {
+    // Sequential execution (original behavior)
+    if (transition == Transition::TRANSITION_CONFIGURE ||
+      transition == Transition::TRANSITION_ACTIVATE)
+    {
+      for (auto & node_name : node_names_) {
+        try {
+          if (!changeStateForNode(node_name, transition) && !hard_change) {
+            return false;
+          }
+        } catch (const std::runtime_error & e) {
+          RCLCPP_ERROR(
+          get_logger(),
+          "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
           return false;
         }
-      } catch (const std::runtime_error & e) {
-        RCLCPP_ERROR(
+      }
+    } else {
+      std::vector<std::string>::reverse_iterator rit;
+      for (rit = node_names_.rbegin(); rit != node_names_.rend(); ++rit) {
+        try {
+          if (!changeStateForNode(*rit, transition) && !hard_change) {
+            return false;
+          }
+        } catch (const std::runtime_error & e) {
+          RCLCPP_ERROR(
           get_logger(),
           "Failed to change state for node: %s. Exception: %s.", (*rit).c_str(), e.what());
-        return false;
+          return false;
+        }
       }
     }
   }
