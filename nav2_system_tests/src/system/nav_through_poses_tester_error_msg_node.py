@@ -204,7 +204,7 @@ class NavTester(Node):
                 self.error_msg(
                     f'Exception while calling service: {future.exception()!r}'
                 )
-            time.sleep(5)
+            time.sleep(1)
 
     def shutdown(self) -> None:
         self.info_msg('Shutting down')
