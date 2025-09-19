@@ -284,10 +284,11 @@ LifecycleManager::changeStateForNode(const std::string & node_name, std::uint8_t
 bool
 LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_change)
 {
-  active_nodes_count = 0;
-  nodes_in_error_state = "";
-  unconfigured_nodes = "";
-  inactive_nodes = "";
+  /* Function partially created using claude */
+  size_t active_nodes_count = 0;
+  std::string nodes_in_error_state = "";
+  std::string unconfigured_nodes = "";
+  std::string inactive_nodes = "";
   std::string delimiter(", ");
 
   if (parallel_state_transitions_) {
@@ -338,7 +339,7 @@ LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_chan
 
       if (!success && !hard_change) {
         uint8_t state = node_map_[node_name]->get_state();
-        if (!strcmp((char *)&state, "Inactive")) {
+        if (!strcmp(reinterpret_cast<char *>(&state), "Inactive")) {
           inactive_nodes += node_name + delimiter;
         } else {
           unconfigured_nodes += node_name + delimiter;
