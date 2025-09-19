@@ -407,7 +407,7 @@ def main(argv: list[str] = sys.argv[1:]):  # type: ignore[no-untyped-def]
     testers = get_testers(args)
 
     # wait a few seconds to make sure entire stacks are up
-    time.sleep(10)
+    time.sleep(1)
 
     passed = False
     for tester in testers:
