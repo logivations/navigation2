@@ -302,14 +302,14 @@ LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_chan
       // Launch all state changes in parallel
       for (auto & node_name : node_names_) {
         futures.emplace_back(std::async(std::launch::async, [this, node_name, transition]() {
-          try {
-            return changeStateForNode(node_name, transition);
-          } catch (const std::runtime_error & e) {
-            RCLCPP_ERROR(
+            try {
+              return changeStateForNode(node_name, transition);
+            } catch (const std::runtime_error & e) {
+              RCLCPP_ERROR(
               get_logger(),
               "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
-            return false;
-          }
+              return false;
+            }
         }));
         processing_nodes.push_back(node_name);
       }
@@ -318,14 +318,14 @@ LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_chan
       std::vector<std::string> reverse_nodes(node_names_.rbegin(), node_names_.rend());
       for (auto & node_name : reverse_nodes) {
         futures.emplace_back(std::async(std::launch::async, [this, node_name, transition]() {
-          try {
-            return changeStateForNode(node_name, transition);
-          } catch (const std::runtime_error & e) {
-            RCLCPP_ERROR(
+            try {
+              return changeStateForNode(node_name, transition);
+            } catch (const std::runtime_error & e) {
+              RCLCPP_ERROR(
               get_logger(),
               "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
-            return false;
-          }
+              return false;
+            }
         }));
         processing_nodes.push_back(node_name);
       }
@@ -334,21 +334,23 @@ LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_chan
     // Wait for all futures and collect results
     for (size_t i = 0; i < futures.size(); ++i) {
       bool success = futures[i].get();
-      const std::string& node_name = processing_nodes[i];
+      const std::string & node_name = processing_nodes[i];
 
       if (!success && !hard_change) {
         uint8_t state = node_map_[node_name]->get_state();
-        if (!strcmp((char *)&state, "Inactive")){
+        if (!strcmp((char *)&state, "Inactive")) {
           inactive_nodes += node_name + delimiter;
-        }
-        else{
+        } else {
           unconfigured_nodes += node_name + delimiter;
         }
-      }
-      else if (success) {
+      } else if (success) {
         ++active_nodes_count;
       }
     }
+    if (active_nodes_count != node_names_.size()) {
+      return false;
+    }
+
   } else {
     // Sequential execution (original behavior)
     if (transition == Transition::TRANSITION_CONFIGURE ||
@@ -357,21 +359,13 @@ LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_chan
       for (auto & node_name : node_names_) {
         try {
           if (!changeStateForNode(node_name, transition) && !hard_change) {
-            uint8_t state = node_map_[node_name]->get_state();
-            if (!strcmp((char *)&state, "Inactive")){
-              inactive_nodes += node_name + delimiter;
-            }
-            else{
-              unconfigured_nodes += node_name + delimiter;
-            }
-          }
-          else {
-            ++active_nodes_count;
+            return false;
           }
         } catch (const std::runtime_error & e) {
           RCLCPP_ERROR(
-            get_logger(),
-            "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
+          get_logger(),
+          "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
+          return false;
         }
       }
     } else {
@@ -379,28 +373,16 @@ LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_chan
       for (rit = node_names_.rbegin(); rit != node_names_.rend(); ++rit) {
         try {
           if (!changeStateForNode(*rit, transition) && !hard_change) {
-            uint8_t state = node_map_[*rit]->get_state();
-            if (!strcmp((char *)&state, "Inactive")){
-              inactive_nodes += *rit + delimiter;
-            }
-            else{
-              unconfigured_nodes += *rit + delimiter;
-            }
-          }
-          else {
-            ++active_nodes_count;
+            return false;
           }
         } catch (const std::runtime_error & e) {
           RCLCPP_ERROR(
-            get_logger(),
-            "Failed to change state for node: %s. Exception: %s.", (*rit).c_str(), e.what());
+          get_logger(),
+          "Failed to change state for node: %s. Exception: %s.", (*rit).c_str(), e.what());
+          return false;
         }
       }
     }
-  }
-
-  if (active_nodes_count != node_names_.size()) {
-    return false;
   }
   return true;
 }
