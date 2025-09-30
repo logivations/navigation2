@@ -38,6 +38,8 @@ void DriveOnHeadingWithSwarmAction::initialize()
   getInput("time_allowance", time_allowance);
   bool free_goal_vel;
   getInput("free_goal_vel", free_goal_vel);
+  float path_check_rate;
+  getInput("path_check_rate", path_check_rate);
 
   // Populate the input message
   goal_.target.x = dist;
@@ -46,6 +48,7 @@ void DriveOnHeadingWithSwarmAction::initialize()
   goal_.speed = speed;
   goal_.time_allowance = rclcpp::Duration::from_seconds(time_allowance);
   goal_.free_goal_vel = free_goal_vel;
+  goal_.path_check_rate = path_check_rate;
 }
 
 void DriveOnHeadingWithSwarmAction::on_tick()

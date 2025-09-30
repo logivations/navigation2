@@ -1,3 +1,17 @@
+// Copyright (c) 2018 Intel Corporation
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #ifndef NAV2_BEHAVIORS__PLUGINS__DRIVE_ON_HEADING_WITH_SWARM_HPP_
 #define NAV2_BEHAVIORS__PLUGINS__DRIVE_ON_HEADING_WITH_SWARM_HPP_
 
@@ -27,7 +41,8 @@ public:
    */
   DriveOnHeadingWithSwarm()
   : DriveOnHeading<ActionT>(),
-    waiting_for_path_clear_(false)
+    waiting_for_path_clear_(false),
+    path_check_rate_(2.0)
   {
   }
 
@@ -46,6 +61,10 @@ public:
     }
 
     waiting_for_path_clear_ = false;
+    // has to be old so first check to happens immediately
+    last_path_check_time_ = rclcpp::Time(0, 0, this->clock_->get_clock_type());
+    current_path_is_cut_ = false;
+    path_check_rate_ = command->path_check_rate;
 
     return status;
   }
@@ -73,39 +92,54 @@ public:
       return ResultStatus{Status::FAILED, ActionT::Result::COLLISION_AHEAD};
     }
 
-    // Generate path and request cut (blocking)
-    nav_msgs::msg::Path path = generateStraightLinePath(current_pose, this->command_x_ - distance, 0.3);
-    auto [cut_path, path_cut] = callCutPathForVehiclesService(path);
-    if (global_plan_pub_) {
-      global_plan_pub_->publish(*cut_path);
+    // Check if it's time to rebuild path and check for cuts
+    auto now = this->clock_->now();
+    double time_since_last_check = (now - last_path_check_time_).seconds();
+
+    if (time_since_last_check >= (1.0 / path_check_rate_)) {
+      last_path_check_time_ = now;
+
+      // Generate path and request cut (blocking)
+      nav_msgs::msg::Path path = generateStraightLinePath(current_pose, this->command_x_ - distance, 0.3);
+      auto [cut_path, path_cut] = callCutPathForVehiclesService(path);
+
+      if (global_plan_pub_) {
+        global_plan_pub_->publish(*cut_path);
+      }
+
+      current_path_is_cut_ = path_cut;
+
+      if (path_cut) {
+        // First cut
+        if (!waiting_for_path_clear_) {
+          waiting_for_path_clear_ = true;
+          this->stopRobot();
+          RCLCPP_WARN(this->logger_, "Path cut detected. Pausing until clear.");
+          cut_fail_start_time_ = now;
+        }
+
+        // Have been cut for > 30 sec - fail
+        if ((now - cut_fail_start_time_).seconds() > 30.0) {
+          RCLCPP_ERROR(this->logger_, "Path still cut after 30s. Failing behavior.");
+          auto result = std::make_shared<typename ActionT::Result>();
+          result->error_code = ActionT::Result::TIMEOUT;
+          this->action_server_->terminate_current(result);
+          return ResultStatus{Status::FAILED, ActionT::Result::TIMEOUT};
+        }
+      } else {
+        // Path is clear, reset waiting state if needed
+        if (waiting_for_path_clear_) {
+          waiting_for_path_clear_ = false;
+          this->end_time_ = this->clock_->now() + this->command_time_allowance_;
+          RCLCPP_INFO(this->logger_, "Path is clear again. Resuming motion.");
+        }
+      }
     }
 
-    if (path_cut) {
-      // First cut
-      if (!waiting_for_path_clear_) {
-        waiting_for_path_clear_ = true;
-        this->stopRobot();
-        RCLCPP_WARN(this->logger_, "Path cut detected. Pausing until clear.");
-        cut_fail_start_time_ = this->clock_->now();
-      }
-
-      // Have been cut for > 30 sec - fail
-      if ((this->clock_->now() - cut_fail_start_time_).seconds() > 30.0) {
-        RCLCPP_ERROR(this->logger_, "Path still cut after 30s. Failing behavior.");
-        auto result = std::make_shared<typename ActionT::Result>();
-        result->error_code = ActionT::Result::TIMEOUT;
-        this->action_server_->terminate_current(result);
-        return ResultStatus{Status::FAILED, ActionT::Result::TIMEOUT};
-      }
-
-      // Path is cut - already stopped, do not publish velocity, keep waiting
+    // If path is currently cut, stop and wait
+    if (current_path_is_cut_) {
+      this->stopRobot();
       return ResultStatus{Status::RUNNING, ActionT::Result::NONE};
-    }
-    // not cut again, reset timer
-    if (waiting_for_path_clear_) {
-      waiting_for_path_clear_ = false;
-      this->end_time_ = this->clock_->now() + this->command_time_allowance_;
-      RCLCPP_INFO(this->logger_, "Path is clear again. Resuming motion.");
     }
 
     // Publish velocity command
@@ -206,7 +240,10 @@ protected:
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr global_plan_pub_;
   rclcpp::Client<amr_interfaces::srv::CutPathForVehicles>::SharedPtr cutpathforvehicles_client_;
   bool waiting_for_path_clear_;
+  bool current_path_is_cut_;
   rclcpp::Time cut_fail_start_time_;
+  rclcpp::Time last_path_check_time_;
+  double path_check_rate_;
 };
 
 }  // namespace nav2_behaviors

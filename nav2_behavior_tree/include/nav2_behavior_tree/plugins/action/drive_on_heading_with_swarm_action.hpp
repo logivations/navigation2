@@ -60,6 +60,7 @@ public:
         BT::InputPort<double>("speed", 0.025, "Speed at which to travel"),
         BT::InputPort<double>("time_allowance", 10.0, "Allowed time for driving on heading"),
         BT::InputPort<bool>("free_goal_vel", false, "Don't stop when goal reached"),
+        BT::InputPort<float>("path_check_rate", 2.0, "Rage at which to run swarm reservation"),
         BT::OutputPort<Action::Result::_error_code_type>(
           "error_code_id", "The drive on heading behavior server error code")
       });
