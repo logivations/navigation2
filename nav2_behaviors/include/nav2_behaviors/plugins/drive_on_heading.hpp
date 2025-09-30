@@ -31,7 +31,7 @@ namespace nav2_behaviors
 
 /**
  * @class nav2_behaviors::DriveOnHeading
- * @brief An action server Behavior for spinning in
+ * @brief An action server Behavior for driving on heading
  */
 template<typename ActionT = nav2_msgs::action::DriveOnHeading>
 class DriveOnHeading : public TimedBehavior<ActionT>
@@ -99,50 +99,15 @@ public:
    */
   ResultStatus onCycleUpdate() override
   {
-    rclcpp::Duration time_remaining = end_time_ - this->clock_->now();
-    if (time_remaining.seconds() < 0.0 && command_time_allowance_.seconds() > 0.0) {
-      this->stopRobot();
-      RCLCPP_WARN(
-        this->logger_,
-        "Exceeded time allowance before reaching the DriveOnHeading goal - Exiting DriveOnHeading");
-      return ResultStatus{Status::FAILED, ActionT::Result::TIMEOUT};
-    }
-
     geometry_msgs::msg::PoseStamped current_pose;
-    if (!nav2_util::getCurrentPose(
-        current_pose, *this->tf_, this->local_frame_, this->robot_base_frame_,
-        this->transform_tolerance_))
-    {
-      RCLCPP_ERROR(this->logger_, "Current robot pose is not available.");
-      return ResultStatus{Status::FAILED, ActionT::Result::TF_ERROR};
-    }
-
-    double diff_x = initial_pose_.pose.position.x - current_pose.pose.position.x;
-    double diff_y = initial_pose_.pose.position.y - current_pose.pose.position.y;
-    double distance = hypot(diff_x, diff_y);
-
-    feedback_->distance_traveled = distance;
-    this->action_server_->publish_feedback(feedback_);
-
-    if (distance >= std::fabs(command_x_)) {
-      if (!free_goal_vel)
-      {
-        this->stopRobot();
-      }
-      return ResultStatus{Status::SUCCEEDED, ActionT::Result::NONE};
-    }
-
-    auto cmd_vel = std::make_unique<geometry_msgs::msg::TwistStamped>();
-    cmd_vel->header.stamp = this->clock_->now();
-    cmd_vel->header.frame_id = this->robot_base_frame_;
-    cmd_vel->twist.linear.y = 0.0;
-    cmd_vel->twist.angular.z = 0.0;
-    cmd_vel->twist.linear.x = command_speed_;
-
+    double distance;
+    std::unique_ptr<geometry_msgs::msg::TwistStamped> cmd_vel;
     geometry_msgs::msg::Pose2D pose2d;
-    pose2d.x = current_pose.pose.position.x;
-    pose2d.y = current_pose.pose.position.y;
-    pose2d.theta = tf2::getYaw(current_pose.pose.orientation);
+
+    ResultStatus status = commonCycleUpdateLogic(current_pose, distance, cmd_vel, pose2d);
+    if (status.status != Status::RUNNING) {
+      return status;
+    }
 
     if (check_local_costmap && !isCollisionFree(distance, cmd_vel->twist, pose2d)) {
       this->stopRobot();
@@ -162,6 +127,65 @@ public:
   CostmapInfoType getResourceInfo() override {return CostmapInfoType::LOCAL;}
 
 protected:
+  /**
+   * @brief Common logic for onCycleUpdate to be reused by derived classes
+   * @param current_pose Output: Current robot pose
+   * @param distance Output: Distance traveled
+   * @param cmd_vel Output: Commanded velocity
+   * @param pose2d Output: Current pose in 2D
+   * @return ResultStatus indicating the status of the update
+   */
+  virtual ResultStatus commonCycleUpdateLogic(
+    geometry_msgs::msg::PoseStamped & current_pose,
+    double & distance,
+    std::unique_ptr<geometry_msgs::msg::TwistStamped> & cmd_vel,
+    geometry_msgs::msg::Pose2D & pose2d)
+  {
+    rclcpp::Duration time_remaining = end_time_ - this->clock_->now();
+    if (time_remaining.seconds() < 0.0 && command_time_allowance_.seconds() > 0.0) {
+      this->stopRobot();
+      RCLCPP_WARN(
+        this->logger_,
+        "Exceeded time allowance before reaching the DriveOnHeading goal - Exiting");
+      return ResultStatus{Status::FAILED, ActionT::Result::TIMEOUT};
+    }
+
+    if (!nav2_util::getCurrentPose(
+        current_pose, *this->tf_, this->local_frame_, this->robot_base_frame_,
+        this->transform_tolerance_))
+    {
+      RCLCPP_ERROR(this->logger_, "Current robot pose is not available.");
+      return ResultStatus{Status::FAILED, ActionT::Result::TF_ERROR};
+    }
+
+    double diff_x = initial_pose_.pose.position.x - current_pose.pose.position.x;
+    double diff_y = initial_pose_.pose.position.y - current_pose.pose.position.y;
+    distance = hypot(diff_x, diff_y);
+
+    feedback_->distance_traveled = distance;
+    this->action_server_->publish_feedback(feedback_);
+
+    if (distance >= std::fabs(command_x_)) {
+      if (!free_goal_vel) {
+        this->stopRobot();
+      }
+      return ResultStatus{Status::SUCCEEDED, ActionT::Result::NONE};
+    }
+
+    cmd_vel = std::make_unique<geometry_msgs::msg::TwistStamped>();
+    cmd_vel->header.stamp = this->clock_->now();
+    cmd_vel->header.frame_id = this->robot_base_frame_;
+    cmd_vel->twist.linear.y = 0.0;
+    cmd_vel->twist.angular.z = 0.0;
+    cmd_vel->twist.linear.x = command_speed_;
+
+    pose2d.x = current_pose.pose.position.x;
+    pose2d.y = current_pose.pose.position.y;
+    pose2d.theta = tf2::getYaw(current_pose.pose.orientation);
+
+    return ResultStatus{Status::RUNNING, ActionT::Result::NONE};
+  }
+
   /**
    * @brief Check if pose is collision free
    * @param distance Distance to check forward
