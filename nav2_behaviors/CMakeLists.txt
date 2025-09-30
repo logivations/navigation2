@@ -14,7 +14,9 @@ find_package(nav2_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(amr_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(pluginlib REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
 find_package(nav2_core REQUIRED)
 find_package(pluginlib REQUIRED)
@@ -37,6 +39,7 @@ set(dependencies
   nav2_util
   nav2_behavior_tree
   nav2_msgs
+  amr_interfaces
   nav_msgs
   tf2
   tf2_geometry_msgs
@@ -68,6 +71,14 @@ add_library(nav2_drive_on_heading_behavior SHARED
 )
 
 ament_target_dependencies(nav2_drive_on_heading_behavior
+  ${dependencies}
+)
+
+add_library(nav2_drive_on_heading_with_swarm_behavior SHARED
+  plugins/drive_on_heading_with_swarm.cpp
+)
+
+ament_target_dependencies(nav2_drive_on_heading_with_swarm_behavior
   ${dependencies}
 )
 
@@ -116,6 +127,7 @@ install(TARGETS ${library_name}
                 nav2_wait_behavior
                 nav2_assisted_teleop_behavior
                 nav2_drive_on_heading_behavior
+                nav2_drive_on_heading_with_swarm_behavior
                 nav2_back_up_behavior
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -151,6 +163,7 @@ ament_export_libraries(${library_name}
   nav2_wait_behavior
   nav2_assisted_teleop_behavior
   nav2_drive_on_heading_behavior
+  nav2_drive_on_heading_with_swarm_behavior
   nav2_back_up_behavior
 )
 ament_export_dependencies(${dependencies})
