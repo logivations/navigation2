@@ -250,6 +250,7 @@ protected:
   // Whether to automatically start up the system
   bool autostart_;
   bool attempt_respawn_reconnection_;
+  bool parallel_state_transitions_;
 
   NodeState managed_nodes_state_{NodeState::UNCONFIGURED};
   std::string inactive_nodes = "";
