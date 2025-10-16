@@ -267,8 +267,6 @@ LifecycleManager::changeStateForNode(const std::string & node_name, std::uint8_t
 bool
 LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_change)
 {
-  auto start_time = std::chrono::steady_clock::now();
-
   // Hard change will continue even if a node fails
   if (transition == Transition::TRANSITION_CONFIGURE ||
     transition == Transition::TRANSITION_ACTIVATE)
@@ -348,15 +346,6 @@ LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_chan
       }
     }
   }
-
-  auto end_time = std::chrono::steady_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-  RCLCPP_INFO(
-    get_logger(),
-    "changeStateForAllNodes (transition: %d) took %ld ms",
-    transition,
-    duration.count());
-
   return true;
 }
 
