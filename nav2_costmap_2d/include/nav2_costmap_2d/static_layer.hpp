@@ -200,6 +200,7 @@ protected:
   bool subscribe_to_updates_;
   bool track_unknown_space_;
   bool use_maximum_;
+  CombinationMethod combination_method_;
   unsigned char lethal_threshold_;
   unsigned char unknown_cost_value_;
   bool trinary_costmap_;

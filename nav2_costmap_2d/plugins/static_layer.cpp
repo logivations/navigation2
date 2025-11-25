@@ -140,6 +140,7 @@ StaticLayer::getParameters()
   declareParameter("transform_tolerance", rclcpp::ParameterValue(0.0));
   declareParameter("map_topic", rclcpp::ParameterValue(""));
   declareParameter("footprint_clearing_enabled", rclcpp::ParameterValue(false));
+  declareParameter("combination_method", rclcpp::ParameterValue(1));
 
   auto node = node_.lock();
   if (!node) {
@@ -163,6 +164,10 @@ StaticLayer::getParameters()
   node->get_parameter("track_unknown_space", track_unknown_space_);
   node->get_parameter("use_maximum", use_maximum_);
   node->get_parameter("lethal_cost_threshold", temp_lethal_threshold);
+
+  int combination_method_param{};
+  node->get_parameter(name_ + "." + "combination_method", combination_method_param);
+  combination_method_ = combination_method_from_int(combination_method_param);
   node->get_parameter("unknown_cost_value", unknown_cost_value_);
   node->get_parameter("trinary_costmap", trinary_costmap_);
   node->get_parameter("transform_tolerance", temp_tf_tol);
@@ -425,10 +430,21 @@ StaticLayer::updateCosts(
 
   if (!layered_costmap_->isRolling()) {
     // if not rolling, the layered costmap (master_grid) has same coordinates as this layer
-    if (!use_maximum_) {
-      updateWithTrueOverwrite(master_grid, min_i, min_j, max_i, max_j);
-    } else {
-      updateWithMax(master_grid, min_i, min_j, max_i, max_j);
+    switch (combination_method_) {
+      case CombinationMethod::Overwrite:
+        updateWithTrueOverwrite(master_grid, min_i, min_j, max_i, max_j);
+        break;
+      case CombinationMethod::Max:
+        updateWithMax(master_grid, min_i, min_j, max_i, max_j);
+        break;
+      case CombinationMethod::MaxWithoutUnknownOverwrite:
+        updateWithMaxWithoutUnknownOverwrite(master_grid, min_i, min_j, max_i, max_j);
+        break;
+      case CombinationMethod::Min:
+        updateWithMin(master_grid, min_i, min_j, max_i, max_j);
+        break;
+      default:
+        break;
     }
   } else {
     // If rolling window, the master_grid is unlikely to have same coordinates as this layer
@@ -518,6 +534,10 @@ StaticLayer::dynamicParametersCallback(
         current_ = false;
       } else if (param_name == name_ + "." + "footprint_clearing_enabled") {
         footprint_clearing_enabled_ = parameter.as_bool();
+      }
+    } else if (param_type == ParameterType::PARAMETER_INTEGER) {
+      if (param_name == name_ + "." + "combination_method") {
+        combination_method_ = combination_method_from_int(parameter.as_int());
       }
     }
   }
