@@ -76,7 +76,8 @@ public:
     // Make a request for the service without parameter
     request_ = std::make_shared<typename ServiceT::Request>();
 
-    // Make sure the server is actually there before continuing
+    // Check if the server is available, but don't throw if not -
+    // allow the BT to load and fail gracefully at tick time
     RCLCPP_DEBUG(
       node_->get_logger(), "Waiting for \"%s\" service",
       service_name_.c_str());
@@ -84,9 +85,7 @@ public:
       RCLCPP_ERROR(
         node_->get_logger(), "\"%s\" service server not available after waiting for %.2fs",
         service_name_.c_str(), wait_for_service_timeout_.count() / 1000.0);
-      throw std::runtime_error(
-              std::string("Service server ") + service_name_ +
-              std::string(" not available"));
+      service_available_ = false;
     }
 
     RCLCPP_DEBUG(
@@ -132,6 +131,14 @@ public:
    */
   BT::NodeStatus tick() override
   {
+    if (!service_available_) {
+      RCLCPP_ERROR(
+        node_->get_logger(),
+        "Service server \"%s\" is not available; returning FAILURE",
+        service_name_.c_str());
+      return BT::NodeStatus::FAILURE;
+    }
+
     if (!request_sent_) {
       // reset the flag to send the request or not,
       // allowing the user the option to set it in on_tick
@@ -265,6 +272,7 @@ protected:
   // To track the server response when a new request is sent
   std::shared_future<typename ServiceT::Response::SharedPtr> future_result_;
   bool request_sent_{false};
+  bool service_available_{true};
   rclcpp::Time sent_time_;
 
   // Can be set in on_tick or on_wait_for_result to indicate if a request should be sent.
