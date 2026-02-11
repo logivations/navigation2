@@ -93,17 +93,6 @@ public:
   {
     // Now that we have the ROS node to use, create the action client for this BT action
     action_client_ = rclcpp_action::create_client<ActionT>(node_, action_name, callback_group_);
-
-    // Check if the server is available, but don't throw if not -
-    // allow the BT to load and fail gracefully at tick time
-    RCLCPP_DEBUG(node_->get_logger(), "Waiting for \"%s\" action server", action_name.c_str());
-    if (!action_client_->wait_for_action_server(wait_for_service_timeout_)) {
-      RCLCPP_ERROR(
-        node_->get_logger(), "\"%s\" action server not available after waiting for %.2fs",
-        action_name.c_str(),
-        wait_for_service_timeout_.count() / 1000.0);
-      service_available_ = false;
-    }
   }
 
   /**
@@ -188,6 +177,20 @@ public:
    */
   BT::NodeStatus tick() override
   {
+    if (!service_checked_) {
+      service_checked_ = true;
+      RCLCPP_DEBUG(
+        node_->get_logger(), "Waiting for \"%s\" action server",
+        action_name_.c_str());
+      if (!action_client_->wait_for_action_server(wait_for_service_timeout_)) {
+        RCLCPP_ERROR(
+          node_->get_logger(), "\"%s\" action server not available after waiting for %.2fs",
+          action_name_.c_str(),
+          wait_for_service_timeout_.count() / 1000.0);
+        service_available_ = false;
+      }
+    }
+
     if (!service_available_) {
       RCLCPP_ERROR(
         node_->get_logger(),
@@ -497,6 +500,7 @@ protected:
 
   // Can be set in on_tick or on_wait_for_result to indicate if a goal should be sent.
   bool should_send_goal_;
+  bool service_checked_{false};
   bool service_available_{true};
   
   // Can be set in on_tick or on_wait_for_result to indicate if an aborted action should return failure.

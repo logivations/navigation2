@@ -76,18 +76,6 @@ public:
     // Make a request for the service without parameter
     request_ = std::make_shared<typename ServiceT::Request>();
 
-    // Check if the server is available, but don't throw if not -
-    // allow the BT to load and fail gracefully at tick time
-    RCLCPP_DEBUG(
-      node_->get_logger(), "Waiting for \"%s\" service",
-      service_name_.c_str());
-    if (!service_client_->wait_for_service(wait_for_service_timeout_)) {
-      RCLCPP_ERROR(
-        node_->get_logger(), "\"%s\" service server not available after waiting for %.2fs",
-        service_name_.c_str(), wait_for_service_timeout_.count() / 1000.0);
-      service_available_ = false;
-    }
-
     RCLCPP_DEBUG(
       node_->get_logger(), "\"%s\" BtServiceNode initialized",
       service_node_name_.c_str());
@@ -131,6 +119,19 @@ public:
    */
   BT::NodeStatus tick() override
   {
+    if (!service_checked_) {
+      service_checked_ = true;
+      RCLCPP_DEBUG(
+        node_->get_logger(), "Waiting for \"%s\" service",
+        service_name_.c_str());
+      if (!service_client_->wait_for_service(wait_for_service_timeout_)) {
+        RCLCPP_ERROR(
+          node_->get_logger(), "\"%s\" service server not available after waiting for %.2fs",
+          service_name_.c_str(), wait_for_service_timeout_.count() / 1000.0);
+        service_available_ = false;
+      }
+    }
+
     if (!service_available_) {
       RCLCPP_ERROR(
         node_->get_logger(),
@@ -272,6 +273,7 @@ protected:
   // To track the server response when a new request is sent
   std::shared_future<typename ServiceT::Response::SharedPtr> future_result_;
   bool request_sent_{false};
+  bool service_checked_{false};
   bool service_available_{true};
   rclcpp::Time sent_time_;
 
