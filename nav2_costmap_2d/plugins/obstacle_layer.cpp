@@ -138,6 +138,7 @@ void ObstacleLayer::onInitialize()
 
   std::string source;
   while (ss >> source) {
+    source_names_.push_back(source);
     // get the parameters for the specific topic
     double observation_keep_time, expected_update_rate, min_obstacle_height, max_obstacle_height;
     std::string topic, sensor_frame, data_type;
@@ -311,6 +312,13 @@ ObstacleLayer::dynamicParametersCallback(
         min_obstacle_height_ = parameter.as_double();
       } else if (param_name == name_ + "." + "max_obstacle_height") {
         max_obstacle_height_ = parameter.as_double();
+      } else {
+        for (size_t i = 0; i < source_names_.size(); i++) {
+          if (param_name == name_ + "." + source_names_[i] + "." + "obstacle_max_range") {
+            observation_buffers_[i]->setObstacleMaxRange(parameter.as_double());
+            break;
+          }
+        }
       }
     } else if (param_type == ParameterType::PARAMETER_BOOL) {
       if (param_name == name_ + "." + "enabled" && enabled_ != parameter.as_bool()) {

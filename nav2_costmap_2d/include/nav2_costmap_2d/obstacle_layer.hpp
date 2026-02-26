@@ -229,6 +229,8 @@ protected:
   std::string global_frame_;  ///< @brief The global frame for the costmap
   double min_obstacle_height_;  ///< @brief Max Obstacle Height
   double max_obstacle_height_;  ///< @brief Max Obstacle Height
+  /// @brief Source names corresponding to observation_buffers_ (same order)
+  std::vector<std::string> source_names_;
 
   /// @brief Used to project laser scans into point clouds
   laser_geometry::LaserProjection projector_;
