@@ -313,7 +313,7 @@ ObstacleLayer::dynamicParametersCallback(
       } else if (param_name == name_ + "." + "max_obstacle_height") {
         max_obstacle_height_ = parameter.as_double();
       } else {
-        for (size_t i = 0; i < source_names_.size(); i++) {
+        for (size_t i = 0; i < source_names_.size() && i < observation_buffers_.size(); i++) {
           if (param_name == name_ + "." + source_names_[i] + "." + "obstacle_max_range") {
             observation_buffers_[i]->setObstacleMaxRange(parameter.as_double());
             break;
