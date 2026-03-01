@@ -16,7 +16,6 @@
 #include "nav2_lifecycle_manager/lifecycle_manager.hpp"
 
 #include <chrono>
-#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -45,7 +44,6 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   declare_parameter("bond_timeout", 4.0);
   declare_parameter("bond_respawn_max_duration", 10.0);
   declare_parameter("attempt_respawn_reconnection", true);
-  declare_parameter("parallel_state_transitions", rclcpp::ParameterValue(false));
 
   registerRclPreshutdownCallback();
 
@@ -61,7 +59,6 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   bond_respawn_max_duration_ = rclcpp::Duration::from_seconds(respawn_timeout_s);
 
   get_parameter("attempt_respawn_reconnection", attempt_respawn_reconnection_);
-  get_parameter("parallel_state_transitions", parallel_state_transitions_);
 
   callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive, false);
   manager_srv_ = create_service<ManageLifecycleNodes>(
@@ -192,20 +189,6 @@ LifecycleManager::CreateDiagnostic(diagnostic_updater::DiagnosticStatusWrapper &
       break;
   }
   stat.summary(error_level, message);
-
-  if (active_nodes_count == node_names_.size()) {
-    std::string msg = "All managed nodes are up";
-    stat.add("Active nodes", msg);
-  }
-  if (nodes_in_error_state.length() > 0){
-    stat.add("Nodes in error state", nodes_in_error_state);
-  }
-  if (inactive_nodes.length() > 0){
-    stat.add("Inactive nodes", inactive_nodes);
-  }
-  if (unconfigured_nodes.length() > 0){
-    stat.add("Unconfigured nodes", unconfigured_nodes);
-  }
 }
 
 void
@@ -281,123 +264,36 @@ LifecycleManager::changeStateForNode(const std::string & node_name, std::uint8_t
 bool
 LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_change)
 {
-  active_nodes_count = 0;
-  nodes_in_error_state = "";
-  unconfigured_nodes = "";
-  inactive_nodes = "";
-  std::string delimiter(", ");
-
-  if (parallel_state_transitions_) {
-    // Parallel execution
-    std::vector<std::future<bool>> futures;
-    std::vector<std::string> processing_nodes;
-
-    // Hard change will continue even if a node fails
-    if (transition == Transition::TRANSITION_CONFIGURE ||
-      transition == Transition::TRANSITION_ACTIVATE)
-    {
-      // Launch all state changes in parallel
-      for (auto & node_name : node_names_) {
-        futures.emplace_back(std::async(std::launch::async, [this, node_name, transition]() {
-          try {
-            return changeStateForNode(node_name, transition);
-          } catch (const std::runtime_error & e) {
-            RCLCPP_ERROR(
-              get_logger(),
-              "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
-            return false;
-          }
-        }));
-        processing_nodes.push_back(node_name);
-      }
-    } else {
-      // For deactivation/cleanup, process in reverse order but still in parallel
-      std::vector<std::string> reverse_nodes(node_names_.rbegin(), node_names_.rend());
-      for (auto & node_name : reverse_nodes) {
-        futures.emplace_back(std::async(std::launch::async, [this, node_name, transition]() {
-          try {
-            return changeStateForNode(node_name, transition);
-          } catch (const std::runtime_error & e) {
-            RCLCPP_ERROR(
-              get_logger(),
-              "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
-            return false;
-          }
-        }));
-        processing_nodes.push_back(node_name);
-      }
-    }
-
-    // Wait for all futures and collect results
-    for (size_t i = 0; i < futures.size(); ++i) {
-      bool success = futures[i].get();
-      const std::string& node_name = processing_nodes[i];
-
-      if (!success && !hard_change) {
-        uint8_t state = node_map_[node_name]->get_state();
-        if (!strcmp((char *)&state, "Inactive")){
-          inactive_nodes += node_name + delimiter;
+  // Hard change will continue even if a node fails
+  if (transition == Transition::TRANSITION_CONFIGURE ||
+    transition == Transition::TRANSITION_ACTIVATE)
+  {
+    for (auto & node_name : node_names_) {
+      try {
+        if (!changeStateForNode(node_name, transition) && !hard_change) {
+          return false;
         }
-        else{
-          unconfigured_nodes += node_name + delimiter;
-        }
-      }
-      else if (success) {
-        ++active_nodes_count;
+      } catch (const std::runtime_error & e) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
+        return false;
       }
     }
   } else {
-    // Sequential execution (original behavior)
-    if (transition == Transition::TRANSITION_CONFIGURE ||
-      transition == Transition::TRANSITION_ACTIVATE)
-    {
-      for (auto & node_name : node_names_) {
-        try {
-          if (!changeStateForNode(node_name, transition) && !hard_change) {
-            uint8_t state = node_map_[node_name]->get_state();
-            if (!strcmp((char *)&state, "Inactive")){
-              inactive_nodes += node_name + delimiter;
-            }
-            else{
-              unconfigured_nodes += node_name + delimiter;
-            }
-          }
-          else {
-            ++active_nodes_count;
-          }
-        } catch (const std::runtime_error & e) {
-          RCLCPP_ERROR(
-            get_logger(),
-            "Failed to change state for node: %s. Exception: %s.", node_name.c_str(), e.what());
+    std::vector<std::string>::reverse_iterator rit;
+    for (rit = node_names_.rbegin(); rit != node_names_.rend(); ++rit) {
+      try {
+        if (!changeStateForNode(*rit, transition) && !hard_change) {
+          return false;
         }
-      }
-    } else {
-      std::vector<std::string>::reverse_iterator rit;
-      for (rit = node_names_.rbegin(); rit != node_names_.rend(); ++rit) {
-        try {
-          if (!changeStateForNode(*rit, transition) && !hard_change) {
-            uint8_t state = node_map_[*rit]->get_state();
-            if (!strcmp((char *)&state, "Inactive")){
-              inactive_nodes += *rit + delimiter;
-            }
-            else{
-              unconfigured_nodes += *rit + delimiter;
-            }
-          }
-          else {
-            ++active_nodes_count;
-          }
-        } catch (const std::runtime_error & e) {
-          RCLCPP_ERROR(
-            get_logger(),
-            "Failed to change state for node: %s. Exception: %s.", (*rit).c_str(), e.what());
-        }
+      } catch (const std::runtime_error & e) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Failed to change state for node: %s. Exception: %s.", (*rit).c_str(), e.what());
+        return false;
       }
     }
-  }
-
-  if (active_nodes_count != node_names_.size()) {
-    return false;
   }
   return true;
 }
@@ -583,9 +479,6 @@ LifecycleManager::checkBondConnections()
   if (!isActive() || !rclcpp::ok() || bond_map_.empty()) {
     return;
   }
-  std::string delimiter(", ");
-  nodes_in_error_state = "";
-  active_nodes_count = 0;
 
   for (auto & node_name : node_names_) {
     if (!rclcpp::ok()) {
@@ -603,24 +496,19 @@ LifecycleManager::checkBondConnections()
         "CRITICAL FAILURE: SERVER %s IS DOWN after not receiving a heartbeat for %i ms."
         " Shutting down related nodes.",
         node_name.c_str(), static_cast<int>(bond_timeout_.count()));
-      nodes_in_error_state += node_name + delimiter;
-    }
-    else{
-      ++active_nodes_count;
-    }
-  }
-  if (active_nodes_count != node_names_.size()) {
-    reset(true);  // hard reset to transition all still active down
-    // if a server crashed, it won't get cleared due to failed transition, clear manually
-    bond_map_.clear();
+      reset(true);  // hard reset to transition all still active down
+      // if a server crashed, it won't get cleared due to failed transition, clear manually
+      bond_map_.clear();
 
-    // Initialize the bond respawn timer to check if server comes back online
-    // after a failure, within a maximum timeout period.
-    if (attempt_respawn_reconnection_) {
-      bond_respawn_timer_ = this->create_wall_timer(
-        1s,
-        std::bind(&LifecycleManager::checkBondRespawnConnection, this),
-        callback_group_);
+      // Initialize the bond respawn timer to check if server comes back online
+      // after a failure, within a maximum timeout period.
+      if (attempt_respawn_reconnection_) {
+        bond_respawn_timer_ = this->create_wall_timer(
+          1s,
+          std::bind(&LifecycleManager::checkBondRespawnConnection, this),
+          callback_group_);
+      }
+      return;
     }
   }
 }
