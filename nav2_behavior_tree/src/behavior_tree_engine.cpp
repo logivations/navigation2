@@ -67,13 +67,7 @@ BehaviorTreeEngine::run(
         onLoop();
       }
 
-      if (!loopRate.sleep()) {
-        RCLCPP_DEBUG_THROTTLE(
-          rclcpp::get_logger("BehaviorTreeEngine"),
-          *clock_, 1000,
-          "Behavior Tree tick rate %0.2f was exceeded!",
-          1.0 / (loopRate.period().count() * 1.0e-9));
-      }
+      loopRate.sleep();
     }
   #if RCLCPP_VERSION_GTE(30, 1, 5)
   } catch (const BT::NodeExecutionError & ex) {

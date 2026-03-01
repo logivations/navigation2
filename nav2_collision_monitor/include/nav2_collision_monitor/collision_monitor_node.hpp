@@ -24,6 +24,9 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "nav_msgs/msg/odometry.hpp"
+#include "nav2_msgs/msg/velocity_polygon_pair.hpp"
+#include "nav2_msgs/msg/active_velocity_polygons.hpp"
 
 #include "tf2/time.hpp"
 #include "tf2_ros/buffer.hpp"
@@ -106,6 +109,11 @@ protected:
   void cmdVelInCallbackStamped(const geometry_msgs::msg::TwistStamped::ConstSharedPtr & msg);
   void cmdVelInCallbackUnstamped(const geometry_msgs::msg::Twist::ConstSharedPtr & msg);
   /**
+   * @brief Callback for input odom
+   * @param msg Input odom message
+   */
+  void odomInCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg);
+  /**
    * @brief Publishes output cmd_vel. If robot was stopped more than stop_pub_timeout_ seconds,
    * quit to publish 0-velocity.
    * @param robot_action Robot action to publish
@@ -122,6 +130,7 @@ protected:
    * @return True if all parameters were obtained or false in failure case
    */
   bool getParameters(
+    std::string & odom_in_topic,
     std::string & cmd_vel_in_topic,
     std::string & cmd_vel_out_topic,
     std::string & state_topic);
@@ -230,6 +239,10 @@ protected:
   std::unique_ptr<nav2_util::TwistSubscriber> cmd_vel_in_sub_;
   /// @brief Output cmd_vel publisher
   std::unique_ptr<nav2_util::TwistPublisher> cmd_vel_out_pub_;
+/// @brief Input odom subscriber
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_in_sub_;
+  /// @brief Last twist from odometry
+  geometry_msgs::msg::Twist last_odom_msg_;
 
   /// @brief CollisionMonitor state publisher
   nav2::Publisher<nav2_msgs::msg::CollisionMonitorState>::SharedPtr
@@ -254,6 +267,8 @@ protected:
   rclcpp::Time stop_stamp_;
   /// @brief Timeout after which 0-velocity ceases to be published
   rclcpp::Duration stop_pub_timeout_;
+  /// @brief Active polygons publisher
+  rclcpp::Publisher<nav2_msgs::msg::ActiveVelocityPolygons>::SharedPtr active_polygons_pub_;
 };  // class CollisionMonitor
 
 }  // namespace nav2_collision_monitor

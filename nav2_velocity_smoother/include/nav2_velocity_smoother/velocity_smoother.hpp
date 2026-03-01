@@ -62,7 +62,7 @@ public:
    */
   double findEtaConstraint(
     const double v_curr, const double v_cmd,
-    const double accel, const double decel);
+    const double accel, const double decel, const double smoothing_frequency);
 
   /**
    * @brief Apply acceleration and scale factor constraints
@@ -75,7 +75,7 @@ public:
    */
   double applyConstraints(
     const double v_curr, const double v_cmd,
-    const double accel, const double decel, const double eta);
+    const double accel, const double decel, const double eta, const double smoothing_frequency);
 
 protected:
   /**
@@ -123,7 +123,7 @@ protected:
   /**
    * @brief Main worker timer function
    */
-  void smootherTimer();
+  void smootherTimer(const bool force_execution);
 
   /**
    * @brief Validate incoming parameter updates before applying them.
@@ -144,6 +144,11 @@ protected:
    */
   void updateParametersCallback(const std::vector<rclcpp::Parameter> & parameters);
 
+  /**
+   * @brief Dynamic smoothing frequency calculation
+   */
+  double calculate_smoothing_frequency();
+
   // Network interfaces
   std::unique_ptr<nav2_util::OdomSmoother> odom_smoother_;
   std::unique_ptr<nav2_util::TwistPublisher> smoothed_cmd_pub_;
@@ -157,8 +162,10 @@ protected:
   // Parameters
   double smoothing_frequency_;
   double odom_duration_;
+  double smoothertimer_treshold_;
   std::string odom_topic_;
   bool open_loop_;
+  bool bounded_open_loop_{false};
   bool stopped_{true};
   bool scale_velocities_;
   bool is_6dof_;
@@ -167,9 +174,11 @@ protected:
   std::vector<double> min_velocities_;
   std::vector<double> max_accels_;
   std::vector<double> max_decels_;
+  std::vector<double> max_deltas_;
   std::vector<double> deadband_velocities_;
   rclcpp::Duration velocity_timeout_{0, 0};
   rclcpp::Time last_command_time_;
+  rclcpp::Time last_smoothed_time_;
 
   std::mutex mutex_;
   rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr post_set_params_handler_;

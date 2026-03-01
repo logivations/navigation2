@@ -56,7 +56,9 @@ SimpleGoalChecker::SimpleGoalChecker()
   stateful_(true),
   check_xy_(true),
   symmetric_yaw_tolerance_(false),
-  xy_goal_tolerance_sq_(0.0625)
+  xy_goal_tolerance_sq_(0.0625),
+  x_goal_tolerance_(std::numeric_limits<double>::infinity()),
+  y_goal_tolerance_(std::numeric_limits<double>::infinity())
 {
 }
 
@@ -83,6 +85,10 @@ void SimpleGoalChecker::initialize(
   auto node = node_.lock();
   logger_ = node->get_logger();
 
+  x_goal_tolerance_ = node->declare_or_get_parameter(
+    plugin_name + ".x_goal_tolerance", std::numeric_limits<double>::infinity());
+  y_goal_tolerance_ = node->declare_or_get_parameter(
+    plugin_name + ".y_goal_tolerance", std::numeric_limits<double>::infinity());
   xy_goal_tolerance_ = node->declare_or_get_parameter(plugin_name + ".xy_goal_tolerance", 0.25);
   yaw_goal_tolerance_ = node->declare_or_get_parameter(plugin_name + ".yaw_goal_tolerance", 0.25);
   path_length_tolerance_ = node->declare_or_get_parameter(
@@ -120,6 +126,29 @@ bool SimpleGoalChecker::isGoalReached(
   {
     return false;
   }
+
+  double x_in_goal_frame = 0.0;
+  double y_in_goal_frame = 0.0;
+
+  if (std::isfinite(x_goal_tolerance_) || std::isfinite(y_goal_tolerance_)) {
+    // Transform to goal frame
+    tf2::Transform goal_frame_transform;
+    goal_frame_transform.setOrigin(tf2::Vector3(goal_pose.position.x, goal_pose.position.y, 0.0));
+    goal_frame_transform.setRotation(tf2::Quaternion(
+      goal_pose.orientation.x, goal_pose.orientation.y,
+      goal_pose.orientation.z, goal_pose.orientation.w));
+
+    tf2::Transform query_pose_in_goal_frame = goal_frame_transform.inverse() *
+      tf2::Transform(
+        tf2::Quaternion(
+          query_pose.orientation.x, query_pose.orientation.y,
+          query_pose.orientation.z, query_pose.orientation.w),
+        tf2::Vector3(query_pose.position.x, query_pose.position.y, query_pose.position.z));
+
+    x_in_goal_frame = fabs(query_pose_in_goal_frame.getOrigin().x());
+    y_in_goal_frame = fabs(query_pose_in_goal_frame.getOrigin().y());
+  }
+
   if (check_xy_) {
     double dx = query_pose.position.x - goal_pose.position.x,
       dy = query_pose.position.y - goal_pose.position.y;
@@ -133,8 +162,12 @@ bool SimpleGoalChecker::isGoalReached(
     }
   }
 
+  bool within_x_tolerance = x_in_goal_frame <= x_goal_tolerance_;
+  bool within_y_tolerance = y_in_goal_frame <= y_goal_tolerance_;
+
   double query_yaw = tf2::getYaw(query_pose.orientation);
   double goal_yaw = tf2::getYaw(goal_pose.orientation);
+  bool yaw_ok;
   if (symmetric_yaw_tolerance_) {
     // For symmetric robots: accept either goal orientation or goal + 180°
     double dyaw_forward = angles::shortest_angular_distance(query_yaw, goal_yaw);
@@ -144,11 +177,13 @@ bool SimpleGoalChecker::isGoalReached(
     bool forward_match = fabs(dyaw_forward) <= yaw_goal_tolerance_;
     bool backward_match = fabs(dyaw_backward) <= yaw_goal_tolerance_;
 
-    return forward_match || backward_match;
+    yaw_ok = forward_match || backward_match;
   } else {
     double dyaw = angles::shortest_angular_distance(query_yaw, goal_yaw);
-    return fabs(dyaw) <= yaw_goal_tolerance_;
+    yaw_ok = fabs(dyaw) <= yaw_goal_tolerance_;
   }
+
+  return yaw_ok && within_x_tolerance && within_y_tolerance;
 }
 
 bool SimpleGoalChecker::getTolerances(
@@ -220,6 +255,10 @@ SimpleGoalChecker::updateParametersCallback(
         yaw_goal_tolerance_ = parameter.as_double();
       } else if (param_name == plugin_name_ + ".path_length_tolerance") {
         path_length_tolerance_ = parameter.as_double();
+      } else if (param_name == plugin_name_ + ".x_goal_tolerance") {
+        x_goal_tolerance_ = parameter.as_double();
+      } else if (param_name == plugin_name_ + ".y_goal_tolerance") {
+        y_goal_tolerance_ = parameter.as_double();
       }
     } else if (param_type == ParameterType::PARAMETER_BOOL) {
       if (param_name == plugin_name_ + ".stateful") {

@@ -61,6 +61,26 @@ BtActionServer<ActionT, NodeT>::BtActionServer(
   logger_ = node->get_logger();
   clock_ = node->get_clock();
 
+  // Declare this node's parameters
+  if (!node->has_parameter("bt_loop_duration")) {
+    node->declare_parameter("bt_loop_duration", 10);
+  }
+  if (!node->has_parameter("default_server_timeout")) {
+    node->declare_parameter("default_server_timeout", 20);
+  }
+  if (!node->has_parameter("default_cancel_timeout")) {
+    node->declare_parameter("default_cancel_timeout", 50);
+  }
+  if (!node->has_parameter("always_reload_bt_xml")) {
+    node->declare_parameter("always_reload_bt_xml", false);
+  }
+  if (!node->has_parameter("wait_for_service_timeout")) {
+    node->declare_parameter("wait_for_service_timeout", 1000);
+  }
+  if (!node->has_parameter("action_server_result_timeout")) {
+    node->declare_parameter("action_server_result_timeout", 900.0);
+  }
+
   std::vector<std::string> default_error_code_name_prefixes = {
     "assisted_teleop",
     "backup",
@@ -147,11 +167,17 @@ bool BtActionServer<ActionT, NodeT>::on_configure()
     node, "transform_tolerance", rclcpp::ParameterValue(0.1));
   rclcpp::copy_all_parameter_values(node, client_node_);
 
+  // set the timeout in seconds for the action server to discard goal handles if not finished
+  double action_server_result_timeout =
+    node->get_parameter("action_server_result_timeout").as_double();
+  rcl_action_server_options_t server_options = rcl_action_server_get_default_options();
+  server_options.result_timeout.nanoseconds = RCL_S_TO_NS(action_server_result_timeout);
+
   // Could be using a user rclcpp::Node, so need to use the Nav2 factory to create the subscription
   // to convert nav2::LifecycleNode, rclcpp::Node or rclcpp_lifecycle::LifecycleNode
   action_server_ = nav2::interfaces::create_action_server<ActionT>(
     node, action_name_, std::bind(&BtActionServer<ActionT, NodeT>::executeCallback, this),
-    nullptr, std::chrono::milliseconds(500), false);
+    nullptr, std::chrono::milliseconds(500), false, server_options);
 
   // Get parameters for BT timeouts
   bt_loop_duration_ = std::chrono::milliseconds(
@@ -223,7 +249,7 @@ bool BtActionServer<ActionT, NodeT>::on_cleanup()
   plugin_lib_names_.clear();
   current_bt_file_or_id_.clear();
   blackboard_.reset();
-  bt_->haltAllActions(tree_);
+  bt_->haltAllActions(*tree_);
   bt_->resetGrootMonitor();
   bt_.reset();
   return true;
@@ -246,6 +272,9 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   // Empty argument is default for backward compatibility
   auto file_or_id =
     bt_xml_filename_or_id.empty() ? default_bt_xml_filename_or_id_ : bt_xml_filename_or_id;
+
+  // This is removed as part of the changes about BT hashing as we still want to check for
+  // changes in the xml file even if current_bt_xml_filename_ == filename
 
   // Use previous BT if it is the existing one and always reload flag is not set to true
   if (!always_reload_bt_ && current_bt_file_or_id_ == file_or_id) {
@@ -399,6 +428,18 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
 }
 
 template<class ActionT, class NodeT>
+void BtActionServer<ActionT, NodeT>::resetBlackboard()
+{
+  blackboard_->clear();
+  blackboard_->template set<nav2::LifecycleNode::SharedPtr>("node", client_node_);  // NOLINT
+  blackboard_->template set<std::chrono::milliseconds>("server_timeout", default_server_timeout_);  // NOLINT
+  blackboard_->template set<std::chrono::milliseconds>("bt_loop_duration", bt_loop_duration_);  // NOLINT
+  blackboard_->template set<std::chrono::milliseconds>(
+            "wait_for_service_timeout",
+            wait_for_service_timeout_);
+}
+
+template<class ActionT, class NodeT>
 void BtActionServer<ActionT, NodeT>::executeCallback()
 {
   if (!on_goal_received_callback_(action_server_->get_current_goal())) {
@@ -410,7 +451,7 @@ void BtActionServer<ActionT, NodeT>::executeCallback()
     cleanErrorCodes();
     return;
   }
-
+  RCLCPP_INFO(logger_, "Action server name is %s", action_name_.c_str());
   auto is_canceling = [&]() {
       if (action_server_ == nullptr) {
         RCLCPP_DEBUG(logger_, "Action server unavailable. Canceling.");
@@ -432,11 +473,14 @@ void BtActionServer<ActionT, NodeT>::executeCallback()
     };
 
   // Execute the BT that was previously created in the configure step
-  nav2_behavior_tree::BtStatus rc = bt_->run(&tree_, on_loop, is_canceling, bt_loop_duration_);
+  nav2_behavior_tree::BtStatus rc = bt_->run(tree_, on_loop, is_canceling, bt_loop_duration_);
+
+  // send remaining logs
+  topic_logger_->flush();
 
   // Make sure that the Bt is not in a running state from a previous execution
   // note: if all the ControlNodes are implemented correctly, this is not needed.
-  bt_->haltAllActions(tree_);
+  bt_->haltAllActions(*tree_);
 
   // Give server an opportunity to populate the result message or simple give
   // an indication that the action is complete.

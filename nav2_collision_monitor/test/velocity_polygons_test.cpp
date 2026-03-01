@@ -66,6 +66,11 @@ static const char RIGHT_POLYGON_STR[]{
 static const bool IS_HOLONOMIC{true};
 static const bool IS_NOT_HOLONOMIC{false};
 static const int MIN_POINTS{2};
+static const double SLOWDOWN_RATIO{0.25};
+static const double LINEAR_LIMIT{0.3};
+static const double ANGULAR_LIMIT{0.2};
+static const double TIME_BEFORE_COLLISION{2.0};
+
 static const tf2::Duration TRANSFORM_TOLERANCE{tf2::durationFromSec(0.1)};
 
 class TestNode : public nav2::LifecycleNode
@@ -136,6 +141,10 @@ public:
 protected:
   // Working with parameters
   void setCommonParameters(const std::string & polygon_name, const std::string & action_type);
+  void addSlowdownParameters(const std::string & polygon_name);
+  void addLimitParameters(const std::string & polygon_name);
+  void addApproachParameters(const std::string & polygon_name);
+
   void setVelocityPolygonParameters(const bool is_holonomic);
   void addPolygonVelocitySubPolygon(
     const std::string & sub_polygon_name,
@@ -201,6 +210,30 @@ void Tester::setCommonParameters(const std::string & polygon_name, const std::st
   std::vector<std::string> default_observation_sources = {"source"};
   test_node_->declare_parameter(
     "observation_sources", rclcpp::ParameterValue(default_observation_sources));
+}
+
+void Tester::addSlowdownParameters(const std::string & polygon_name)
+{
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + "." + polygon_name + ".slowdown_ratio", SLOWDOWN_RATIO));
+}
+
+void Tester::addLimitParameters(const std::string & polygon_name)
+{
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + "." + polygon_name + ".linear_limit", LINEAR_LIMIT));
+
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + "." + polygon_name + ".angular_limit", ANGULAR_LIMIT));
+}
+
+void Tester::addApproachParameters(const std::string & polygon_name)
+{
+  test_node_->set_parameter(
+    rclcpp::Parameter(
+      std::string(
+        POLYGON_NAME) + "." + polygon_name + ".time_before_collision", TIME_BEFORE_COLLISION));
+
 }
 
 void Tester::setVelocityPolygonParameters(const bool is_holonomic)

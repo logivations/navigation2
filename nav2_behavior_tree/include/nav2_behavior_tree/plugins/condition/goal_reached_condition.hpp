@@ -17,6 +17,7 @@
 
 #include <string>
 #include <memory>
+#include <limits>
 
 #include "nav2_ros_common/lifecycle_node.hpp"
 #include "behaviortree_cpp/condition_node.h"
@@ -81,7 +82,12 @@ public:
 
     return {
       BT::InputPort<geometry_msgs::msg::PoseStamped>("goal", "Destination"),
-      BT::InputPort<std::string>("robot_base_frame", "Robot base frame")
+      BT::InputPort<std::string>("global_frame", "Global frame"),
+      BT::InputPort<std::string>("robot_base_frame", "Robot base frame"),
+      BT::InputPort<double>("x_goal_tolerance", std::numeric_limits<double>::infinity(), "x goal tolerance"),
+      BT::InputPort<double>("y_goal_tolerance", std::numeric_limits<double>::infinity(), "y goal tolerance"),
+      BT::InputPort<double>("xy_goal_tolerance", std::numeric_limits<double>::infinity(), "xy goal tolerance"),
+      BT::InputPort<double>("yaw_goal_tolerance", 0.1, "yaw goal tolerance"),
     };
   }
 
@@ -97,6 +103,9 @@ private:
   std::shared_ptr<tf2_ros::Buffer> tf_;
 
   double goal_reached_tol_;
+  double goal_reached_tol_x_;
+  double goal_reached_tol_y_ ;
+  double goal_reached_tol_yaw_;
   double transform_tolerance_;
   std::string robot_base_frame_;
 };

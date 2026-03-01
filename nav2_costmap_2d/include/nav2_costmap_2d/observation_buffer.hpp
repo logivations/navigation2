@@ -127,6 +127,15 @@ public:
    */
   void resetLastUpdated();
 
+  /**
+   * @brief Set the obstacle max range for this buffer
+   * @param obstacle_max_range The new obstacle max range
+   */
+  void setObstacleMaxRange(double obstacle_max_range)
+  {
+    obstacle_max_range_ = obstacle_max_range;
+  }
+
 private:
   /**
    * @brief  Removes any stale observations from the buffer list

@@ -40,6 +40,8 @@
 #include "nav2_controller/plugins/stopped_goal_checker.hpp"
 #include "pluginlib/class_list_macros.hpp"
 #include "nav2_ros_common/node_utils.hpp"
+#include "tf2/LinearMath/Transform.h"
+#include "tf2/utils.hpp"
 
 using std::hypot;
 using std::fabs;
@@ -101,14 +103,40 @@ bool StoppedGoalChecker::isGoalReached(
   const geometry_msgs::msg::Twist & velocity, const nav_msgs::msg::Path & transformed_global_plan)
 {
   std::lock_guard<std::mutex> lock_reinit(mutex_);
+
+  double x_in_goal_frame = 0.0;
+  double y_in_goal_frame = 0.0;
+
+  if (std::isfinite(x_goal_tolerance_) || std::isfinite(y_goal_tolerance_)) {
+    // Transform to goal frame
+    tf2::Transform goal_frame_transform;
+    goal_frame_transform.setOrigin(tf2::Vector3(goal_pose.position.x, goal_pose.position.y, 0.0));
+    goal_frame_transform.setRotation(tf2::Quaternion(
+      goal_pose.orientation.x, goal_pose.orientation.y,
+      goal_pose.orientation.z, goal_pose.orientation.w));
+
+    tf2::Transform query_pose_in_goal_frame = goal_frame_transform.inverse() *
+      tf2::Transform(
+        tf2::Quaternion(
+          query_pose.orientation.x, query_pose.orientation.y,
+          query_pose.orientation.z, query_pose.orientation.w),
+        tf2::Vector3(query_pose.position.x, query_pose.position.y, query_pose.position.z));
+
+    x_in_goal_frame = fabs(query_pose_in_goal_frame.getOrigin().x());
+    y_in_goal_frame = fabs(query_pose_in_goal_frame.getOrigin().y());
+  }
+
   bool ret = SimpleGoalChecker::isGoalReached(query_pose, goal_pose, velocity,
       transformed_global_plan);
   if (!ret) {
     return ret;
   }
 
+  bool within_x_tolerance = x_in_goal_frame <= x_goal_tolerance_;
+  bool within_y_tolerance = y_in_goal_frame <= y_goal_tolerance_;
+
   return fabs(velocity.angular.z) <= rot_stopped_velocity_ &&
-         hypot(velocity.linear.x, velocity.linear.y) <= trans_stopped_velocity_;
+         hypot(velocity.linear.x, velocity.linear.y) <= trans_stopped_velocity_ && within_x_tolerance && within_y_tolerance;
 }
 
 bool StoppedGoalChecker::getTolerances(

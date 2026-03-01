@@ -59,19 +59,6 @@ public:
     // Make a request for the service without parameter
     request_ = std::make_shared<typename ServiceT::Request>();
 
-    // Make sure the server is actually there before continuing
-    RCLCPP_DEBUG(
-      node_->get_logger(), "Waiting for \"%s\" service",
-      service_name_.c_str());
-    if (!service_client_->wait_for_service(wait_for_service_timeout_)) {
-      RCLCPP_ERROR(
-        node_->get_logger(), "\"%s\" service server not available after waiting for %.2fs",
-        service_name_.c_str(), wait_for_service_timeout_.count() / 1000.0);
-      throw std::runtime_error(
-              std::string("Service server ") + service_name_ +
-              std::string(" not available"));
-    }
-
     RCLCPP_DEBUG(
       node_->get_logger(), "\"%s\" BtServiceNode initialized",
       service_node_name_.c_str());
@@ -163,10 +150,32 @@ public:
       initialize();
     }
 
+    if (!service_checked_) {
+      service_checked_ = true;
+      RCLCPP_DEBUG(
+        node_->get_logger(), "Waiting for \"%s\" service",
+        service_name_.c_str());
+      if (!service_client_->wait_for_service(wait_for_service_timeout_)) {
+        RCLCPP_ERROR(
+          node_->get_logger(), "\"%s\" service server not available after waiting for %.2fs",
+          service_name_.c_str(), wait_for_service_timeout_.count() / 1000.0);
+        service_available_ = false;
+      }
+    }
+
+    if (!service_available_) {
+      RCLCPP_ERROR(
+        node_->get_logger(),
+        "Service server \"%s\" is not available; returning FAILURE",
+        service_name_.c_str());
+      return BT::NodeStatus::FAILURE;
+    }
+
     if (!request_sent_) {
       // reset the flag to send the request or not,
       // allowing the user the option to set it in on_tick
       should_send_request_ = true;
+      should_fail_not_sent_request_ = true;
 
       // Clear the input request to make sure we have no leftover from previous calls
       request_ = std::make_shared<typename ServiceT::Request>();
@@ -175,7 +184,11 @@ public:
       on_tick();
 
       if (!should_send_request_) {
-        return BT::NodeStatus::FAILURE;
+        if (should_fail_not_sent_request_) {
+            return BT::NodeStatus::FAILURE;
+        } else {
+            return BT::NodeStatus::SUCCESS;
+        }
       }
 
       future_result_ = service_client_->async_call(request_);
@@ -289,10 +302,13 @@ protected:
   // To track the server response when a new request is sent
   std::shared_future<typename ServiceT::Response::SharedPtr> future_result_;
   bool request_sent_{false};
+  bool service_checked_{false};
+  bool service_available_{true};
   rclcpp::Time sent_time_;
 
   // Can be set in on_tick or on_wait_for_result to indicate if a request should be sent.
   bool should_send_request_;
+  bool should_fail_not_sent_request_;
 };
 
 }  // namespace nav2_behavior_tree

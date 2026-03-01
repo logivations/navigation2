@@ -98,6 +98,7 @@ public:
       {
         BT::InputPort<nav_msgs::msg::Path>("path", "Path to follow"),
         BT::InputPort<std::string>("controller_id", ""),
+        BT::InputPort<bool>("free_goal_vel", "Don't stop when goal reached"),
         BT::InputPort<std::string>("goal_checker_id", ""),
         BT::InputPort<std::string>("progress_checker_id", ""),
         BT::InputPort<std::string>("path_handler_id", ""),

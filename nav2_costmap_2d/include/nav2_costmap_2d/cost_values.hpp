@@ -64,7 +64,11 @@ enum class CombinationMethod : int
    * it is NOT overwritten. If the layer's value is NO_INFORMATION,
    * the master value does not change.
    */
-  MaxWithoutUnknownOverwrite = 2
+  MaxWithoutUnknownOverwrite = 2,
+  /**
+   * Use the min. Allows a sensor to clear a certain area of the map
+   */
+  Min = 3
 };
 
 static constexpr unsigned char NO_INFORMATION = 255;

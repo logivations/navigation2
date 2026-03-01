@@ -232,7 +232,11 @@ protected:
 
   // Global Costmap
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> no_waiting_costmap_ros_;
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> no_go_areas_costmap_ros_;
   std::unique_ptr<nav2::NodeThread> costmap_thread_;
+  std::unique_ptr<nav2::NodeThread> no_waiting_costmap_thread_;
+  std::unique_ptr<nav2::NodeThread> no_go_areas_costmap_thread_;
   nav2_costmap_2d::Costmap2D * costmap_;
 
   // Publishers for the path

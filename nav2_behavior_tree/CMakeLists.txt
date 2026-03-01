@@ -19,6 +19,7 @@ find_package(std_srvs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(nav2_ros_common REQUIRED)
+find_package(angles REQUIRED)
 
 nav2_package()
 

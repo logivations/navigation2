@@ -140,7 +140,7 @@ protected:
    * map along with its size will determine what parts of the costmap's
    * static map are overwritten.
    */
-  void incomingMap(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & new_map);
+  void incomingMap(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr new_map);
   /**
    * @brief Callback to update the costmap's map from the map_server (or SLAM)
    * with an update in a particular area of the map
@@ -212,6 +212,7 @@ protected:
   bool subscribe_to_updates_;
   bool track_unknown_space_;
   bool use_maximum_;
+  CombinationMethod combination_method_;
   unsigned char lethal_threshold_;
   unsigned char inscribed_obstacle_cost_value_;
   unsigned char unknown_cost_value_;

@@ -73,6 +73,7 @@ public:
         BT::InputPort<double>("time_allowance", 10.0, "Allowed time for spinning"),
         BT::InputPort<bool>("is_recovery", true, "True if recovery"),
         BT::InputPort<bool>("disable_collision_checks", false, "Disable collision checking"),
+        BT::InputPort<bool>("check_local_costmap", true, "Check local costmap for collisions"),
         BT::OutputPort<ActionResult::_error_code_type>(
           "error_code_id", "The spin behavior error code"),
         BT::OutputPort<std::string>(
