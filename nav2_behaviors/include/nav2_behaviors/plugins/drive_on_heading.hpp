@@ -83,7 +83,6 @@ public:
     command_disable_collision_checks_ = command->disable_collision_checks;
 
     free_goal_vel = command->free_goal_vel;
-    check_local_costmap = command->check_local_costmap;
 
     end_time_ = this->clock_->now() + command_time_allowance_;
 
@@ -174,7 +173,7 @@ public:
     pose2d.y = current_pose.pose.position.y;
     pose2d.theta = tf2::getYaw(current_pose.pose.orientation);
 
-    if (check_local_costmap && !isCollisionFree(distance, cmd_vel->twist, pose2d)) {
+    if (!isCollisionFree(distance, cmd_vel->twist, pose2d)) {
       this->stopRobot();
       std::string error_msg = "Collision Ahead - Exiting DriveOnHeading";
       RCLCPP_WARN(this->logger_, error_msg.c_str());
@@ -294,7 +293,6 @@ protected:
   double minimum_speed_;
   double last_vel_ = std::numeric_limits<double>::max();
   bool free_goal_vel;
-  bool check_local_costmap;
 };
 
 }  // namespace nav2_behaviors

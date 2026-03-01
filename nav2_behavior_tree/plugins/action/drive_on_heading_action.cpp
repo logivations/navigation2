@@ -40,8 +40,6 @@ void DriveOnHeadingAction::initialize()
   getInput("disable_collision_checks", disable_collision_checks);
   bool free_goal_vel;
   getInput("free_goal_vel", free_goal_vel);
-  bool check_local_costmap;
-  getInput("check_local_costmap", check_local_costmap);
 
   // Populate the input message
   goal_.target.x = dist;
@@ -51,7 +49,6 @@ void DriveOnHeadingAction::initialize()
   goal_.time_allowance = rclcpp::Duration::from_seconds(time_allowance);
   goal_.disable_collision_checks = disable_collision_checks;
   goal_.free_goal_vel = free_goal_vel;
-  goal_.check_local_costmap = check_local_costmap;
 }
 
 void DriveOnHeadingAction::on_tick()
