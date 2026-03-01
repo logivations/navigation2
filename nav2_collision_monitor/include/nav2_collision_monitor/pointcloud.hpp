@@ -113,9 +113,17 @@ protected:
   double min_height_, max_height_;
   // Minimum range from sensor origin to filter out close points
   double min_range_;
+  /**Changes height check from "z" field to "height" field for pipelines utilizing
+   * ground contouring
+   */
+  bool use_global_height_;
 
   /// @brief Latest data obtained from pointcloud
   sensor_msgs::msg::PointCloud2::ConstSharedPtr data_;
+
+  /// @brief Dynamic parameters handler
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
+
 };  // class PointCloud
 
 }  // namespace nav2_collision_monitor

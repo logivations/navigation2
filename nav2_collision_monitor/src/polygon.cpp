@@ -27,6 +27,7 @@
 #include "nav2_util/array_parser.hpp"
 
 #include "nav2_collision_monitor/kinematics.hpp"
+using rcl_interfaces::msg::ParameterType;
 
 namespace nav2_collision_monitor
 {
@@ -254,7 +255,6 @@ int Polygon::getPointsInside(
 
   return num;
 }
-
 double Polygon::getCollisionTime(
   const std::unordered_map<std::string, std::vector<Point>> & sources_collision_points_map,
   const Velocity & velocity) const
@@ -594,10 +594,9 @@ Polygon::dynamicParametersCallback(
 
 void Polygon::polygonCallback(geometry_msgs::msg::PolygonStamped::ConstSharedPtr msg)
 {
-  RCLCPP_INFO_THROTTLE(
+  // debug logging to prevent spam
+  RCLCPP_DEBUG(
     logger_,
-    *node_clock_,
-    2000,
     "[%s]: Polygon shape update has arrived",
     polygon_name_.c_str());
   updatePolygon(msg);

@@ -74,6 +74,9 @@ BtActionServer<ActionT, NodeT>::BtActionServer(
   if (!node->has_parameter("wait_for_service_timeout")) {
     node->declare_parameter("wait_for_service_timeout", 1000);
   }
+  if (!node->has_parameter("action_server_result_timeout")) {
+    node->declare_parameter("action_server_result_timeout", 900.0);
+  }
 
   std::vector<std::string> error_code_name_prefixes = {
     "assisted_teleop",
@@ -231,7 +234,7 @@ bool BtActionServer<ActionT, NodeT>::on_cleanup()
   plugin_lib_names_.clear();
   current_bt_file_or_id_.clear();
   blackboard_.reset();
-  bt_->haltAllActions(tree_);
+  bt_->haltAllActions(*tree_);
   bt_->resetGrootMonitor();
   bt_.reset();
   return true;
@@ -254,6 +257,9 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   // Empty argument is default for backward compatibility
   auto file_or_id =
     bt_xml_filename_or_id.empty() ? default_bt_xml_filename_or_id_ : bt_xml_filename_or_id;
+
+  // This is removed as part of the changes about BT hashing as we still want to check for
+  // changes in the xml file even if current_bt_xml_filename_ == filename
 
   // Use previous BT if it is the existing one and always reload flag is not set to true
   if (!always_reload_bt_ && current_bt_file_or_id_ == file_or_id) {
@@ -347,7 +353,7 @@ void BtActionServer<ActionT, NodeT>::executeCallback()
     cleanErrorCodes();
     return;
   }
-
+  RCLCPP_INFO(logger_, "Action server name is %s", action_name_.c_str());
   auto is_canceling = [&]() {
       if (action_server_ == nullptr) {
         RCLCPP_DEBUG(logger_, "Action server unavailable. Canceling.");
@@ -369,11 +375,14 @@ void BtActionServer<ActionT, NodeT>::executeCallback()
     };
 
   // Execute the BT that was previously created in the configure step
-  nav2_behavior_tree::BtStatus rc = bt_->run(&tree_, on_loop, is_canceling, bt_loop_duration_);
+  nav2_behavior_tree::BtStatus rc = bt_->run(tree_, on_loop, is_canceling, bt_loop_duration_);
+
+  // send remaining logs
+  topic_logger_->flush();
 
   // Make sure that the Bt is not in a running state from a previous execution
   // note: if all the ControlNodes are implemented correctly, this is not needed.
-  bt_->haltAllActions(tree_);
+  bt_->haltAllActions(*tree_);
 
   // Give server an opportunity to populate the result message or simple give
   // an indication that the action is complete.

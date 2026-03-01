@@ -70,6 +70,16 @@ ControllerServer::ControllerServer(const rclcpp::NodeOptions & options)
   costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
     "local_costmap", std::string{get_namespace()},
     get_parameter("use_sim_time").as_bool(), options);
+
+  // The narrow costmap node is used in the implementation of the controller
+  narrow_costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
+    "narrow_local_costmap", std::string{get_namespace()},
+    get_parameter("use_sim_time").as_bool(), options);
+
+  // The costmap node is used by BT to validate that a path can be driven on
+  sensor_costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
+    "sensor_local_costmap", std::string{get_namespace()},
+    get_parameter("use_sim_time").as_bool(), options);
 }
 
 ControllerServer::~ControllerServer()
@@ -78,6 +88,8 @@ ControllerServer::~ControllerServer()
   goal_checkers_.clear();
   controllers_.clear();
   costmap_thread_.reset();
+  narrow_costmap_thread_.reset();
+  sensor_costmap_thread_.reset();
 }
 
 nav2::CallbackReturn
@@ -136,8 +148,12 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & state)
   get_parameter("publish_zero_velocity", publish_zero_velocity_);
 
   costmap_ros_->configure();
+  narrow_costmap_ros_->configure();
+  sensor_costmap_ros_->configure();
   // Launch a thread to run the costmap node
   costmap_thread_ = std::make_unique<nav2::NodeThread>(costmap_ros_);
+  narrow_costmap_thread_ = std::make_unique<nav2::NodeThread>(narrow_costmap_ros_);
+  sensor_costmap_thread_ = std::make_unique<nav2::NodeThread>(sensor_costmap_ros_);
 
   for (size_t i = 0; i != progress_checker_ids_.size(); i++) {
     try {
@@ -199,12 +215,23 @@ ControllerServer::on_configure(const rclcpp_lifecycle::State & state)
       controller_types_[i] = nav2::get_plugin_type_param(node, controller_ids_[i]);
       nav2_core::Controller::Ptr controller =
         lp_loader_.createUniqueInstance(controller_types_[i]);
+
+        if (controller_ids_[i] == "NarrowFollowPath") {
       RCLCPP_INFO(
-        get_logger(), "Created controller : %s of type %s",
+        get_logger(), "Created controller : %s of type %s using NarrowCostmap",
         controller_ids_[i].c_str(), controller_types_[i].c_str());
-      controller->configure(
-        node, controller_ids_[i],
-        costmap_ros_->getTfBuffer(), costmap_ros_);
+          controller->configure(
+            node, controller_ids_[i],
+            narrow_costmap_ros_->getTfBuffer(), narrow_costmap_ros_);
+        } else {
+
+        RCLCPP_INFO(
+          get_logger(), "Created controller : %s of type %s using standard Costmap",
+          controller_ids_[i].c_str(), controller_types_[i].c_str());
+          controller->configure(
+            node, controller_ids_[i],
+            costmap_ros_->getTfBuffer(), costmap_ros_);
+        }
       controllers_.insert({controller_ids_[i], controller});
     } catch (const pluginlib::PluginlibException & ex) {
       RCLCPP_FATAL(
@@ -262,6 +289,8 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
   if (costmap_ros_state.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
     return nav2::CallbackReturn::FAILURE;
   }
+  narrow_costmap_ros_->activate();
+  sensor_costmap_ros_->activate();
   ControllerMap::iterator it;
   for (it = controllers_.begin(); it != controllers_.end(); ++it) {
     it->second->activate();
@@ -299,6 +328,8 @@ ControllerServer::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
    * ordering assumption: https://github.com/ros2/rclcpp/issues/2096
    */
   costmap_ros_->deactivate();
+  narrow_costmap_ros_->deactivate();
+  sensor_costmap_ros_->deactivate();
 
   publishZeroVelocity();
   vel_publisher_->on_deactivate();
@@ -334,6 +365,8 @@ ControllerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   action_server_.reset();
   odom_sub_.reset();
   costmap_thread_.reset();
+  narrow_costmap_thread_.reset();
+  sensor_costmap_thread_.reset();
   vel_publisher_.reset();
   speed_limit_sub_.reset();
 
@@ -475,10 +508,12 @@ void ControllerServer::computeControl()
       }
 
       if (action_server_->is_cancel_requested()) {
+        bool free_goal_vel = action_server_->get_current_goal()->free_goal_vel;
+
         if (controllers_[current_controller_]->cancel()) {
           RCLCPP_INFO(get_logger(), "Cancellation was successful. Stopping the robot.");
           action_server_->terminate_all();
-          onGoalExit(true);
+          onGoalExit(!free_goal_vel);
           return;
         } else {
           RCLCPP_INFO_THROTTLE(
@@ -589,7 +624,8 @@ void ControllerServer::computeControl()
 
   RCLCPP_DEBUG(get_logger(), "Controller succeeded, setting result");
 
-  onGoalExit(false);
+  bool free_goal_vel = action_server_->get_current_goal()->free_goal_vel;
+  onGoalExit(!free_goal_vel);
 
   // TODO(orduno) #861 Handle a pending preemption and set controller name
   action_server_->succeeded_current();
@@ -705,7 +741,7 @@ void ControllerServer::computeAndPublishVelocity()
 void ControllerServer::updateGlobalPath()
 {
   if (action_server_->is_preempt_requested()) {
-    RCLCPP_INFO(get_logger(), "Passing new path to controller.");
+    RCLCPP_DEBUG(get_logger(), "Passing new path to controller.");
     auto goal = action_server_->accept_pending_goal();
     std::string current_controller;
     if (findControllerId(goal->controller_id, current_controller)) {

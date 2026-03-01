@@ -41,6 +41,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/EdgeCost.msg"
   "msg/Trajectory.msg"
   "msg/TrajectoryPoint.msg"
+  "msg/VelocityPolygonPair.msg"
+  "msg/ActiveVelocityPolygons.msg"
   "srv/GetCosts.srv"
   "msg/PolygonObject.msg"
   "msg/CircleObject.msg"

@@ -139,6 +139,7 @@ StaticLayer::getParameters()
   declareParameter("map_topic", rclcpp::ParameterValue("map"));
   declareParameter("footprint_clearing_enabled", rclcpp::ParameterValue(false));
   declareParameter("restore_cleared_footprint", rclcpp::ParameterValue(true));
+  declareParameter("combination_method", rclcpp::ParameterValue(1));
 
   auto node = node_.lock();
   if (!node) {
@@ -157,6 +158,10 @@ StaticLayer::getParameters()
   node->get_parameter("track_unknown_space", track_unknown_space_);
   node->get_parameter("use_maximum", use_maximum_);
   node->get_parameter("lethal_cost_threshold", temp_lethal_threshold);
+
+  int combination_method_param{};
+  node->get_parameter(name_ + "." + "combination_method", combination_method_param);
+  combination_method_ = combination_method_from_int(combination_method_param);
   node->get_parameter("unknown_cost_value", unknown_cost_value_);
   node->get_parameter("trinary_costmap", trinary_costmap_);
   node->get_parameter("transform_tolerance", temp_tf_tol);
@@ -198,7 +203,7 @@ StaticLayer::processMap(const nav_msgs::msg::OccupancyGrid & new_map)
     !layered_costmap_->isSizeLocked()))
   {
     // Update the size of the layered costmap (and all layers, including this one)
-    RCLCPP_INFO(
+    RCLCPP_DEBUG(
       logger_,
       "StaticLayer: Resizing costmap to %d X %d at %f m/pix", size_x, size_y,
       new_map.info.resolution);
@@ -278,7 +283,7 @@ StaticLayer::interpretValue(unsigned char value)
 }
 
 void
-StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::SharedPtr new_map)
+StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr new_map)
 {
   if (!nav2::validateMsg(*new_map)) {
     RCLCPP_ERROR(logger_, "Received map message is malformed. Rejecting.");
@@ -422,10 +427,21 @@ StaticLayer::updateCosts(
 
   if (!layered_costmap_->isRolling()) {
     // if not rolling, the layered costmap (master_grid) has same coordinates as this layer
-    if (!use_maximum_) {
-      updateWithTrueOverwrite(master_grid, min_i, min_j, max_i, max_j);
-    } else {
-      updateWithMax(master_grid, min_i, min_j, max_i, max_j);
+    switch (combination_method_) {
+      case CombinationMethod::Overwrite:
+        updateWithTrueOverwrite(master_grid, min_i, min_j, max_i, max_j);
+        break;
+      case CombinationMethod::Max:
+        updateWithMax(master_grid, min_i, min_j, max_i, max_j);
+        break;
+      case CombinationMethod::MaxWithoutUnknownOverwrite:
+        updateWithMaxWithoutUnknownOverwrite(master_grid, min_i, min_j, max_i, max_j);
+        break;
+      case CombinationMethod::Min:
+        updateWithMin(master_grid, min_i, min_j, max_i, max_j);
+        break;
+      default:
+        break;
     }
   } else {
     // If rolling window, the master_grid is unlikely to have same coordinates as this layer
@@ -530,6 +546,10 @@ StaticLayer::dynamicParametersCallback(
           RCLCPP_WARN(logger_, "restore_cleared_footprint cannot be used "
                       "when footprint_clearing_enabled is False. Rejecting parameter update.");
         }
+      }
+    } else if (param_type == ParameterType::PARAMETER_INTEGER) {
+      if (param_name == name_ + "." + "combination_method") {
+        combination_method_ = combination_method_from_int(parameter.as_int());
       }
     }
   }
