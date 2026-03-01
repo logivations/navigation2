@@ -283,6 +283,7 @@ foreach(bt_plugin ${plugin_libs})
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
   target_link_libraries(${bt_plugin} PUBLIC
+    angles::angles
     behaviortree_cpp::behaviortree_cpp
     ${geometry_msgs_TARGETS}
     ${nav_msgs_TARGETS}

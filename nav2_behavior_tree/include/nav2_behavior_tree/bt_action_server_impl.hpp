@@ -77,9 +77,6 @@ BtActionServer<ActionT, NodeT>::BtActionServer(
   if (!node->has_parameter("wait_for_service_timeout")) {
     node->declare_parameter("wait_for_service_timeout", 1000);
   }
-  if (!node->has_parameter("action_server_result_timeout")) {
-    node->declare_parameter("action_server_result_timeout", 900.0);
-  }
 
   std::vector<std::string> default_error_code_name_prefixes = {
     "assisted_teleop",
@@ -418,7 +415,7 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   current_bt_file_or_id_ = file_or_id;
 
   if (enable_groot_monitoring_) {
-    bt_->addGrootMonitoring(&tree_, groot_server_port_);
+    bt_->addGrootMonitoring(tree_, groot_server_port_);
     RCLCPP_DEBUG(
       logger_, "Enabling Groot2 monitoring for %s: %d",
       action_name_.c_str(), groot_server_port_);
