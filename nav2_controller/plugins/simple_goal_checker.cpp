@@ -204,9 +204,9 @@ SimpleGoalChecker::dynamicParametersCallback(std::vector<rclcpp::Parameter> para
         xy_goal_tolerance_sq_ = xy_goal_tolerance_ * xy_goal_tolerance_;
       } else if (param_name == plugin_name_ + ".yaw_goal_tolerance") {
         yaw_goal_tolerance_ = parameter.as_double();
-      } else if (name == plugin_name_ + ".x_goal_tolerance") {
+      } else if (param_name == plugin_name_ + ".x_goal_tolerance") {
         x_goal_tolerance_ = parameter.as_double();
-      } else if (name == plugin_name_ + ".y_goal_tolerance") {
+      } else if (param_name == plugin_name_ + ".y_goal_tolerance") {
         y_goal_tolerance_ = parameter.as_double();
       }
     } else if (param_type == ParameterType::PARAMETER_BOOL) {
