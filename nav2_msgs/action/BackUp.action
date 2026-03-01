@@ -5,7 +5,6 @@ float32 speed
 builtin_interfaces/Duration time_allowance
 bool disable_collision_checks False
 bool free_goal_vel
-bool check_local_costmap
 ---
 #result definition
 

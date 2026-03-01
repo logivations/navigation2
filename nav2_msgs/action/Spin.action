@@ -2,7 +2,6 @@
 float32 target_yaw
 builtin_interfaces/Duration time_allowance
 bool disable_collision_checks False
-bool check_local_costmap
 ---
 #result definition
 
