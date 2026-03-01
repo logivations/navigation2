@@ -84,6 +84,7 @@ void ObstacleLayer::onInitialize()
 
   declareParameter("enabled", rclcpp::ParameterValue(true));
   declareParameter("footprint_clearing_enabled", rclcpp::ParameterValue(true));
+  declareParameter("clear_after_master_grid_update", rclcpp::ParameterValue(false));
   declareParameter("min_obstacle_height", rclcpp::ParameterValue(0.0));
   declareParameter("max_obstacle_height", rclcpp::ParameterValue(2.0));
   declareParameter("combination_method", rclcpp::ParameterValue(1));
@@ -96,6 +97,7 @@ void ObstacleLayer::onInitialize()
 
   node->get_parameter(name_ + "." + "enabled", enabled_);
   node->get_parameter(name_ + "." + "footprint_clearing_enabled", footprint_clearing_enabled_);
+  node->get_parameter(name_ + "." + "clear_after_master_grid_update", clear_after_master_grid_update_);
   node->get_parameter(name_ + "." + "min_obstacle_height", min_obstacle_height_);
   node->get_parameter(name_ + "." + "max_obstacle_height", max_obstacle_height_);
   node->get_parameter("track_unknown_space", track_unknown_space);
@@ -140,6 +142,7 @@ void ObstacleLayer::onInitialize()
 
   std::string source;
   while (ss >> source) {
+    source_names_.push_back(source);
     // get the parameters for the specific topic
     double observation_keep_time, expected_update_rate, min_obstacle_height, max_obstacle_height;
     std::string topic, sensor_frame, data_type;
@@ -339,6 +342,13 @@ ObstacleLayer::dynamicParametersCallback(
         min_obstacle_height_ = parameter.as_double();
       } else if (param_name == name_ + "." + "max_obstacle_height") {
         max_obstacle_height_ = parameter.as_double();
+      } else {
+        for (size_t i = 0; i < source_names_.size() && i < observation_buffers_.size(); i++) {
+          if (param_name == name_ + "." + source_names_[i] + "." + "obstacle_max_range") {
+            observation_buffers_[i]->setObstacleMaxRange(parameter.as_double());
+            break;
+          }
+        }
       }
     } else if (param_type == ParameterType::PARAMETER_BOOL) {
       if (param_name == name_ + "." + "enabled" && enabled_ != parameter.as_bool()) {
@@ -351,6 +361,7 @@ ObstacleLayer::dynamicParametersCallback(
       }
     } else if (param_type == ParameterType::PARAMETER_INTEGER) {
       if (param_name == name_ + "." + "combination_method") {
+        RCLCPP_INFO(logger_, "Set new combination method parameter value %ld", parameter.as_int());
         combination_method_ = combination_method_from_int(parameter.as_int());
       }
     }
@@ -589,8 +600,14 @@ ObstacleLayer::updateCosts(
     case CombinationMethod::MaxWithoutUnknownOverwrite:
       updateWithMaxWithoutUnknownOverwrite(master_grid, min_i, min_j, max_i, max_j);
       break;
+    case CombinationMethod::Min:
+      updateWithMin(master_grid, min_i, min_j, max_i, max_j);
+      break;
     default:  // Nothing
       break;
+  }
+  if (clear_after_master_grid_update_) {
+    resetMaps();
   }
 }
 

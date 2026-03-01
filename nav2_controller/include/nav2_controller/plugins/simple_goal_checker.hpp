@@ -77,6 +77,7 @@ protected:
   bool symmetric_yaw_tolerance_;
   // Cached squared xy_goal_tolerance_
   double xy_goal_tolerance_sq_;
+  double x_goal_tolerance_, y_goal_tolerance_;
   // Dynamic parameters handler
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
   std::string plugin_name_;

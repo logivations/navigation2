@@ -21,7 +21,7 @@
 namespace nav2_costmap_2d
 {
 
-constexpr int costmapUpdateQueueDepth = 10;
+constexpr int costmapUpdateQueueDepth = 1;
 
 CostmapSubscriber::CostmapSubscriber(
   const nav2_util::LifecycleNode::WeakPtr & parent,
@@ -68,7 +68,7 @@ std::shared_ptr<Costmap2D> CostmapSubscriber::getCostmap()
   return costmap_;
 }
 
-void CostmapSubscriber::costmapCallback(const nav2_msgs::msg::Costmap::SharedPtr msg)
+void CostmapSubscriber::costmapCallback(const nav2_msgs::msg::Costmap::ConstSharedPtr msg)
 {
   {
     std::lock_guard<std::mutex> lock(costmap_msg_mutex_);
@@ -86,7 +86,7 @@ void CostmapSubscriber::costmapCallback(const nav2_msgs::msg::Costmap::SharedPtr
 }
 
 void CostmapSubscriber::costmapUpdateCallback(
-  const nav2_msgs::msg::CostmapUpdate::SharedPtr update_msg)
+  const nav2_msgs::msg::CostmapUpdate::ConstSharedPtr update_msg)
 {
   if (isCostmapReceived()) {
     if (costmap_msg_) {

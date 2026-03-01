@@ -76,12 +76,14 @@ bool PolygonSource::getData(
   }
 
   // Remove stale data
-  data_.erase(
-    std::remove_if(
-      data_.begin(), data_.end(),
-      [this, curr_time](const geometry_msgs::msg::PolygonInstanceStamped & polygon_stamped) {
-        return curr_time - rclcpp::Time(polygon_stamped.header.stamp) > source_timeout_;
-      }), data_.end());
+  if (source_timeout_.seconds() != 0.0){
+    data_.erase(
+      std::remove_if(
+        data_.begin(), data_.end(),
+        [this, curr_time](const geometry_msgs::msg::PolygonInstanceStamped & polygon_stamped) {
+          return curr_time - rclcpp::Time(polygon_stamped.header.stamp) > source_timeout_;
+        }), data_.end());
+  }
 
   tf2::Stamped<tf2::Transform> tf_transform;
   for (const auto & polygon_instance : data_) {

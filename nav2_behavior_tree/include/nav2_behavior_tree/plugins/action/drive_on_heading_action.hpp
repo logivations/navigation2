@@ -62,6 +62,8 @@ public:
         BT::InputPort<double>("speed", 0.025, "Speed at which to travel"),
         BT::InputPort<double>("time_allowance", 10.0, "Allowed time for driving on heading"),
         BT::InputPort<bool>("disable_collision_checks", false, "Disable collision checking"),
+        BT::InputPort<bool>("free_goal_vel", false, "Don't stop when goal reached"),
+        BT::InputPort<bool>("check_local_costmap", true, "Check local costmap for collisions"),
         BT::OutputPort<Action::Result::_error_code_type>(
           "error_code_id", "The drive on heading behavior server error code"),
         BT::OutputPort<std::string>(

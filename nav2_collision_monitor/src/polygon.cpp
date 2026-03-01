@@ -26,6 +26,7 @@
 #include "nav2_util/array_parser.hpp"
 
 #include "nav2_collision_monitor/kinematics.hpp"
+using rcl_interfaces::msg::ParameterType;
 
 namespace nav2_collision_monitor
 {
@@ -68,6 +69,12 @@ bool Polygon::configure()
   if (!getParameters(polygon_sub_topic, polygon_pub_topic, footprint_topic)) {
     return false;
   }
+  dyn_params_handler_ = node->add_on_set_parameters_callback(
+    std::bind(
+      &Polygon::dynamicParametersCallback,
+      this,
+      std::placeholders::_1)
+  );
 
   createSubscription(polygon_sub_topic);
 
@@ -94,7 +101,7 @@ bool Polygon::configure()
       polygon_.polygon.points.push_back(p_s);
     }
 
-    rclcpp::QoS polygon_qos = rclcpp::SystemDefaultsQoS();  // set to default
+    rclcpp::QoS polygon_qos = rclcpp::SystemDefaultsQoS().keep_last(1);  // set to default
     polygon_pub_ = node->create_publisher<geometry_msgs::msg::PolygonStamped>(
       polygon_pub_topic, polygon_qos);
   }
@@ -254,7 +261,6 @@ int Polygon::getPointsInside(
 
   return num;
 }
-
 double Polygon::getCollisionTime(
   const std::unordered_map<std::string, std::vector<Point>> & sources_collision_points_map,
   const Velocity & velocity) const
@@ -593,10 +599,9 @@ Polygon::dynamicParametersCallback(
 
 void Polygon::polygonCallback(geometry_msgs::msg::PolygonStamped::ConstSharedPtr msg)
 {
-  RCLCPP_INFO_THROTTLE(
+  // debug logging to prevent spam
+  RCLCPP_DEBUG(
     logger_,
-    *node_clock_,
-    2000,
     "[%s]: Polygon shape update has arrived",
     polygon_name_.c_str());
   updatePolygon(msg);
