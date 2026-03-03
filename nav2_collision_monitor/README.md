@@ -97,3 +97,51 @@ The zones around the robot and the data sources are the same as for the Collisio
 Detailed configuration parameters, their description and how to setup a Collision Detector could be found at its [Configuration Guide](https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-detector-node.html).
 
 The `CollisionMonitor` node makes use of a [nav2_util::TwistSubscriber](../nav2_util/README.md#twist-publisher-and-twist-subscriber-for-commanded-velocities).
+
+
+### Lidar estop prevention
+
+We use this with a safety lidar with e-stop zones depending on speed and steering angle. We want to avoid hitting such a zone.
+Thus, the collision monitor must ensure to limit the speed and steering angle so that the field chosen by
+the lidar is not intersecting with any lidar points (that would trigger an estop).
+
+During field set creation, we also generate corresponding velocity polygons. They are about 50% larger than the corresponding
+e-stop zone. example. Note that linear speed is for the steering wheel, not the baselink
+
+forward_straight_mid_3:
+  points: # polygon here
+  linear_min: 0.5
+  linear_max: 0.7
+  steering_angle_min: -0.20944 # -12 degrees in radians
+  steering_angle_max: 0.20944 # 12 degrees in radians
+  linear_limit: 0.49 # steering wheel speed, not base link speed
+
+So - if we are between 0.5 and 0.7m/s, and hit that warning field, we must reduce our speed to *below* that bracket - because there is an obstacle in the polygon,
+which, if we approach it further, would trigger an estop.0
+Once we are at 0.49, we will be in another zone with a smaller field on lidar side. Thus, the velocity polygon is also slower. If we keep approaching the obstacle, we would slow down further.
+If the obstacle e.g. moves with us or is on the side, we can keep that speed.
+
+### Step 1 Normal collision monitor with velocity polygon
+
+### Step 2: Steering validation
+If speed goes through zero (so sign(target speed) <> sign (current speed)) :
+
+* if abs(current speed) > Low threshold → keep steering angle (we must anyway just slow down asap)
+* if abs(current speed) < low threshold → allow steering
+
+else:
+
+1. check if both abs(target) and abs(current speed) are < lower threshold. If yes → done
+2. check if target angle is in same bucket as current angle. If yes →
+  1. if yes → if abs(target speed) > abs(current speed), also check next faster bucket, if in collision, limit speed to current bucket → then done
+  2. if no → determine the direction of steering and the subsequent bucket from current angle
+3. in new bucket, determine max speed / valid bucket
+  1. start at fastest possible bucket (bucket for max (current speed, target speed)). If that is in collision, go down until the slowest one is found. that one we call “valid” bucket
+  2. if the fastest possible bucket is not in collision → done
+4. now the AMR must decelerate to enter the valid bucket. Thus
+  1. limit steering angle at the boundary of current bucket
+  2. limit speed to max speed of valid bucket
+
+→ done
+
+After some iterations, the current speed will be in valid bucket → AMR will  be allowed to steer, as it will fall into case 3b

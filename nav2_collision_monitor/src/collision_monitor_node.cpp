@@ -545,6 +545,20 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
     }
   }
 
+  // Step 2: Steering validation
+  for (auto polygon : polygons_) {
+    auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+    if (!vel_polygon || !polygon->getEnabled()) {
+      continue;
+    }
+    Velocity odom_vel{last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z};
+    if (vel_polygon->validateSteering(
+        cmd_vel_in, odom_vel, sources_collision_points_map, robot_action))
+    {
+      action_polygon = polygon;
+    }
+  }
+
   if (robot_action.polygon_name != robot_action_prev_.polygon_name) {
     // Report changed robot behavior
     notifyActionState(robot_action, action_polygon);

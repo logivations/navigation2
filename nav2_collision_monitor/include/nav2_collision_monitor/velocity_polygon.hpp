@@ -15,8 +15,10 @@
 #ifndef NAV2_COLLISION_MONITOR__VELOCITY_POLYGON_HPP_
 #define NAV2_COLLISION_MONITOR__VELOCITY_POLYGON_HPP_
 
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "geometry_msgs/msg/polygon_stamped.hpp"
@@ -74,6 +76,21 @@ public:
    */
   void updatePolygon(const Velocity & cmd_vel_in) override;
 
+  /**
+   * @brief Validates steering to prevent triggering lidar e-stop zones.
+   * Implements Step 2 of the lidar e-stop prevention algorithm.
+   * @param cmd_vel_in Desired robot velocity (target)
+   * @param odom_vel Current robot velocity from odometry
+   * @param collision_points_map Map of source name to collision points
+   * @param robot_action Output robot action to modify if steering is restricted
+   * @return True if velocity was modified by steering validation
+   */
+  bool validateSteering(
+    const Velocity & cmd_vel_in,
+    const Velocity & odom_vel,
+    const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
+    Action & robot_action);
+
 protected:
   /**
     * @brief Custom struct to store the parameters of the sub-polygon
@@ -119,6 +136,64 @@ protected:
    */
   bool isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon_param);
 
+  /**
+   * @brief Convert baselink speed to steering wheel speed
+   * @param baselink_speed Baselink linear speed
+   * @param steering_angle Steering angle in radians
+   * @return Steering wheel speed
+   */
+  double baselinkToSteeringSpeed(double baselink_speed, double steering_angle) const;
+
+  /**
+   * @brief Convert steering wheel speed to baselink speed
+   * @param steering_speed Steering wheel speed
+   * @param steering_angle Steering angle in radians
+   * @return Baselink speed
+   */
+  double steeringToBaselinkSpeed(double steering_speed, double steering_angle) const;
+
+  /**
+   * @brief Convert steering angle back to angular velocity (twist.angular.z)
+   * @param baselink_speed Baselink linear speed
+   * @param steering_angle Steering angle in radians
+   * @return Angular velocity
+   */
+  double steeringAngleToTw(double baselink_speed, double steering_angle) const;
+
+  /**
+   * @brief Find the sub-polygon bucket matching a given steering wheel speed and steering angle
+   * @param steering_wheel_speed Speed in steering wheel frame
+   * @param steering_angle Steering angle in radians
+   * @return Pointer to matching sub-polygon, or nullptr if none found
+   */
+  const SubPolygonParameter * findBucket(
+    double steering_wheel_speed, double steering_angle) const;
+
+  /**
+   * @brief Find all sub-polygons matching a given steering angle, sorted by linear_min ascending
+   * @param steering_angle Steering angle in radians
+   * @return Vector of pointers to matching sub-polygons, sorted slowest first
+   */
+  std::vector<const SubPolygonParameter *> findBucketsForAngle(double steering_angle) const;
+
+  /**
+   * @brief Check if a point is inside a given polygon (arbitrary vertices)
+   * @param point Point to check
+   * @param vertices Polygon vertices
+   * @return True if point is inside polygon
+   */
+  static bool isPointInsidePoly(const Point & point, const std::vector<Point> & vertices);
+
+  /**
+   * @brief Get number of collision points inside a specific sub-polygon
+   * @param sub_polygon Sub-polygon to check against
+   * @param collision_points_map Map of source name to collision points
+   * @return Number of collision points inside the sub-polygon
+   */
+  int getPointsInsideSubPolygon(
+    const SubPolygonParameter & sub_polygon,
+    const std::unordered_map<std::string, std::vector<Point>> & collision_points_map) const;
+
   // Clock
   rclcpp::Clock::SharedPtr clock_;
   // Current subpolygon name
@@ -130,6 +205,8 @@ protected:
   double current_steering_angle_;
   /// @brief Distance between front and rear axes
   double wheelbase_;
+  /// @brief Speed below which steering is freely allowed
+  double low_speed_threshold_;
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
 };  // class VelocityPolygon
