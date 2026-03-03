@@ -136,12 +136,13 @@ else:
   1. if yes → if abs(target speed) > abs(current speed), also check next faster bucket, if in collision, limit speed to current bucket → then done
   2. if no → determine the direction of steering and the subsequent bucket from current angle
 3. in new bucket, determine max speed / valid bucket
-  1. start at fastest possible bucket (bucket for max (current speed, target speed)). If that is in collision, go down until the slowest one is found. that one we call “valid” bucket
-  2. if the fastest possible bucket is not in collision → done
-4. now the AMR must decelerate to enter the valid bucket. Thus
-  1. limit steering angle at the boundary of current bucket
-  2. limit speed to max speed of valid bucket
+  1. start at fastest possible bucket (bucket for max (current speed, target speed)). If that is in collision, go down until the slowest one is found. that one we call “valid” bucket. If all buckets are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
+4. now adapt speed and steering angle
+  1. limit target speed to max speed of valid bucket
+  2. if current speed is larger than max valid speed: limit steering angle to boundary of current bucket
+
+
 
 → done
 
-After some iterations, the current speed will be in valid bucket → AMR will  be allowed to steer, as it will fall into case 3b
+After some iterations, the current speed will be in valid bucket → AMR will  be allowed to steer, as in 4b, the current speed will not be above max valid speedrrent speed will be in valid bucket → AMR will  be allowed to steer, as it will fall into case 3b
