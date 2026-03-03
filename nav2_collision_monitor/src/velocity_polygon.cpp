@@ -628,18 +628,24 @@ bool VelocityPolygon::validateSteering(
   }
 
   if (valid_bucket == nullptr) {
-    // No valid bucket exists → STOP
-    robot_action.req_vel.x = 0.0;
-    robot_action.req_vel.y = 0.0;
-    robot_action.req_vel.tw = 0.0;
-    robot_action.polygon_name = polygon_name_;
-    robot_action.action_type = STOP;
-    return true;
+    // All buckets in collision — use the slowest bucket in the target direction
+    // (allowed even if in collision)
+    valid_bucket = target_buckets[0];  // sorted ascending, index 0 is slowest
   }
 
-  // 4. Decelerate to valid bucket
-  // Limit steering angle to boundary of current bucket (toward target direction)
-  if (current_bucket != nullptr) {
+  // 4. Adapt speed and steering angle
+  // 4a. Limit target speed to valid bucket's linear_max (converted to baselink)
+  double valid_max_baselink = steeringToBaselinkSpeed(
+    valid_bucket->linear_max_, target_steering_angle);
+  if (std::abs(result_vel.x) > std::abs(valid_max_baselink)) {
+    result_vel.x = (result_vel.x >= 0) ? std::abs(valid_max_baselink) :
+      -std::abs(valid_max_baselink);
+  }
+
+  // 4b. Only limit steering angle if current speed is larger than max valid speed
+  double current_baselink_abs = std::abs(current_speed);
+  double valid_max_baselink_abs = std::abs(valid_max_baselink);
+  if (current_baselink_abs > valid_max_baselink_abs && current_bucket != nullptr) {
     double limited_sa;
     if (target_steering_angle > current_sa) {
       limited_sa = current_bucket->steering_angle_max_;
@@ -647,24 +653,6 @@ bool VelocityPolygon::validateSteering(
       limited_sa = current_bucket->steering_angle_min_;
     }
     result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
-  }
-
-  // Limit speed to valid bucket's linear_max (converted to baselink)
-  double valid_max_baselink = steeringToBaselinkSpeed(
-    valid_bucket->linear_max_, target_steering_angle);
-  if (std::abs(result_vel.x) > std::abs(valid_max_baselink)) {
-    result_vel.x = (result_vel.x >= 0) ? std::abs(valid_max_baselink) :
-      -std::abs(valid_max_baselink);
-    // Recalculate tw for the new speed
-    if (current_bucket != nullptr) {
-      double limited_sa;
-      if (target_steering_angle > current_sa) {
-        limited_sa = current_bucket->steering_angle_max_;
-      } else {
-        limited_sa = current_bucket->steering_angle_min_;
-      }
-      result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
-    }
   }
 
   robot_action.req_vel = result_vel;

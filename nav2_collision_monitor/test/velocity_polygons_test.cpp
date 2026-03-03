@@ -1182,10 +1182,11 @@ TEST_F(Tester, testValidateSteeringDifferentBucketAllCollision)
 
   bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
   EXPECT_TRUE(modified);
-  // No valid bucket → STOP
-  EXPECT_EQ(action.action_type, nav2_collision_monitor::STOP);
-  EXPECT_NEAR(action.req_vel.x, 0.0, 1e-6);
-  EXPECT_NEAR(action.req_vel.tw, 0.0, 1e-6);
+  // All buckets in collision → use slowest bucket (allowed even if in collision), LIMIT not STOP
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Speed should be limited to slowest bucket's linear_max (0.5) converted to baselink
+  double expected_max = 0.5 * std::cos(target_sa);
+  EXPECT_LE(std::abs(action.req_vel.x), expected_max + 1e-3);
 }
 
 TEST_F(Tester, testValidateSteeringDecelerationToValidBucket)
