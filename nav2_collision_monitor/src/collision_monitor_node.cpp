@@ -292,6 +292,10 @@ bool CollisionMonitor::getParameters(
   stop_pub_timeout_ =
     rclcpp::Duration::from_seconds(get_parameter("stop_pub_timeout").as_double());
 
+  nav2_util::declare_parameter_if_not_declared(
+    node, "enable_steering_validation", rclcpp::ParameterValue(true));
+  enable_steering_validation_ = get_parameter("enable_steering_validation").as_bool();
+
   if (
     !configureSources(
       base_frame_id, odom_frame_id, transform_tolerance, source_timeout, base_shift_correction))
@@ -546,16 +550,18 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
   }
 
   // Step 2: Steering validation
-  for (auto polygon : polygons_) {
-    auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
-    if (!vel_polygon || !polygon->getEnabled()) {
-      continue;
-    }
-    Velocity odom_vel{last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z};
-    if (vel_polygon->validateSteering(
-        cmd_vel_in, odom_vel, sources_collision_points_map, robot_action))
-    {
-      action_polygon = polygon;
+  if (enable_steering_validation_) {
+    for (auto polygon : polygons_) {
+      auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+      if (!vel_polygon || !polygon->getEnabled()) {
+        continue;
+      }
+      Velocity odom_vel{last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z};
+      if (vel_polygon->validateSteering(
+          cmd_vel_in, odom_vel, sources_collision_points_map, robot_action))
+      {
+        action_polygon = polygon;
+      }
     }
   }
 

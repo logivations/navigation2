@@ -105,9 +105,15 @@ We use this with a safety lidar with e-stop zones depending on speed and steerin
 Thus, the collision monitor must ensure to limit the speed and steering angle so that the field chosen by
 the lidar is not intersecting with any lidar points (that would trigger an estop).
 
-During field set creation, we also generate corresponding velocity polygons. They are about 50% larger than the corresponding
-e-stop zone. example. Note that linear speed is for the steering wheel, not the baselink
+#### Terminology
 
+* **Bucket**: a steering angle range (e.g. -12° to 12°). A bucket groups multiple fields that share the same angle range.
+* **Field**: a specific combination of steering angle bucket and velocity range. Each field corresponds to one `SubPolygonParameter` / velocity polygon entry.
+
+During field set creation, we also generate corresponding velocity polygons. They are about 50% larger than the corresponding
+e-stop zone. Example. Note that linear speed is for the steering wheel, not the baselink.
+
+```yaml
 forward_straight_mid_3:
   points: # polygon here
   linear_min: 0.5
@@ -115,34 +121,36 @@ forward_straight_mid_3:
   steering_angle_min: -0.20944 # -12 degrees in radians
   steering_angle_max: 0.20944 # 12 degrees in radians
   linear_limit: 0.49 # steering wheel speed, not base link speed
+```
 
-So - if we are between 0.5 and 0.7m/s, and hit that warning field, we must reduce our speed to *below* that bracket - because there is an obstacle in the polygon,
-which, if we approach it further, would trigger an estop.0
-Once we are at 0.49, we will be in another zone with a smaller field on lidar side. Thus, the velocity polygon is also slower. If we keep approaching the obstacle, we would slow down further.
+Here, the **bucket** is the angle range [-12°, 12°]. The **field** is that bucket combined with the speed range [0.5, 0.7].
+
+So - if we are between 0.5 and 0.7 m/s, and hit that warning field, we must reduce our speed to *below* that field - because there is an obstacle in the polygon,
+which, if we approach it further, would trigger an estop.
+Once we are at 0.49, we will be in another field with a smaller polygon on the lidar side. Thus, the velocity polygon is also smaller. If we keep approaching the obstacle, we would slow down further.
 If the obstacle e.g. moves with us or is on the side, we can keep that speed.
 
-### Step 1 Normal collision monitor with velocity polygon
+### Step 1: Normal collision monitor with velocity polygon
 
 ### Step 2: Steering validation
-If speed goes through zero (so sign(target speed) <> sign (current speed)) :
 
-* if abs(current speed) > Low threshold → keep steering angle (we must anyway just slow down asap)
+If speed goes through zero (so sign(target speed) <> sign(current speed)):
+
+* if abs(current speed) > low threshold → keep steering angle (we must anyway just slow down asap)
 * if abs(current speed) < low threshold → allow steering
 
 else:
 
-1. check if both abs(target) and abs(current speed) are < lower threshold. If yes → done
+1. check if both abs(target) and abs(current speed) are < low threshold. If yes → done
 2. check if target angle is in same bucket as current angle. If yes →
-  1. if yes → if abs(target speed) > abs(current speed), also check next faster bucket, if in collision, limit speed to current bucket → then done
-  2. if no → determine the direction of steering and the subsequent bucket from current angle
-3. in new bucket, determine max speed / valid bucket
-  1. start at fastest possible bucket (bucket for max (current speed, target speed)). If that is in collision, go down until the slowest one is found. that one we call “valid” bucket. If all buckets are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
+   1. if the result velocity falls into the some faster field (same bucket), check the subsequent field for collision. Only the one-step faster field needs to be checked, even if target speed  is in a much faster field. if in collision, limit speed to current field → then done
+   2. if target angle is in a different bucket → determine the direction of steering and find the neighbouring bucket from current angle in that direction. Only one bucket step at a time, even if the target angle is several buckets away.
+3. in the neighbouring bucket, determine max speed / valid field
+   1. start at fastest possible field (field for max(current speed, target speed)). If that is in collision, go down until a collision-free one is found. That one we call “valid” field. If all fields are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
 4. now adapt speed and steering angle
-  1. limit target speed to max speed of valid bucket
-  2. if current speed is larger than max valid speed: limit steering angle to boundary of current bucket
-
-
+   1. limit target speed to max speed of valid field
+   2. if current speed is larger than max valid speed: limit steering angle to boundary of current bucket
 
 → done
 
-After some iterations, the current speed will be in valid bucket → AMR will  be allowed to steer, as in 4b, the current speed will not be above max valid speedrrent speed will be in valid bucket → AMR will  be allowed to steer, as it will fall into case 3b
+After some iterations, the current speed will be in the valid field → AMR will be allowed to steer, as in 4b, the current speed will not be above max valid speed

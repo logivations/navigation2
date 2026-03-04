@@ -137,12 +137,19 @@ protected:
   bool isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon_param);
 
   /**
+   * @brief Compute steering angle from linear and angular velocity
+   * @param vel Velocity containing linear.x and angular.z
+   * @return Steering angle in radians
+   */
+  double computeSteeringAngle(const Velocity & vel) const;
+
+  /**
    * @brief Convert baselink speed to steering wheel speed
-   * @param baselink_speed Baselink linear speed
-   * @param steering_angle Steering angle in radians
+   * @param linear_vel Baselink linear velocity (twist.linear.x)
+   * @param angular_vel Baselink angular velocity (twist.angular.z)
    * @return Steering wheel speed
    */
-  double baselinkToSteeringSpeed(double baselink_speed, double steering_angle) const;
+  double baselinkToSteeringSpeed(double linear_vel, double angular_vel) const;
 
   /**
    * @brief Convert steering wheel speed to baselink speed
@@ -161,20 +168,23 @@ protected:
   double steeringAngleToTw(double baselink_speed, double steering_angle) const;
 
   /**
-   * @brief Find the sub-polygon bucket matching a given steering wheel speed and steering angle
+   * @brief Find the field (sub-polygon) matching a given steering wheel speed and steering angle
    * @param steering_wheel_speed Speed in steering wheel frame
    * @param steering_angle Steering angle in radians
    * @return Pointer to matching sub-polygon, or nullptr if none found
    */
-  const SubPolygonParameter * findBucket(
+  const SubPolygonParameter * findField(
     double steering_wheel_speed, double steering_angle) const;
 
   /**
-   * @brief Find all sub-polygons matching a given steering angle, sorted by linear_min ascending
+   * @brief Find all fields (sub-polygons) matching a given steering angle and direction
    * @param steering_angle Steering angle in radians
-   * @return Vector of pointers to matching sub-polygons, sorted slowest first
+   * @param forward If true, return only forward fields (linear_max >= 0);
+   *                if false, return only backward fields (linear_min <= 0)
+   * @return Vector of pointers to matching sub-polygons, sorted slowest (closest to zero) first
    */
-  std::vector<const SubPolygonParameter *> findBucketsForAngle(double steering_angle) const;
+  std::vector<const SubPolygonParameter *> findFieldsForAngle(
+    double steering_angle, bool forward) const;
 
   /**
    * @brief Check if a point is inside a given polygon (arbitrary vertices)

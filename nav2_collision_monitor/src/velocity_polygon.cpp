@@ -297,21 +297,10 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 
 bool VelocityPolygon::isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon) {
   if (sub_polygon.use_steering_angle_) {
-    // Compute steering angle first (needed for speed conversion)
-    if (std::abs(cmd_vel_in.x) < 1e-6) {
-      current_steering_angle_ = (std::abs(cmd_vel_in.tw) < 1e-6) ?
-                               0.0 :
-                               (cmd_vel_in.tw > 0 ? M_PI/2 : -M_PI/2);
-    } else {
-      double angular_vel = cmd_vel_in.tw;
-      if (cmd_vel_in.x < 0) {
-        angular_vel = -angular_vel;
-      }
-      current_steering_angle_ = std::atan2(wheelbase_ * angular_vel, std::abs(cmd_vel_in.x));
-    }
+    current_steering_angle_ = computeSteeringAngle(cmd_vel_in);
 
-    // Convert baselink speed to steering wheel speed: v_steering = v_baselink / cos(steering_angle)
-    double steering_wheel_speed = baselinkToSteeringSpeed(cmd_vel_in.x, current_steering_angle_);
+    // Convert baselink speed to steering wheel speed
+    double steering_wheel_speed = baselinkToSteeringSpeed(cmd_vel_in.x, cmd_vel_in.tw);
 
     RCLCPP_DEBUG(
       logger_,
@@ -368,15 +357,26 @@ bool VelocityPolygon::isInRange(const Velocity & cmd_vel_in, const SubPolygonPar
   return in_range;
 }
 
-double VelocityPolygon::baselinkToSteeringSpeed(
-  double baselink_speed, double steering_angle) const
+double VelocityPolygon::computeSteeringAngle(const Velocity & vel) const
 {
-  double cos_sa = std::cos(steering_angle);
-  if (std::abs(cos_sa) < 1e-6) {
-    // Near 90 degree steering — return a very large speed to signal out-of-range
-    return (baselink_speed >= 0.0 ? 1e6 : -1e6);
+  if (std::abs(vel.x) < 1e-6) {
+    return (std::abs(vel.tw) < 1e-6) ? 0.0 : (vel.tw > 0 ? M_PI / 2 : -M_PI / 2);
   }
-  return baselink_speed / cos_sa;
+  double angular_vel = vel.tw;
+  if (vel.x < 0) {
+    angular_vel = -angular_vel;
+  }
+  return std::atan2(wheelbase_ * angular_vel, std::abs(vel.x));
+}
+
+double VelocityPolygon::baselinkToSteeringSpeed(
+  double linear_vel, double angular_vel) const
+{
+  double magnitude = std::hypot(linear_vel, wheelbase_ * angular_vel);
+  if (linear_vel < 0.0) {
+    return -magnitude;
+  }
+  return magnitude;
 }
 
 double VelocityPolygon::steeringToBaselinkSpeed(
@@ -396,7 +396,7 @@ double VelocityPolygon::steeringAngleToTw(
   return tw;
 }
 
-const VelocityPolygon::SubPolygonParameter * VelocityPolygon::findBucket(
+const VelocityPolygon::SubPolygonParameter * VelocityPolygon::findField(
   double steering_wheel_speed, double steering_angle) const
 {
   for (const auto & sp : sub_polygons_) {
@@ -413,7 +413,7 @@ const VelocityPolygon::SubPolygonParameter * VelocityPolygon::findBucket(
 }
 
 std::vector<const VelocityPolygon::SubPolygonParameter *>
-VelocityPolygon::findBucketsForAngle(double steering_angle) const
+VelocityPolygon::findFieldsForAngle(double steering_angle, bool forward) const
 {
   std::vector<const SubPolygonParameter *> result;
   for (const auto & sp : sub_polygons_) {
@@ -421,13 +421,15 @@ VelocityPolygon::findBucketsForAngle(double steering_angle) const
       continue;
     }
     if (steering_angle >= sp.steering_angle_min_ && steering_angle <= sp.steering_angle_max_) {
-      result.push_back(&sp);
+      if (forward ? (sp.linear_max_ >= 0) : (sp.linear_min_ <= 0)) {
+        result.push_back(&sp);
+      }
     }
   }
-  // Sort ascending by linear_min_ (slowest first)
+  // Sort by speed magnitude ascending (slowest/closest to zero first)
   std::sort(result.begin(), result.end(),
     [](const SubPolygonParameter * a, const SubPolygonParameter * b) {
-      return a->linear_min_ < b->linear_min_;
+      return std::abs(a->linear_min_) < std::abs(b->linear_min_);
     });
   return result;
 }
@@ -490,31 +492,8 @@ bool VelocityPolygon::validateSteering(
   const double target_speed = cmd_vel_in.x;
   const double current_speed = odom_vel.x;
 
-  // Compute target steering angle
-  double target_steering_angle;
-  if (std::abs(cmd_vel_in.x) < 1e-6) {
-    target_steering_angle = (std::abs(cmd_vel_in.tw) < 1e-6) ?
-      0.0 : (cmd_vel_in.tw > 0 ? M_PI / 2 : -M_PI / 2);
-  } else {
-    double angular_vel = cmd_vel_in.tw;
-    if (cmd_vel_in.x < 0) {
-      angular_vel = -angular_vel;
-    }
-    target_steering_angle = std::atan2(wheelbase_ * angular_vel, std::abs(cmd_vel_in.x));
-  }
-
-  // Compute current steering angle from odometry
-  double current_sa;
-  if (std::abs(odom_vel.x) < 1e-6) {
-    current_sa = (std::abs(odom_vel.tw) < 1e-6) ?
-      0.0 : (odom_vel.tw > 0 ? M_PI / 2 : -M_PI / 2);
-  } else {
-    double angular_vel = odom_vel.tw;
-    if (odom_vel.x < 0) {
-      angular_vel = -angular_vel;
-    }
-    current_sa = std::atan2(wheelbase_ * angular_vel, std::abs(odom_vel.x));
-  }
+  const double target_steering_angle = computeSteeringAngle(cmd_vel_in);
+  const double current_sa = computeSteeringAngle(odom_vel);
 
   bool modified = false;
   Velocity result_vel = robot_action.req_vel;
@@ -546,29 +525,37 @@ bool VelocityPolygon::validateSteering(
     return false;
   }
 
-  double target_sw_speed = baselinkToSteeringSpeed(target_speed, target_steering_angle);
-  double current_sw_speed = baselinkToSteeringSpeed(current_speed, current_sa);
+  double target_sw_speed = baselinkToSteeringSpeed(cmd_vel_in.x, cmd_vel_in.tw);
+  double current_sw_speed = baselinkToSteeringSpeed(odom_vel.x, odom_vel.tw);
 
-  const SubPolygonParameter * current_bucket = findBucket(current_sw_speed, current_sa);
-  const SubPolygonParameter * target_bucket = findBucket(target_sw_speed, target_steering_angle);
+  const SubPolygonParameter * current_field = findField(current_sw_speed, current_sa);
 
-  // 2. Target angle in same bucket as current angle
-  if (target_bucket != nullptr && current_bucket != nullptr &&
-    target_bucket == current_bucket)
-  {
-    // Same bucket
-    if (std::abs(target_sw_speed) > std::abs(current_sw_speed)) {
-      // Accelerating — check next faster bucket at target angle for collision
-      auto buckets_at_angle = findBucketsForAngle(target_steering_angle);
-      for (size_t i = 0; i < buckets_at_angle.size(); i++) {
-        if (buckets_at_angle[i] == current_bucket && i + 1 < buckets_at_angle.size()) {
-          const SubPolygonParameter * next_bucket = buckets_at_angle[i + 1];
-          if (getPointsInsideSubPolygon(*next_bucket, collision_points_map) >= min_points_) {
-            // Collision in next bucket — limit speed to current bucket's linear_max
-            double max_baselink = steeringToBaselinkSpeed(
-              current_bucket->linear_max_, current_sa);
+  // 2. Check if target angle is in same bucket (angle range) as current
+  bool same_bucket = current_field != nullptr &&
+    target_steering_angle >= current_field->steering_angle_min_ &&
+    target_steering_angle <= current_field->steering_angle_max_;
+
+  if (same_bucket) {
+    // If result velocity falls into some faster field (same bucket), check the
+    // one-step-faster field for collision. If in collision, limit to current field.
+    double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
+    const SubPolygonParameter * result_field = findField(result_sw_speed, target_steering_angle);
+    if (result_field != nullptr && result_field != current_field &&
+      std::abs(result_sw_speed) > std::abs(current_sw_speed))
+    {
+      bool forward = current_sw_speed >= 0;
+      auto fields_at_angle = findFieldsForAngle(target_steering_angle, forward);
+      for (size_t i = 0; i < fields_at_angle.size(); i++) {
+        if (fields_at_angle[i] == current_field && i + 1 < fields_at_angle.size()) {
+          const SubPolygonParameter * next_field = fields_at_angle[i + 1];
+          if (getPointsInsideSubPolygon(*next_field, collision_points_map) >= min_points_) {
+            // Forward: limit to linear_max (upper bound)
+            // Backward: limit to linear_min (lower bound, more negative = faster)
+            double limit_sw = (current_sw_speed >= 0) ?
+              current_field->linear_max_ : current_field->linear_min_;
+            double max_baselink = steeringToBaselinkSpeed(limit_sw, current_sa);
             if (std::abs(result_vel.x) > std::abs(max_baselink)) {
-              result_vel.x = (result_vel.x >= 0) ? std::abs(max_baselink) : -std::abs(max_baselink);
+              result_vel.x = max_baselink;
               result_vel.tw = steeringAngleToTw(result_vel.x, target_steering_angle);
               modified = true;
             }
@@ -577,7 +564,7 @@ bool VelocityPolygon::validateSteering(
         }
       }
     }
-    // Otherwise (decelerating or same speed) → done
+    // Same bucket → done
     if (modified) {
       robot_action.req_vel = result_vel;
       robot_action.polygon_name = polygon_name_;
@@ -586,71 +573,84 @@ bool VelocityPolygon::validateSteering(
     return modified;
   }
 
-  // 3. Target angle in different bucket
-  // Find all buckets at target angle
-  auto target_buckets = findBucketsForAngle(target_steering_angle);
-  if (target_buckets.empty()) {
+  // 3. Different bucket — find neighbouring bucket (one step in steering direction)
+  double neighbour_angle;
+  if (target_steering_angle > current_sa) {
+    neighbour_angle = current_field->steering_angle_max_;
+  } else {
+    neighbour_angle = current_field->steering_angle_min_;
+  }
+  // Step just past the boundary to land in the neighbouring bucket
+  constexpr double kAngleEps = 0.01;
+  double lookup_angle = (target_steering_angle > current_sa) ?
+    neighbour_angle + kAngleEps : neighbour_angle - kAngleEps;
+
+  bool forward = target_sw_speed >= 0;
+  auto neighbour_fields = findFieldsForAngle(lookup_angle, forward);
+  if (neighbour_fields.empty()) {
     return false;
   }
 
-  // Find the fastest bucket that covers max(|current|, |target|) speed
+  // Find the fastest field that covers max(|current|, |target|) speed
   double max_sw_speed = std::max(std::abs(current_sw_speed), std::abs(target_sw_speed));
 
-  // Find the valid bucket: start from fastest covering bucket, walk down
-  const SubPolygonParameter * valid_bucket = nullptr;
-  int start_idx = static_cast<int>(target_buckets.size()) - 1;
+  // Find the valid field: start from fastest covering field, walk down
+  const SubPolygonParameter * valid_field = nullptr;
+  int start_idx = static_cast<int>(neighbour_fields.size()) - 1;
 
-  // Find the starting bucket (fastest that covers max_sw_speed)
+  // Find the starting field (fastest that covers max_sw_speed)
   for (int i = start_idx; i >= 0; i--) {
-    if (max_sw_speed >= target_buckets[i]->linear_min_ &&
-      max_sw_speed <= target_buckets[i]->linear_max_)
+    if (max_sw_speed >= std::abs(neighbour_fields[i]->linear_min_) &&
+      max_sw_speed <= std::abs(neighbour_fields[i]->linear_max_))
     {
       start_idx = i;
       break;
     }
-    // If max_sw_speed is beyond all buckets, start from the fastest
+    // If max_sw_speed is beyond all fields, start from the fastest
     if (i == 0) {
-      start_idx = static_cast<int>(target_buckets.size()) - 1;
+      start_idx = static_cast<int>(neighbour_fields.size()) - 1;
     }
   }
 
-  // Check if fastest bucket is collision-free → done
-  if (getPointsInsideSubPolygon(*target_buckets[start_idx], collision_points_map) < min_points_) {
+  // Check if fastest field is collision-free → done
+  if (getPointsInsideSubPolygon(*neighbour_fields[start_idx], collision_points_map) < min_points_) {
     return false;
   }
 
-  // Walk down speed buckets until a collision-free one is found
+  // Walk down speed fields until a collision-free one is found
   for (int i = start_idx; i >= 0; i--) {
-    if (getPointsInsideSubPolygon(*target_buckets[i], collision_points_map) < min_points_) {
-      valid_bucket = target_buckets[i];
+    if (getPointsInsideSubPolygon(*neighbour_fields[i], collision_points_map) < min_points_) {
+      valid_field = neighbour_fields[i];
       break;
     }
   }
 
-  if (valid_bucket == nullptr) {
-    // All buckets in collision — use the slowest bucket in the target direction
+  if (valid_field == nullptr) {
+    // All fields in collision — use the slowest field in the target direction
     // (allowed even if in collision)
-    valid_bucket = target_buckets[0];  // sorted ascending, index 0 is slowest
+    valid_field = neighbour_fields[0];  // sorted ascending, index 0 is slowest
   }
 
   // 4. Adapt speed and steering angle
-  // 4a. Limit target speed to valid bucket's linear_max (converted to baselink)
+  // 4a. Limit target speed to valid field's speed boundary (converted to baselink)
+  // Forward: limit to linear_max; Backward: limit to linear_min
+  double valid_limit_sw = (target_sw_speed >= 0) ?
+    valid_field->linear_max_ : valid_field->linear_min_;
   double valid_max_baselink = steeringToBaselinkSpeed(
-    valid_bucket->linear_max_, target_steering_angle);
+    valid_limit_sw, neighbour_angle);
   if (std::abs(result_vel.x) > std::abs(valid_max_baselink)) {
-    result_vel.x = (result_vel.x >= 0) ? std::abs(valid_max_baselink) :
-      -std::abs(valid_max_baselink);
+    result_vel.x = valid_max_baselink;
   }
 
   // 4b. Only limit steering angle if current speed is larger than max valid speed
   double current_baselink_abs = std::abs(current_speed);
   double valid_max_baselink_abs = std::abs(valid_max_baselink);
-  if (current_baselink_abs > valid_max_baselink_abs && current_bucket != nullptr) {
+  if (current_baselink_abs > valid_max_baselink_abs && current_field != nullptr) {
     double limited_sa;
     if (target_steering_angle > current_sa) {
-      limited_sa = current_bucket->steering_angle_max_;
+      limited_sa = current_field->steering_angle_max_;
     } else {
-      limited_sa = current_bucket->steering_angle_min_;
+      limited_sa = current_field->steering_angle_min_;
     }
     result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
   }
