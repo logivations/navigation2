@@ -72,9 +72,10 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & state)
     cmd_vel_in_topic,
     std::bind(&CollisionMonitor::cmdVelInCallbackUnstamped, this, std::placeholders::_1),
     std::bind(&CollisionMonitor::cmdVelInCallbackStamped, this, std::placeholders::_1));
-odom_in_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-    odom_in_topic, 1,
-    std::bind(&CollisionMonitor::odomInCallback, this, std::placeholders::_1));
+  odom_in_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    odom_in_topic,
+    std::bind(&CollisionMonitor::odomInCallback, this, std::placeholders::_1),
+    rclcpp::QoS(1));
 
   auto node = shared_from_this();
   cmd_vel_out_pub_ = std::make_unique<nav2_util::TwistPublisher>(node, cmd_vel_out_topic);

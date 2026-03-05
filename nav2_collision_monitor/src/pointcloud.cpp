@@ -47,7 +47,6 @@ PointCloud::PointCloud(
 PointCloud::~PointCloud()
 {
   RCLCPP_INFO(logger_, "[%s]: Destroying PointCloud", source_name_.c_str());
-  dyn_params_handler_.reset();
   #if RCLCPP_VERSION_GTE(30, 0, 0)
   data_sub_.shutdown();
   #else
@@ -75,12 +74,6 @@ void PointCloud::configure()
   std::string source_topic;
 
   getParameters(source_topic);
-  dyn_params_handler_ = node->add_on_set_parameters_callback(
-    std::bind(
-      &PointCloud::dynamicParametersCallback,
-      this,
-      std::placeholders::_1));
-
 
   #if RCLCPP_VERSION_GTE(30, 0, 0)
   const point_cloud_transport::TransportHints hint(transport_type_);
@@ -106,30 +99,6 @@ void PointCloud::configure()
     std::bind(
       &PointCloud::validateParameterUpdatesCallback,
       this, std::placeholders::_1));
-}
-
-rcl_interfaces::msg::SetParametersResult
-PointCloud::dynamicParametersCallback(
-  std::vector<rclcpp::Parameter> parameters)
-{
-  Source::dynamicParametersCallback(parameters);
-
-  rcl_interfaces::msg::SetParametersResult result;
-
-  for (auto parameter : parameters) {
-    const auto & param_type = parameter.get_type();
-    const auto & param_name = parameter.get_name();
-
-    if (param_type == ParameterType::PARAMETER_DOUBLE) {
-      if (param_name == source_name_ + "." + "min_height") {
-        min_height_ = parameter.as_double();
-      } else if (param_name == source_name_ + "." + "max_height") {
-        max_height_ = parameter.as_double();
-      }
-    }
-  }
-  result.successful = true;
-  return result;
 }
 
 bool PointCloud::getData(

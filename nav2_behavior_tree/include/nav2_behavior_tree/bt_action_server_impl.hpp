@@ -164,17 +164,11 @@ bool BtActionServer<ActionT, NodeT>::on_configure()
     node, "transform_tolerance", rclcpp::ParameterValue(0.1));
   rclcpp::copy_all_parameter_values(node, client_node_);
 
-  // set the timeout in seconds for the action server to discard goal handles if not finished
-  double action_server_result_timeout =
-    node->get_parameter("action_server_result_timeout").as_double();
-  rcl_action_server_options_t server_options = rcl_action_server_get_default_options();
-  server_options.result_timeout.nanoseconds = RCL_S_TO_NS(action_server_result_timeout);
-
   // Could be using a user rclcpp::Node, so need to use the Nav2 factory to create the subscription
   // to convert nav2::LifecycleNode, rclcpp::Node or rclcpp_lifecycle::LifecycleNode
   action_server_ = nav2::interfaces::create_action_server<ActionT>(
     node, action_name_, std::bind(&BtActionServer<ActionT, NodeT>::executeCallback, this),
-    nullptr, std::chrono::milliseconds(500), false, server_options);
+    nullptr, std::chrono::milliseconds(500), false);
 
   // Get parameters for BT timeouts
   bt_loop_duration_ = std::chrono::milliseconds(
@@ -388,18 +382,30 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
 
   // Create the tree with the specified ID
   try {
-    tree_ = bt_->createTree(main_id, blackboard_);
-    RCLCPP_INFO(logger_, "Created BT from ID: %s", main_id.c_str());
+    std::hash<std::string> hasher;
+    std::size_t tree_hash = hasher(main_id);
 
-    for (auto & subtree : tree_.subtrees) {
+    if (std::find(cached_tree_hashes.begin(), cached_tree_hashes.end(), tree_hash) !=
+      cached_tree_hashes.end())
+    {
+      RCLCPP_DEBUG(logger_, "BT will not be loaded as it exists in cache");
+      tree_ = &cached_trees[tree_hash];
+    } else {
+      RCLCPP_INFO(logger_, "Created BT from ID: %s", main_id.c_str());
+      cached_trees[tree_hash] = bt_->createTree(main_id, blackboard_);
+      cached_tree_hashes.push_back(tree_hash);
+      tree_ = &cached_trees[tree_hash];
+    }
+
+    for (auto & subtree : tree_->subtrees) {
       auto & blackboard = subtree->blackboard;
-      blackboard->template set("node", client_node_);
-      blackboard->template set<std::chrono::milliseconds>("server_timeout",
+      blackboard->set("node", client_node_);
+      blackboard->set<std::chrono::milliseconds>("server_timeout",
           default_server_timeout_);
-      blackboard->template set<std::chrono::milliseconds>("cancel_timeout",
+      blackboard->set<std::chrono::milliseconds>("cancel_timeout",
         default_cancel_timeout_);
-      blackboard->template set<std::chrono::milliseconds>("bt_loop_duration", bt_loop_duration_);
-      blackboard->template set<std::chrono::milliseconds>(
+      blackboard->set<std::chrono::milliseconds>("bt_loop_duration", bt_loop_duration_);
+      blackboard->set<std::chrono::milliseconds>(
         "wait_for_service_timeout",
         wait_for_service_timeout_);
     }
@@ -411,7 +417,7 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   }
 
   // Optional logging and monitoring
-  topic_logger_ = std::make_unique<RosTopicLogger>(client_node_, tree_, log_idle_);
+  topic_logger_ = std::make_unique<RosTopicLogger>(client_node_, *tree_, log_idle_);
   current_bt_file_or_id_ = file_or_id;
 
   if (enable_groot_monitoring_) {

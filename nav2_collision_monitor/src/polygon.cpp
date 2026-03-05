@@ -78,12 +78,6 @@ bool Polygon::configure()
   if (!getParameters(polygon_sub_topic, polygon_pub_topic, footprint_topic)) {
     return false;
   }
-  dyn_params_handler_ = node->add_on_set_parameters_callback(
-    std::bind(
-      &Polygon::dynamicParametersCallback,
-      this,
-      std::placeholders::_1)
-  );
 
   createSubscription(polygon_sub_topic);
 
