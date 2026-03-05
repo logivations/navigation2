@@ -74,11 +74,11 @@ public:
   /**
    * @brief Callback for the costmap topic
    */
-  void costmapCallback(const nav2_msgs::msg::Costmap::ConstSharedPtr msg);
+  void costmapCallback(const nav2_msgs::msg::Costmap::ConstSharedPtr & msg);
   /**
    * @brief Callback for the costmap's update topic
    */
-  void costmapUpdateCallback(const nav2_msgs::msg::CostmapUpdate::ConstSharedPtr update_msg);
+  void costmapUpdateCallback(const nav2_msgs::msg::CostmapUpdate::ConstSharedPtr & update_msg);
 
   std::string getFrameID() const
   {

@@ -140,7 +140,7 @@ protected:
    * map along with its size will determine what parts of the costmap's
    * static map are overwritten.
    */
-  void incomingMap(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr new_map);
+  void incomingMap(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & new_map);
   /**
    * @brief Callback to update the costmap's map from the map_server (or SLAM)
    * with an update in a particular area of the map
