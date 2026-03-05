@@ -35,25 +35,12 @@ void PluginContainerLayer::onInitialize()
     throw std::runtime_error{"Failed to lock node"};
   }
 
-  nav2::declare_parameter_if_not_declared(node, name_ + "." + "enabled",
-      rclcpp::ParameterValue(true));
-  nav2::declare_parameter_if_not_declared(node, name_ + "." + "plugins",
-      rclcpp::ParameterValue(std::vector<std::string>{}));
-  nav2::declare_parameter_if_not_declared(node, name_ + "." + "combination_method",
-      rclcpp::ParameterValue(1));
-
-  node->get_parameter(name_ + "." + "enabled", enabled_);
-  node->get_parameter(name_ + "." + "plugins", plugin_names_);
-
-  int combination_method_param{};
-  node->get_parameter(name_ + "." + "combination_method", combination_method_param);
+  enabled_ = node->declare_or_get_parameter(name_ + "." + "enabled", true);
+  plugin_names_ = node->declare_or_get_parameter(
+    name_ + "." + "plugins", std::vector<std::string>{});
+  int combination_method_param = node->declare_or_get_parameter(
+    name_ + "." + "combination_method", 1);
   combination_method_ = combination_method_from_int(combination_method_param);
-
-  dyn_params_handler_ = node->add_on_set_parameters_callback(
-    std::bind(
-      &PluginContainerLayer::dynamicParametersCallback,
-      this,
-      std::placeholders::_1));
 
   plugin_types_.resize(plugin_names_.size());
 
@@ -129,6 +116,17 @@ void PluginContainerLayer::updateCosts(
 
 void PluginContainerLayer::activate()
 {
+  auto node = node_.lock();
+  // Add callback for dynamic parameters
+  post_set_params_handler_ = node->add_post_set_parameters_callback(
+    std::bind(
+      &PluginContainerLayer::updateParametersCallback,
+      this, std::placeholders::_1));
+  on_set_params_handler_ = node->add_on_set_parameters_callback(
+    std::bind(
+      &PluginContainerLayer::validateParameterUpdatesCallback,
+      this, std::placeholders::_1));
+
   for (vector<std::shared_ptr<Layer>>::iterator plugin = plugins_.begin(); plugin != plugins_.end();
     ++plugin)
   {
@@ -138,6 +136,15 @@ void PluginContainerLayer::activate()
 
 void PluginContainerLayer::deactivate()
 {
+  auto node = node_.lock();
+  if (post_set_params_handler_ && node) {
+    node->remove_post_set_parameters_callback(post_set_params_handler_.get());
+  }
+  post_set_params_handler_.reset();
+  if (on_set_params_handler_ && node) {
+    node->remove_on_set_parameters_callback(on_set_params_handler_.get());
+  }
+  on_set_params_handler_.reset();
   for (vector<std::shared_ptr<Layer>>::iterator plugin = plugins_.begin(); plugin != plugins_.end();
     ++plugin)
   {
@@ -185,7 +192,7 @@ bool PluginContainerLayer::isClearable()
   for (vector<std::shared_ptr<Layer>>::iterator plugin = plugins_.begin(); plugin != plugins_.end();
     ++plugin)
   {
-    if((*plugin)->isClearable()) {
+    if ((*plugin)->isClearable()) {
       return true;
     }
   }
@@ -205,13 +212,20 @@ void PluginContainerLayer::clearArea(int start_x, int start_y, int end_x, int en
   }
 }
 
-rcl_interfaces::msg::SetParametersResult PluginContainerLayer::dynamicParametersCallback(
-  std::vector<rclcpp::Parameter> parameters)
+rcl_interfaces::msg::SetParametersResult PluginContainerLayer::validateParameterUpdatesCallback(
+  const std::vector<rclcpp::Parameter> & /*parameters*/)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  return result;
+}
+
+void PluginContainerLayer::updateParametersCallback(
+  const std::vector<rclcpp::Parameter> & parameters)
 {
   std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
-  rcl_interfaces::msg::SetParametersResult result;
 
-  for (auto parameter : parameters) {
+  for (const auto & parameter : parameters) {
     const auto & param_type = parameter.get_type();
     const auto & param_name = parameter.get_name();
     if (param_name.find(name_ + ".") != 0) {
@@ -229,9 +243,6 @@ rcl_interfaces::msg::SetParametersResult PluginContainerLayer::dynamicParameters
       }
     }
   }
-
-  result.successful = true;
-  return result;
 }
 
 }  // namespace nav2_costmap_2d

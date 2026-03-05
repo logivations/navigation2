@@ -30,7 +30,6 @@
 #include "nav2_smoother/savitzky_golay_smoother.hpp"
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
-using namespace smoother_utils;  // NOLINT
 using namespace nav2_smoother;  // NOLINT
 using namespace std::chrono_literals;  // NOLINT
 
@@ -317,7 +316,7 @@ TEST(SmootherTest, test_sg_smoother_reversing)
   EXPECT_LT(length, base_length);
 }
 
-int main(int argc, char **argv)
+int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);
 

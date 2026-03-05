@@ -181,6 +181,7 @@ void TestNode::initNode(std::vector<rclcpp::Parameter> parameters)
   node_->declare_parameter("track_unknown_space", rclcpp::ParameterValue(false));
   node_->declare_parameter("use_maximum", rclcpp::ParameterValue(false));
   node_->declare_parameter("lethal_cost_threshold", rclcpp::ParameterValue(100));
+  node_->declare_parameter("inscribed_obstacle_cost_value", rclcpp::ParameterValue(99));
   node_->declare_parameter(
     "unknown_cost_value",
     rclcpp::ParameterValue(static_cast<unsigned char>(0xff)));
@@ -600,7 +601,7 @@ TEST_F(TestNode, testDynParamsSet)
 {
   auto costmap = std::make_shared<nav2_costmap_2d::Costmap2DROS>("test_costmap");
 
-  costmap->set_parameter(rclcpp::Parameter("global_frame", std::string("base_link")));
+  costmap->declare_parameter("global_frame", std::string("base_link"));
   costmap->on_configure(rclcpp_lifecycle::State());
 
   costmap->on_activate(rclcpp_lifecycle::State());
@@ -629,12 +630,24 @@ TEST_F(TestNode, testDynParamsSet)
   EXPECT_EQ(costmap->get_parameter("inflation_layer.inflate_around_unknown").as_bool(), true);
   EXPECT_EQ(costmap->get_parameter("inflation_layer.enabled").as_bool(), false);
 
+  // Setting invalid inflation radius should not update the parameter
+  auto invalid_result = parameter_client->set_parameters_atomically(
+  {
+    rclcpp::Parameter("inflation_layer.inflation_radius", -1.0)
+  });
+
+  rclcpp::spin_until_future_complete(
+    costmap->get_node_base_interface(),
+    invalid_result);
+
+  EXPECT_EQ(costmap->get_parameter("inflation_layer.inflation_radius").as_double(), 0.0);
+
   costmap->on_deactivate(rclcpp_lifecycle::State());
   costmap->on_cleanup(rclcpp_lifecycle::State());
   costmap->on_shutdown(rclcpp_lifecycle::State());
 }
 
-int main(int argc, char **argv)
+int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);
 

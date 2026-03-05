@@ -90,11 +90,23 @@ protected:
   void dataCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
 
   /**
-   * @brief Callback executed when a parameter change is detected
-   * @param event ParameterEvent message
+   * @brief Validate incoming parameter updates before applying them.
+   * This callback is triggered when one or more parameters are about to be updated.
+   * It checks the validity of parameter values and rejects updates that would lead
+   * to invalid or inconsistent configurations
+   * @param parameters List of parameters that are being updated.
+   * @return rcl_interfaces::msg::SetParametersResult Result indicating whether the update is accepted.
    */
-  rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(
-    std::vector<rclcpp::Parameter> parameters);
+  rcl_interfaces::msg::SetParametersResult validateParameterUpdatesCallback(
+    const std::vector<rclcpp::Parameter> & parameters);
+
+  /**
+   * @brief Apply parameter updates after validation
+   * This callback is executed when parameters have been successfully updated.
+   * It updates the internal configuration of the node with the new parameter values.
+   * @param parameters List of parameters that have been updated.
+   */
+  void updateParametersCallback(const std::vector<rclcpp::Parameter> & parameters);
 
   // ----- Variables -----
 
@@ -113,6 +125,10 @@ protected:
   double min_height_, max_height_;
   // Minimum range from sensor origin to filter out close points
   double min_range_;
+  /**Changes height check from "z" field to "height" field for pipelines utilizing
+   * ground contouring
+   */
+  bool use_global_height_;
 
   /// @brief Latest data obtained from pointcloud
   sensor_msgs::msg::PointCloud2::ConstSharedPtr data_;

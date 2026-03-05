@@ -53,6 +53,7 @@ PLUGINLIB_EXPORT_CLASS(nav2_costmap_2d::StaticLayer, nav2_costmap_2d::Layer)
 
 using nav2_costmap_2d::NO_INFORMATION;
 using nav2_costmap_2d::LETHAL_OBSTACLE;
+using nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE;
 using nav2_costmap_2d::FREE_SPACE;
 using rcl_interfaces::msg::ParameterType;
 
@@ -77,7 +78,7 @@ StaticLayer::onInitialize()
 
   rclcpp::QoS map_qos = nav2::qos::StandardTopicQoS();  // initialize to default
   if (map_subscribe_transient_local_) {
-    map_qos = nav2::qos::LatchedSubscriptionQoS();
+    map_qos = nav2::qos::LatchedSubscriptionQoS(3);
   }
 
   RCLCPP_INFO(
@@ -107,16 +108,30 @@ StaticLayer::onInitialize()
 void
 StaticLayer::activate()
 {
+  auto node = node_.lock();
+  // Add callback for dynamic parameters
+  post_set_params_handler_ = node->add_post_set_parameters_callback(
+    std::bind(
+      &StaticLayer::updateParametersCallback,
+      this, std::placeholders::_1));
+  on_set_params_handler_ = node->add_on_set_parameters_callback(
+    std::bind(
+      &StaticLayer::validateParameterUpdatesCallback,
+      this, std::placeholders::_1));
 }
 
 void
 StaticLayer::deactivate()
 {
   auto node = node_.lock();
-  if (dyn_params_handler_ && node) {
-    node->remove_on_set_parameters_callback(dyn_params_handler_.get());
+  if (post_set_params_handler_ && node) {
+    node->remove_post_set_parameters_callback(post_set_params_handler_.get());
   }
-  dyn_params_handler_.reset();
+  post_set_params_handler_.reset();
+  if (on_set_params_handler_ && node) {
+    node->remove_on_set_parameters_callback(on_set_params_handler_.get());
+  }
+  on_set_params_handler_.reset();
 }
 
 void
@@ -132,31 +147,27 @@ StaticLayer::getParameters()
   int temp_lethal_threshold = 0;
   double temp_tf_tol = 0.0;
 
-  declareParameter("enabled", rclcpp::ParameterValue(true));
-  declareParameter("subscribe_to_updates", rclcpp::ParameterValue(false));
-  declareParameter("map_subscribe_transient_local", rclcpp::ParameterValue(true));
-  declareParameter("transform_tolerance", rclcpp::ParameterValue(0.0));
-  declareParameter("map_topic", rclcpp::ParameterValue("map"));
-  declareParameter("footprint_clearing_enabled", rclcpp::ParameterValue(false));
-  declareParameter("restore_cleared_footprint", rclcpp::ParameterValue(true));
-
   auto node = node_.lock();
   if (!node) {
     throw std::runtime_error{"Failed to lock node"};
   }
 
-  node->get_parameter(name_ + "." + "enabled", enabled_);
-  node->get_parameter(name_ + "." + "subscribe_to_updates", subscribe_to_updates_);
-  node->get_parameter(name_ + "." + "footprint_clearing_enabled", footprint_clearing_enabled_);
-  node->get_parameter(name_ + "." + "restore_cleared_footprint", restore_cleared_footprint_);
-  node->get_parameter(name_ + "." + "map_topic", map_topic_);
+  enabled_ = node->declare_or_get_parameter(name_ + "." + "enabled", true);
+  subscribe_to_updates_ = node->declare_or_get_parameter(
+    name_ + "." + "subscribe_to_updates", false);
+  footprint_clearing_enabled_ = node->declare_or_get_parameter(
+    name_ + "." + "footprint_clearing_enabled", false);
+  restore_cleared_footprint_ = node->declare_or_get_parameter(
+    name_ + "." + "restore_cleared_footprint", true);
+  map_topic_ = node->declare_or_get_parameter(
+    name_ + "." + "map_topic", std::string("map"));
   map_topic_ = joinWithParentNamespace(map_topic_);
-  node->get_parameter(
-    name_ + "." + "map_subscribe_transient_local",
-    map_subscribe_transient_local_);
+  map_subscribe_transient_local_ = node->declare_or_get_parameter(
+    name_ + "." + "map_subscribe_transient_local", true);
   node->get_parameter("track_unknown_space", track_unknown_space_);
   node->get_parameter("use_maximum", use_maximum_);
   node->get_parameter("lethal_cost_threshold", temp_lethal_threshold);
+  node->get_parameter("inscribed_obstacle_cost_value", inscribed_obstacle_cost_value_);
   node->get_parameter("unknown_cost_value", unknown_cost_value_);
   node->get_parameter("trinary_costmap", trinary_costmap_);
   node->get_parameter("transform_tolerance", temp_tf_tol);
@@ -167,12 +178,6 @@ StaticLayer::getParameters()
   map_received_in_update_bounds_ = false;
 
   transform_tolerance_ = tf2::durationFromSec(temp_tf_tol);
-
-  // Add callback for dynamic parameters
-  dyn_params_handler_ = node->add_on_set_parameters_callback(
-    std::bind(
-      &StaticLayer::dynamicParametersCallback,
-      this, std::placeholders::_1));
 }
 
 void
@@ -267,6 +272,8 @@ StaticLayer::interpretValue(unsigned char value)
     return NO_INFORMATION;
   } else if (!track_unknown_space_ && value == unknown_cost_value_) {
     return FREE_SPACE;
+  } else if (value == inscribed_obstacle_cost_value_) {
+    return INSCRIBED_INFLATED_OBSTACLE;
   } else if (value >= lethal_threshold_) {
     return LETHAL_OBSTACLE;
   } else if (trinary_costmap_) {
@@ -278,7 +285,7 @@ StaticLayer::interpretValue(unsigned char value)
 }
 
 void
-StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::SharedPtr new_map)
+StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & new_map)
 {
   if (!nav2::validateMsg(*new_map)) {
     RCLCPP_ERROR(logger_, "Received map message is malformed. Rejecting.");
@@ -291,6 +298,7 @@ StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::SharedPtr new_map)
   }
   std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
   map_buffer_ = new_map;
+  current_ = false;
 }
 
 void
@@ -483,18 +491,12 @@ bool StaticLayer::isEqual(double a, double b, double epsilon)
   return std::abs(a - b) < epsilon;
 }
 
-/**
-  * @brief Callback executed when a parameter change is detected
-  * @param event ParameterEvent message
-  */
-rcl_interfaces::msg::SetParametersResult
-StaticLayer::dynamicParametersCallback(
-  std::vector<rclcpp::Parameter> parameters)
+rcl_interfaces::msg::SetParametersResult StaticLayer::validateParameterUpdatesCallback(
+  const std::vector<rclcpp::Parameter> & parameters)
 {
-  std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
   rcl_interfaces::msg::SetParametersResult result;
-
-  for (auto parameter : parameters) {
+  result.successful = true;
+  for (const auto & parameter : parameters) {
     const auto & param_type = parameter.get_type();
     const auto & param_name = parameter.get_name();
     if (param_name.find(name_ + ".") != 0) {
@@ -508,11 +510,34 @@ StaticLayer::dynamicParametersCallback(
       RCLCPP_WARN(
         logger_, "%s is not a dynamic parameter "
         "cannot be changed while running. Rejecting parameter update.", param_name.c_str());
-    } else if (param_type == ParameterType::PARAMETER_DOUBLE) {
-      if (param_name == name_ + "." + "transform_tolerance") {
-        transform_tolerance_ = tf2::durationFromSec(parameter.as_double());
+    } else if (param_type == ParameterType::PARAMETER_BOOL && // NOLINT
+      param_name == name_ + "." + "restore_cleared_footprint")
+    {
+      if (!footprint_clearing_enabled_) {
+        RCLCPP_WARN(
+          logger_, "restore_cleared_footprint cannot be used "
+          "when footprint_clearing_enabled is False. Rejecting parameter update.");
+        result.successful = false;
       }
-    } else if (param_type == ParameterType::PARAMETER_BOOL) {
+    }
+  }
+  return result;
+}
+
+void
+StaticLayer::updateParametersCallback(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
+
+  for (const auto & parameter : parameters) {
+    const auto & param_type = parameter.get_type();
+    const auto & param_name = parameter.get_name();
+    if (param_name.find(name_ + ".") != 0) {
+      continue;
+    }
+
+    if (param_type == ParameterType::PARAMETER_BOOL) {
       if (param_name == name_ + "." + "enabled" && enabled_ != parameter.as_bool()) {
         enabled_ = parameter.as_bool();
 
@@ -524,17 +549,10 @@ StaticLayer::dynamicParametersCallback(
       } else if (param_name == name_ + "." + "footprint_clearing_enabled") {
         footprint_clearing_enabled_ = parameter.as_bool();
       } else if (param_name == name_ + "." + "restore_cleared_footprint") {
-        if (footprint_clearing_enabled_) {
-          restore_cleared_footprint_ = parameter.as_bool();
-        } else {
-          RCLCPP_WARN(logger_, "restore_cleared_footprint cannot be used "
-                      "when footprint_clearing_enabled is False. Rejecting parameter update.");
-        }
+        restore_cleared_footprint_ = parameter.as_bool();
       }
     }
   }
-  result.successful = true;
-  return result;
 }
 
 }  // namespace nav2_costmap_2d

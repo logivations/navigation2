@@ -190,6 +190,13 @@ public:
   }
 
   /**
+   * @brief Wait for the costmap to become current after updates or parameter changes
+   * @param timeout Maximum time to wait for costmap to become current
+   * @throws std::runtime_error if timeout is exceeded
+   */
+  void waitUntilCurrent(const rclcpp::Duration & timeout);
+
+  /**
    * @brief Get the pose of the robot in the global frame of the costmap
    * @param global_pose Will be set to the pose of the robot in the global frame of the costmap
    * @return True if the pose was set successfully, false otherwise
@@ -423,14 +430,27 @@ protected:
   std::unique_ptr<ClearCostmapService> clear_costmap_service_;
 
   // Dynamic parameters handler
-  OnSetParametersCallbackHandle::SharedPtr dyn_params_handler;
+  PostSetParametersCallbackHandle::SharedPtr post_set_params_handler_;
+  OnSetParametersCallbackHandle::SharedPtr on_set_params_handler;
 
   /**
-   * @brief Callback executed when a parameter change is detected
-   * @param parameters list of changed parameters
+   * @brief Validate incoming parameter updates before applying them.
+   * This callback is triggered when one or more parameters are about to be updated.
+   * It checks the validity of parameter values and rejects updates that would lead
+   * to invalid or inconsistent configurations
+   * @param parameters List of parameters that are being updated.
+   * @return rcl_interfaces::msg::SetParametersResult Result indicating whether the update is accepted.
    */
-  rcl_interfaces::msg::SetParametersResult
-  dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
+  rcl_interfaces::msg::SetParametersResult validateParameterUpdatesCallback(
+    const std::vector<rclcpp::Parameter> & parameters);
+
+  /**
+   * @brief Apply parameter updates after validation
+   * This callback is executed when parameters have been successfully updated.
+   * It updates the internal configuration of the node with the new parameter values.
+   * @param parameters List of parameters that have been updated.
+   */
+  void updateParametersCallback(const std::vector<rclcpp::Parameter> & parameters);
 };
 
 // free functions

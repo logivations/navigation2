@@ -23,6 +23,7 @@ set(library_name ${PROJECT_NAME})
 add_library(${library_name} SHARED
   src/theta_star.cpp
   src/theta_star_planner.cpp
+  src/parameter_handler.cpp
 )
 target_include_directories(${library_name}
   PUBLIC
@@ -71,7 +72,7 @@ if(BUILD_TESTING)
 
   ament_find_gtest()
 
-  ament_add_gtest(test_theta_star test/test_theta_star.cpp)
+  nav2_add_gtest(test_theta_star test/test_theta_star.cpp)
   target_link_libraries(test_theta_star
     ${library_name}
     ${geometry_msgs_TARGETS}

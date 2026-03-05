@@ -80,6 +80,27 @@ void Optimizer::getParams()
   auto & s = settings_;
   auto getParam = parameters_handler_->getParamGetter(name_);
   auto getParentParam = parameters_handler_->getParamGetter("");
+
+  // Reject dynamic updates to kinematic params when speed limit is active
+  auto kinematic_guard = [this](
+    const rclcpp::Parameter & param,
+    rcl_interfaces::msg::SetParametersResult & result) {
+      if (isSpeedLimitActive()) {
+        result.successful = false;
+        if (!result.reason.empty()) {
+          result.reason += "\n";
+        }
+        result.reason += "Rejected dynamic update to '" + param.get_name() +
+          "': speed limit is active. Clear the speed limit first.";
+      }
+    };
+
+  const std::vector<std::string> kinematic_params = {
+    "vx_max", "vx_min", "vy_max", "wz_max"};
+  for (const auto & p : kinematic_params) {
+    parameters_handler_->addPreCallback(name_ + "." + p, kinematic_guard);
+  }
+
   getParam(s.model_dt, "model_dt", 0.05f);
   getParam(s.time_steps, "time_steps", 56);
   getParam(s.batch_size, "batch_size", 1000);
@@ -99,6 +120,7 @@ void Optimizer::getParams()
   getParam(s.sampling_std.vy, "vy_std", 0.2f);
   getParam(s.sampling_std.wz, "wz_std", 0.4f);
   getParam(s.retry_attempt_limit, "retry_attempt_limit", 1);
+  getParam(s.open_loop, "open_loop", false);
 
   s.base_constraints.ax_max = fabs(s.base_constraints.ax_max);
   if (s.base_constraints.ax_min > 0.0) {
@@ -158,6 +180,10 @@ void Optimizer::reset(bool reset_dynamic_speed_limits)
   control_history_[2] = {0.0f, 0.0f, 0.0f};
   control_history_[3] = {0.0f, 0.0f, 0.0f};
 
+  if (settings_.open_loop) {
+    last_command_vel_ = geometry_msgs::msg::Twist();
+  }
+
   if (reset_dynamic_speed_limits) {
     settings_.constraints = settings_.base_constraints;
   }
@@ -179,6 +205,18 @@ bool Optimizer::isHolonomic() const
   return motion_model_->isHolonomic();
 }
 
+bool Optimizer::isSpeedLimitActive() const
+{
+  // Speed limit is active when current constraints differ from base constraints.
+  // This occurs when setSpeedLimit() has modified the velocity/acceleration limits.
+  const auto & base = settings_.base_constraints;
+  const auto & curr = settings_.constraints;
+  return base.vx_max != curr.vx_max ||
+         base.vx_min != curr.vx_min ||
+         base.vy != curr.vy ||
+         base.wz != curr.wz;
+}
+
 std::tuple<geometry_msgs::msg::TwistStamped, Eigen::ArrayXXf> Optimizer::evalControl(
   const geometry_msgs::msg::PoseStamped & robot_pose,
   const geometry_msgs::msg::Twist & robot_speed,
@@ -194,7 +232,7 @@ std::tuple<geometry_msgs::msg::TwistStamped, Eigen::ArrayXXf> Optimizer::evalCon
     optimize();
     optimal_trajectory = getOptimizedTrajectory();
     switch (trajectory_validator_->validateTrajectory(
-      optimal_trajectory, control_sequence_, robot_pose, robot_speed, plan, goal))
+        optimal_trajectory, control_sequence_, robot_pose, robot_speed, plan, goal))
     {
       case mppi::ValidationResult::SOFT_RESET:
         trajectory_valid = false;
@@ -202,7 +240,7 @@ std::tuple<geometry_msgs::msg::TwistStamped, Eigen::ArrayXXf> Optimizer::evalCon
         break;
       case mppi::ValidationResult::FAILURE:
         throw nav2_core::NoValidControl(
-          "Trajectory validator failed to validate trajectory, hard reset triggered.");
+                "Trajectory validator failed to validate trajectory, hard reset triggered.");
       case mppi::ValidationResult::SUCCESS:
       default:
         trajectory_valid = true;
@@ -210,8 +248,9 @@ std::tuple<geometry_msgs::msg::TwistStamped, Eigen::ArrayXXf> Optimizer::evalCon
     }
   } while (fallback(critics_data_.fail_flag || !trajectory_valid));
 
-  utils::savitskyGolayFilter(control_sequence_, control_history_, settings_);
   auto control = getControlFromSequenceAsTwist(plan.header.stamp);
+
+  last_command_vel_ = control.twist;
 
   if (settings_.shift_control_sequence) {
     shiftControlSequence();
@@ -238,7 +277,7 @@ bool Optimizer::fallback(bool fail)
     return false;
   }
 
-  reset();
+  reset(false /*Don't reset zone-based speed limits after fallback*/);
 
   if (++counter > settings_.retry_attempt_limit) {
     counter = 0;
@@ -256,10 +295,10 @@ void Optimizer::prepare(
   nav2_core::GoalChecker * goal_checker)
 {
   state_.pose = robot_pose;
-  state_.speed = robot_speed;
+  state_.speed = settings_.open_loop ? last_command_vel_ : robot_speed;
   state_.local_path_length = nav2_util::geometry_utils::calculate_path_length(plan);
   path_ = utils::toTensor(plan);
-  costs_.setZero();
+  costs_.setZero(settings_.batch_size);
   goal_ = goal;
 
   critics_data_.fail_flag = false;
@@ -313,7 +352,7 @@ void Optimizer::applyControlSequenceConstraints()
   for (unsigned int i = 1; i != control_sequence_.vx.size(); i++) {
     float & vx_curr = control_sequence_.vx(i);
     vx_curr = utils::clamp(s.constraints.vx_min, s.constraints.vx_max, vx_curr);
-    if(vx_last > 0) {
+    if (vx_last > 0) {
       vx_curr = utils::clamp(vx_last + min_delta_vx, vx_last + max_delta_vx, vx_curr);
     } else {
       vx_curr = utils::clamp(vx_last - max_delta_vx, vx_last - min_delta_vx, vx_curr);
@@ -328,7 +367,7 @@ void Optimizer::applyControlSequenceConstraints()
     if (isHolonomic()) {
       float & vy_curr = control_sequence_.vy(i);
       vy_curr = utils::clamp(-s.constraints.vy, s.constraints.vy, vy_curr);
-      if(vy_last > 0) {
+      if (vy_last > 0) {
         vy_curr = utils::clamp(vy_last + min_delta_vy, vy_last + max_delta_vy, vy_curr);
       } else {
         vy_curr = utils::clamp(vy_last - max_delta_vy, vy_last - min_delta_vy, vy_curr);
@@ -347,8 +386,7 @@ void Optimizer::updateStateVelocities(
   propagateStateVelocitiesFromInitials(state);
 }
 
-void Optimizer::updateInitialStateVelocities(
-  models::State & state) const
+void Optimizer::updateInitialStateVelocities(models::State & state) const
 {
   state.vx.col(0) = static_cast<float>(state.speed.linear.x);
   state.wz.col(0) = static_cast<float>(state.speed.angular.z);
@@ -383,7 +421,7 @@ void Optimizer::integrateStateVelocities(
   }
 
   float last_yaw = initial_yaw;
-  for(size_t i = 0; i != n_size; i++) {
+  for (size_t i = 0; i != n_size; i++) {
     last_yaw += wz(i) * settings_.model_dt;
     traj_yaws(i) = last_yaw;
   }
@@ -406,7 +444,7 @@ void Optimizer::integrateStateVelocities(
 
   float last_x = state_.pose.pose.position.x;
   float last_y = state_.pose.pose.position.y;
-  for(size_t i = 0; i != n_size; i++) {
+  for (size_t i = 0; i != n_size; i++) {
     last_x += dx(i) * settings_.model_dt;
     last_y += dy(i) * settings_.model_dt;
     traj_x(i) = last_x;
@@ -442,9 +480,11 @@ void Optimizer::integrateStateVelocities(
     dy += state.vy * yaw_cos;
   }
 
-  Eigen::ArrayXf last_x = Eigen::ArrayXf::Constant(trajectories.x.rows(),
+  Eigen::ArrayXf last_x = Eigen::ArrayXf::Constant(
+    trajectories.x.rows(),
     state.pose.pose.position.x);
-  Eigen::ArrayXf last_y = Eigen::ArrayXf::Constant(trajectories.y.rows(),
+  Eigen::ArrayXf last_y = Eigen::ArrayXf::Constant(
+    trajectories.y.rows(),
     state.pose.pose.position.y);
 
   for (size_t i = 0; i != n_cols; i++) {
@@ -515,6 +555,8 @@ void Optimizer::updateControlSequence()
     control_sequence_.vy = state_.cvy.transpose().matrix() * softmax_mat;
   }
 
+  utils::savitskyGolayFilter(control_sequence_, control_history_, settings_);
+
   applyControlSequenceConstraints();
 }
 
@@ -576,6 +618,7 @@ void Optimizer::setSpeedLimit(double speed_limit, bool percentage)
       s.constraints.wz = s.base_constraints.wz * ratio;
     }
   }
+  motion_model_->initialize(settings_.constraints, settings_.model_dt);
 }
 
 models::Trajectories & Optimizer::getGeneratedTrajectories()

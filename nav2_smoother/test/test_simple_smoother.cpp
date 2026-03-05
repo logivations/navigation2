@@ -24,7 +24,6 @@
 #include "nav2_smoother/simple_smoother.hpp"
 #include "nav2_core/smoother_exceptions.hpp"
 
-using namespace smoother_utils;  // NOLINT
 using namespace nav2_smoother;  // NOLINT
 using namespace std::chrono_literals;  // NOLINT
 
@@ -34,11 +33,6 @@ public:
   SmootherWrapper()
   : nav2_smoother::SimpleSmoother()
   {
-  }
-
-  std::vector<PathSegment> findDirectionalPathSegmentsWrapper(nav_msgs::msg::Path path)
-  {
-    return findDirectionalPathSegments(path);
   }
 
   void setMaxItsToInvalid()
@@ -277,7 +271,7 @@ TEST(SmootherTest, test_simple_smoother)
   EXPECT_TRUE(smoother->smooth(max_its_path, max_time));
 }
 
-int main(int argc, char **argv)
+int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);
 

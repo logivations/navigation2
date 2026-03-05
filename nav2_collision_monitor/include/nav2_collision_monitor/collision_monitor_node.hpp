@@ -33,6 +33,7 @@
 #include "nav2_util/twist_publisher.hpp"
 #include "nav2_util/twist_subscriber.hpp"
 #include "nav2_msgs/msg/collision_monitor_state.hpp"
+#include "nav2_msgs/srv/toggle.hpp"
 
 #include "nav2_collision_monitor/types.hpp"
 #include "nav2_collision_monitor/polygon.hpp"
@@ -42,6 +43,7 @@
 #include "nav2_collision_monitor/scan.hpp"
 #include "nav2_collision_monitor/pointcloud.hpp"
 #include "nav2_collision_monitor/range.hpp"
+#include "nav2_collision_monitor/costmap.hpp"
 #include "nav2_collision_monitor/polygon_source.hpp"
 
 namespace nav2_collision_monitor
@@ -101,8 +103,8 @@ protected:
    * @brief Callback for input cmd_vel
    * @param msg Input cmd_vel message
    */
-  void cmdVelInCallbackStamped(geometry_msgs::msg::TwistStamped::SharedPtr msg);
-  void cmdVelInCallbackUnstamped(geometry_msgs::msg::Twist::SharedPtr msg);
+  void cmdVelInCallbackStamped(const geometry_msgs::msg::TwistStamped::ConstSharedPtr & msg);
+  void cmdVelInCallbackUnstamped(const geometry_msgs::msg::Twist::ConstSharedPtr & msg);
   /**
    * @brief Publishes output cmd_vel. If robot was stopped more than stop_pub_timeout_ seconds,
    * quit to publish 0-velocity.
@@ -200,6 +202,16 @@ protected:
    */
   void publishPolygons() const;
 
+  /**
+   * @brief Enable/disable collision monitor service callback
+   * @param request Service request
+   * @param response Service response
+   */
+  void toggleCMServiceCallback(
+    const std::shared_ptr<rmw_request_id_t> request_header,
+    const std::shared_ptr<nav2_msgs::srv::Toggle::Request> request,
+    std::shared_ptr<nav2_msgs::srv::Toggle::Response> response);
+
   // ----- Variables -----
 
   /// @brief TF buffer
@@ -226,6 +238,12 @@ protected:
   /// @brief Collision points marker publisher
   nav2::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
     collision_points_marker_pub_;
+
+  /// @brief Enable/disable collision monitor service
+  nav2::ServiceServer<nav2_msgs::srv::Toggle>::SharedPtr toggle_cm_service_;
+
+  /// @brief Whether collision monitor is enabled
+  bool enabled_;
 
   /// @brief Whether main routine is active
   bool process_active_;

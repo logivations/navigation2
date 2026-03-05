@@ -50,6 +50,15 @@ PointCloud::~PointCloud()
   #else
   data_sub_.reset();
   #endif
+  auto node = node_.lock();
+  if (post_set_params_handler_ && node) {
+    node->remove_post_set_parameters_callback(post_set_params_handler_.get());
+  }
+  post_set_params_handler_.reset();
+  if (on_set_params_handler_ && node) {
+    node->remove_on_set_parameters_callback(on_set_params_handler_.get());
+  }
+  on_set_params_handler_.reset();
 }
 
 void PointCloud::configure()
@@ -80,14 +89,21 @@ void PointCloud::configure()
   #endif
 
   // Add callback for dynamic parameters
-  dyn_params_handler_ = node->add_on_set_parameters_callback(
-    std::bind(&PointCloud::dynamicParametersCallback, this, std::placeholders::_1));
+  post_set_params_handler_ = node->add_post_set_parameters_callback(
+    std::bind(
+      &PointCloud::updateParametersCallback,
+      this, std::placeholders::_1));
+  on_set_params_handler_ = node->add_on_set_parameters_callback(
+    std::bind(
+      &PointCloud::validateParameterUpdatesCallback,
+      this, std::placeholders::_1));
 }
 
 bool PointCloud::getData(
   const rclcpp::Time & curr_time,
   std::vector<Point> & data)
 {
+  std::lock_guard<std::mutex> lock_reinit(mutex_);
   // Ignore data from the source if it is not being published yet or
   // not published for a long time
   if (data_ == nullptr) {
@@ -106,10 +122,35 @@ bool PointCloud::getData(
   sensor_msgs::PointCloud2ConstIterator<float> iter_y(*data_, "y");
   sensor_msgs::PointCloud2ConstIterator<float> iter_z(*data_, "z");
 
+  bool height_present = false;
+  for (const auto & field : data_->fields) {
+    if (field.name == "height") {
+      height_present = true;
+    }
+  }
+
+// Reference height field
+  std::string height_field{"z"};
+  if (use_global_height_ && height_present) {
+    height_field = "height";
+  } else if (use_global_height_) {
+    RCLCPP_ERROR(
+      logger_, "[%s]: 'use_global_height' parameter true but height field not in cloud",
+      source_name_.c_str());
+    return false;
+  }
+  sensor_msgs::PointCloud2ConstIterator<float> iter_height(*data_, height_field);
+
   // Refill data array with PointCloud points in base frame
   for (; iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z) {
     // Transform point coordinates from source frame -> to base frame
     tf2::Vector3 p_v3_s(*iter_x, *iter_y, *iter_z);
+
+    double data_height = *iter_z;
+    if (use_global_height_) {
+      data_height = *iter_height;
+      ++iter_height;
+    }
 
     // Check range from sensor origin before transformation
     double range = p_v3_s.length();
@@ -119,8 +160,13 @@ bool PointCloud::getData(
 
     tf2::Vector3 p_v3_b = tf_transform * p_v3_s;
 
+    // Still need to transfer height from "z" field if not using global height
+    if (!use_global_height_) {
+      data_height = p_v3_b.z();
+    }
+
     // Refill data array
-    if (p_v3_b.z() >= min_height_ && p_v3_b.z() <= max_height_) {
+    if (data_height >= min_height_ && data_height <= max_height_) {
       data.push_back({p_v3_b.x(), p_v3_b.y()});
     }
   }
@@ -136,18 +182,13 @@ void PointCloud::getParameters(std::string & source_topic)
 
   getCommonParameters(source_topic);
 
-  nav2::declare_parameter_if_not_declared(
-    node, source_name_ + ".min_height", rclcpp::ParameterValue(0.05));
-  min_height_ = node->get_parameter(source_name_ + ".min_height").as_double();
-  nav2::declare_parameter_if_not_declared(
-    node, source_name_ + ".max_height", rclcpp::ParameterValue(0.5));
-  max_height_ = node->get_parameter(source_name_ + ".max_height").as_double();
-  nav2::declare_parameter_if_not_declared(
-    node, source_name_ + ".min_range", rclcpp::ParameterValue(0.0));
-  min_range_ = node->get_parameter(source_name_ + ".min_range").as_double();
-  nav2::declare_parameter_if_not_declared(
-    node, source_name_ + ".transport_type", rclcpp::ParameterValue(std::string("raw")));
-  transport_type_ = node->get_parameter(source_name_ + ".transport_type").as_string();
+  min_height_ = node->declare_or_get_parameter(source_name_ + ".min_height", 0.05);
+  max_height_ = node->declare_or_get_parameter(source_name_ + ".max_height", 0.5);
+  min_range_ = node->declare_or_get_parameter(source_name_ + ".min_range", 0.0);
+  use_global_height_ = node->declare_or_get_parameter(
+    source_name_ + ".use_global_height", false);
+  transport_type_ = node->declare_or_get_parameter(
+    source_name_ + ".transport_type", std::string("raw"));
 }
 
 void PointCloud::dataCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
@@ -155,16 +196,39 @@ void PointCloud::dataCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
   data_ = msg;
 }
 
-rcl_interfaces::msg::SetParametersResult
-PointCloud::dynamicParametersCallback(
-  std::vector<rclcpp::Parameter> parameters)
+rcl_interfaces::msg::SetParametersResult PointCloud::validateParameterUpdatesCallback(
+  const std::vector<rclcpp::Parameter> & parameters)
 {
   rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  for (const auto & parameter : parameters) {
+    const auto & param_type = parameter.get_type();
+    const auto & param_name = parameter.get_name();
+    if (param_name.find(source_name_ + ".") != 0) {
+      continue;
+    }
+    if (param_type == ParameterType::PARAMETER_DOUBLE) {
+      if (parameter.as_double() < 0.0) {
+        RCLCPP_WARN(
+        logger_, "The value of parameter '%s' is incorrectly set to %f, "
+        "it should be >=0. Ignoring parameter update.",
+        param_name.c_str(), parameter.as_double());
+        result.successful = false;
+      }
+    }
+  }
+  return result;
+}
+
+void PointCloud::updateParametersCallback(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  std::lock_guard<std::mutex> lock_reinit(mutex_);
 
   for (auto parameter : parameters) {
     const auto & param_type = parameter.get_type();
     const auto & param_name = parameter.get_name();
-    if(param_name.find(source_name_ + ".") != 0) {
+    if (param_name.find(source_name_ + ".") != 0) {
       continue;
     }
     if (param_type == rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE) {
@@ -178,11 +242,11 @@ PointCloud::dynamicParametersCallback(
     } else if (param_type == rcl_interfaces::msg::ParameterType::PARAMETER_BOOL) {
       if (param_name == source_name_ + "." + "enabled") {
         enabled_ = parameter.as_bool();
+      } else if (param_name == source_name_ + "." + "use_global_height") {
+        use_global_height_ = parameter.as_bool();
       }
     }
   }
-  result.successful = true;
-  return result;
 }
 
 }  // namespace nav2_collision_monitor

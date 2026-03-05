@@ -120,6 +120,9 @@ list(APPEND plugin_libs nav2_goal_updated_condition_bt_node)
 add_library(nav2_is_path_valid_condition_bt_node SHARED plugins/condition/is_path_valid_condition.cpp)
 list(APPEND plugin_libs nav2_is_path_valid_condition_bt_node)
 
+add_library(nav2_is_pose_occupied_condition_bt_node SHARED plugins/condition/is_pose_occupied_condition.cpp)
+list(APPEND plugin_libs nav2_is_pose_occupied_condition_bt_node)
+
 add_library(nav2_time_expired_condition_bt_node SHARED plugins/condition/time_expired_condition.cpp)
 list(APPEND plugin_libs nav2_time_expired_condition_bt_node)
 
@@ -152,6 +155,12 @@ list(APPEND plugin_libs nav2_would_a_smoother_recovery_help_condition_bt_node)
 
 add_library(nav2_would_a_route_recovery_help_condition_bt_node SHARED plugins/condition/would_a_route_recovery_help_condition.cpp)
 list(APPEND plugin_libs nav2_would_a_route_recovery_help_condition_bt_node)
+
+add_library(nav2_is_goal_nearby_condition_bt_node SHARED plugins/condition/is_goal_nearby_condition.cpp)
+list(APPEND plugin_libs nav2_is_goal_nearby_condition_bt_node)
+
+add_library(nav2_is_within_path_tracking_bounds_condition_bt_node SHARED plugins/condition/is_within_path_tracking_bounds_condition.cpp)
+list(APPEND plugin_libs nav2_is_within_path_tracking_bounds_condition_bt_node)
 
 add_library(nav2_reinitialize_global_localization_service_bt_node SHARED plugins/action/reinitialize_global_localization_service.cpp)
 list(APPEND plugin_libs nav2_reinitialize_global_localization_service_bt_node)
@@ -243,6 +252,9 @@ list(APPEND plugin_libs nav2_goal_checker_selector_bt_node)
 add_library(nav2_progress_checker_selector_bt_node SHARED plugins/action/progress_checker_selector_node.cpp)
 list(APPEND plugin_libs nav2_progress_checker_selector_bt_node)
 
+add_library(nav2_path_handler_selector_bt_node SHARED plugins/action/path_handler_selector_node.cpp)
+list(APPEND plugin_libs nav2_path_handler_selector_bt_node)
+
 add_library(nav2_goal_updated_controller_bt_node SHARED plugins/decorator/goal_updated_controller.cpp)
 list(APPEND plugin_libs nav2_goal_updated_controller_bt_node)
 
@@ -254,6 +266,15 @@ list(APPEND plugin_libs nav2_compute_and_track_route_bt_node)
 
 add_library(nav2_compute_route_bt_node SHARED plugins/action/compute_route_action.cpp)
 list(APPEND plugin_libs nav2_compute_route_bt_node)
+
+add_library(nav2_toggle_collision_monitor_service_bt_node SHARED plugins/action/toggle_collision_monitor_service.cpp)
+list(APPEND plugin_libs nav2_toggle_collision_monitor_service_bt_node)
+
+add_library(opennav_follow_action_bt_node SHARED plugins/action/follow_object_action.cpp)
+list(APPEND plugin_libs opennav_follow_action_bt_node)
+
+add_library(opennav_follow_cancel_bt_node SHARED plugins/action/follow_object_cancel_node.cpp)
+list(APPEND plugin_libs opennav_follow_cancel_bt_node)
 
 foreach(bt_plugin ${plugin_libs})
   target_include_directories(${bt_plugin}

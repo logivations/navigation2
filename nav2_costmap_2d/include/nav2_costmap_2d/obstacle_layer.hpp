@@ -45,10 +45,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp/version.h"
 #include "laser_geometry/laser_geometry.hpp"
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wreorder"
 #include "tf2_ros/message_filter.hpp"
-#pragma GCC diagnostic pop
 
 #include "message_filters/subscriber.hpp"
 #include "point_cloud_transport/subscriber_filter.hpp"
@@ -136,11 +133,23 @@ public:
   virtual bool isClearable() {return true;}
 
   /**
-   * @brief Callback executed when a parameter change is detected
-   * @param event ParameterEvent message
+   * @brief Validate incoming parameter updates before applying them.
+   * This callback is triggered when one or more parameters are about to be updated.
+   * It checks the validity of parameter values and rejects updates that would lead
+   * to invalid or inconsistent configurations
+   * @param parameters List of parameters that are being updated.
+   * @return rcl_interfaces::msg::SetParametersResult Result indicating whether the update is accepted.
    */
-  rcl_interfaces::msg::SetParametersResult
-  dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
+  rcl_interfaces::msg::SetParametersResult validateParameterUpdatesCallback(
+    const std::vector<rclcpp::Parameter> & parameters);
+
+  /**
+   * @brief Apply parameter updates after validation
+   * This callback is executed when parameters have been successfully updated.
+   * It updates the internal configuration of the node with the new parameter values.
+   * @param parameters List of parameters that have been updated.
+   */
+  void updateParametersCallback(const std::vector<rclcpp::Parameter> & parameters);
 
   /**
    * @brief triggers the update of observations buffer
@@ -175,7 +184,7 @@ public:
     const std::shared_ptr<nav2_costmap_2d::ObservationBuffer> & buffer);
 
   // for testing purposes
-  void addStaticObservation(nav2_costmap_2d::Observation & obs, bool marking, bool clearing);
+  void addStaticObservation(nav2_costmap_2d::Observation obs, bool marking, bool clearing);
   void clearStaticObservations(bool marking, bool clearing);
 
 protected:
@@ -185,7 +194,7 @@ protected:
    * @return True if all the observation buffers are current, false otherwise
    */
   bool getMarkingObservations(
-    std::vector<nav2_costmap_2d::Observation> & marking_observations) const;
+    std::vector<nav2_costmap_2d::Observation::ConstSharedPtr> & marking_observations) const;
 
   /**
    * @brief  Get the observations used to clear space
@@ -193,7 +202,7 @@ protected:
    * @return True if all the observation buffers are current, false otherwise
    */
   bool getClearingObservations(
-    std::vector<nav2_costmap_2d::Observation> & clearing_observations) const;
+    std::vector<nav2_costmap_2d::Observation::ConstSharedPtr> & clearing_observations) const;
 
   /**
    * @brief  Clear freespace based on one observation
@@ -253,15 +262,17 @@ protected:
   std::vector<std::shared_ptr<nav2_costmap_2d::ObservationBuffer>> clearing_buffers_;
 
   /// @brief Dynamic parameters handler
-  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
+  rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr post_set_params_handler_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_params_handler_;
 
   // Used only for testing purposes
-  std::vector<nav2_costmap_2d::Observation> static_clearing_observations_;
-  std::vector<nav2_costmap_2d::Observation> static_marking_observations_;
+  std::vector<nav2_costmap_2d::Observation::ConstSharedPtr> static_clearing_observations_;
+  std::vector<nav2_costmap_2d::Observation::ConstSharedPtr> static_marking_observations_;
 
   bool rolling_window_;
   bool was_reset_;
   nav2_costmap_2d::CombinationMethod combination_method_;
+  bool allow_parameter_qos_overrides_;
 };
 
 }  // namespace nav2_costmap_2d

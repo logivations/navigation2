@@ -19,10 +19,9 @@
 
 namespace nav2_smoother
 {
-using namespace smoother_utils;  // NOLINT
 using namespace nav2_util::geometry_utils;  // NOLINT
 using namespace std::chrono;  // NOLINT
-using nav2::declare_parameter_if_not_declared;
+using nav2_util::PathSegment;
 
 void SimpleSmoother::configure(
   const nav2::LifecycleNode::WeakPtr & parent,
@@ -35,28 +34,20 @@ void SimpleSmoother::configure(
   auto node = parent.lock();
   logger_ = node->get_logger();
 
-  declare_parameter_if_not_declared(
-    node, name + ".tolerance", rclcpp::ParameterValue(1e-10));
-  declare_parameter_if_not_declared(
-    node, name + ".max_its", rclcpp::ParameterValue(1000));
-  declare_parameter_if_not_declared(
-    node, name + ".w_data", rclcpp::ParameterValue(0.2));
-  declare_parameter_if_not_declared(
-    node, name + ".w_smooth", rclcpp::ParameterValue(0.3));
-  declare_parameter_if_not_declared(
-    node, name + ".do_refinement", rclcpp::ParameterValue(true));
-  declare_parameter_if_not_declared(
-    node, name + ".refinement_num", rclcpp::ParameterValue(2));
-  declare_parameter_if_not_declared(
-    node, name + ".enforce_path_inversion", rclcpp::ParameterValue(true));
-
-  node->get_parameter(name + ".tolerance", tolerance_);
-  node->get_parameter(name + ".max_its", max_its_);
-  node->get_parameter(name + ".w_data", data_w_);
-  node->get_parameter(name + ".w_smooth", smooth_w_);
-  node->get_parameter(name + ".do_refinement", do_refinement_);
-  node->get_parameter(name + ".refinement_num", refinement_num_);
-  node->get_parameter(name + ".enforce_path_inversion", enforce_path_inversion_);
+  tolerance_ = node->declare_or_get_parameter(
+    name + ".tolerance", 1e-10);
+  max_its_ = node->declare_or_get_parameter(
+    name + ".max_its", 1000);
+  data_w_ = node->declare_or_get_parameter(
+    name + ".w_data", 0.2);
+  smooth_w_ = node->declare_or_get_parameter(
+    name + ".w_smooth", 0.3);
+  do_refinement_ = node->declare_or_get_parameter(
+    name + ".do_refinement", true);
+  refinement_num_ = node->declare_or_get_parameter(
+    name + ".refinement_num", 2);
+  enforce_path_inversion_ = node->declare_or_get_parameter(
+    name + ".enforce_path_inversion", true);
 }
 
 bool SimpleSmoother::smooth(
@@ -72,10 +63,10 @@ bool SimpleSmoother::smooth(
   nav_msgs::msg::Path curr_path_segment;
   curr_path_segment.header = path.header;
 
-  std::vector<PathSegment> path_segments{PathSegment{
+  std::vector<nav2_util::PathSegment> path_segments{PathSegment{
       0u, static_cast<unsigned int>(path.poses.size() - 1)}};
   if (enforce_path_inversion_) {
-    path_segments = findDirectionalPathSegments(path);
+    path_segments = nav2_util::findDirectionalPathSegments(path);
   }
 
   std::lock_guard<nav2_costmap_2d::Costmap2D::mutex_t> lock(*(costmap->getMutex()));
@@ -137,7 +128,7 @@ void SimpleSmoother::smoothImpl(
         logger_,
         "Number of iterations has exceeded limit of %i.", max_its_);
       path = last_path;
-      updateApproximatePathOrientations(path, reversing_segment);
+      nav2_util::updateApproximatePathOrientations(path, reversing_segment);
       return;
     }
 
@@ -149,7 +140,7 @@ void SimpleSmoother::smoothImpl(
         logger_,
         "Smoothing time exceeded allowed duration of %0.2f.", max_time);
       path = last_path;
-      updateApproximatePathOrientations(path, reversing_segment);
+      nav2_util::updateApproximatePathOrientations(path, reversing_segment);
       throw nav2_core::SmootherTimedOut("Smoothing time exceed allowed duration");
     }
 
@@ -183,7 +174,7 @@ void SimpleSmoother::smoothImpl(
           "Smoothing process resulted in an infeasible collision. "
           "Returning the last path before the infeasibility was introduced.");
         path = last_path;
-        updateApproximatePathOrientations(path, reversing_segment);
+        nav2_util::updateApproximatePathOrientations(path, reversing_segment);
         return;
       }
     }
@@ -198,7 +189,7 @@ void SimpleSmoother::smoothImpl(
     smoothImpl(new_path, reversing_segment, costmap, max_time);
   }
 
-  updateApproximatePathOrientations(new_path, reversing_segment);
+  nav2_util::updateApproximatePathOrientations(new_path, reversing_segment);
   path = new_path;
 }
 

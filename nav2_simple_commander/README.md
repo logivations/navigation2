@@ -22,7 +22,7 @@ New as of September 2023: the simple navigator constructor will accept a `namesp
 | goThroughPoses(poses, behavior_tree='') | Requests the robot to drive through a set of poses (list of `PoseStamped`).|
 | goToPose(pose, behavior_tree='')  | Requests the robot to drive to a pose (`PoseStamped`).                     |
 | followWaypoints(poses)            | Requests the robot to follow a set of waypoints (list of `PoseStamped`). This will execute the specific `TaskExecutor` at each pose.   |
-| followPath(path, controller_id='', goal_checker_id='') | Requests the robot to follow a path from a starting to a goal `PoseStamped`, `nav_msgs/Path`.     |
+| followPath(path, controller_id='', goal_checker_id='', progress_checker_id='', path_handler_id='') | Requests the robot to follow a path from a starting to a goal `PoseStamped`, `nav_msgs/Path`.     |
 | spin(spin_dist=1.57, time_allowance=10, disable_collision_checks=False)   | Requests the robot to performs an in-place rotation by a given angle.      |
 | backup(backup_dist=0.15, backup_speed=0.025, time_allowance=10, disable_collision_checks=False) | Requests the robot to back up by a given distance.         |
 | cancelTask()                       | Cancel an ongoing task request.|
@@ -40,6 +40,7 @@ New as of September 2023: the simple navigator constructor will accept a `namesp
 | clearGlobalCostmap()              | Clears the global costmap.                                                 |
 | getGlobalCostmap()                | Returns the global costmap, `nav2_msgs/Costmap`                            |
 | getLocalCostmap()                 | Returns the local costmap, `nav2_msgs/Costmap`                             |
+| toggleCollisionMonitor(enable)    | Toggles the collision monitor on (`True`) or off (`False`).                |
 | waitUntilNav2Active(navigator='bt_navigator, localizer='amcl') | Blocks until Nav2 is completely online and lifecycle nodes are in the active state. To be used in conjunction with autostart or external lifecycle bringup. Custom navigator and localizer nodes can be specified  |
 | lifecycleStartup()                | Sends a request to all lifecycle management servers to bring them into the active state, to be used if autostart is `false` and you want this program to control Nav2's lifecycle. |
 | lifecycleShutdown()               | Sends a request to all lifecycle management servers to shut them down.     |

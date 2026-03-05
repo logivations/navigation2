@@ -132,6 +132,12 @@ public:
   void reset(bool reset_dynamic_speed_limits = true);
 
   /**
+   * @brief Check if a dynamic speed limit is currently active
+   * @return True if constraints differ from base_constraints (speed limit active)
+   */
+  bool isSpeedLimitActive() const;
+
+  /**
    * @brief Get the motion model time step
    * @return Time step of the model
    */
@@ -288,6 +294,8 @@ protected:
     std::nullopt, std::nullopt};  /// Caution, keep references
 
   rclcpp::Logger logger_{rclcpp::get_logger("MPPIController")};
+
+  geometry_msgs::msg::Twist last_command_vel_;
 };
 
 }  // namespace mppi

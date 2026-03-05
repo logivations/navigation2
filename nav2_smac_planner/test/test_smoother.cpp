@@ -27,7 +27,6 @@
 #include "nav2_smac_planner/a_star.hpp"
 #include "nav2_smac_planner/collision_checker.hpp"
 #include "nav2_smac_planner/smoother.hpp"
-#include "ament_index_cpp/get_package_share_directory.hpp"
 
 using namespace nav2_smac_planner;  // NOLINT
 
@@ -37,11 +36,6 @@ public:
   explicit SmootherWrapper(const SmootherParams & params)
   : nav2_smac_planner::Smoother(params)
   {}
-
-  std::vector<PathSegment> findDirectionalPathSegmentsWrapper(nav_msgs::msg::Path path)
-  {
-    return findDirectionalPathSegments(path);
-  }
 };
 
 TEST(SmootherTest, test_full_smoother)
@@ -133,10 +127,6 @@ TEST(SmootherTest, test_full_smoother)
     y_m = path[i].y;
   }
 
-  // Check that we accurately detect that this path has a reversing segment
-  auto path_segs = smoother->findDirectionalPathSegmentsWrapper(plan);
-  EXPECT_TRUE(path_segs.size() == 2u || path_segs.size() == 3u);
-
   // Test smoother, should succeed with same number of points
   // and shorter overall length, while still being collision free.
   auto path_size_in = plan.poses.size();
@@ -188,10 +178,9 @@ TEST(SmootherTest, test_full_smoother)
   EXPECT_NEAR(plan.poses.end()[-2].pose.orientation.w, 0.0, 1e-3);
 
   delete costmap;
-  nav2_smac_planner::NodeHybrid::destroyStaticAssets();
 }
 
-int main(int argc, char **argv)
+int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);
 

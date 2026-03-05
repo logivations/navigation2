@@ -35,8 +35,7 @@ using namespace std::chrono_literals;  // NOLINT
 /**
  * @brief Abstract class representing a service based BT node
  * @tparam ServiceT Type of service
- * @note This is an Asynchronous (long-running) node which may return a RUNNING state while executing.
- *       It will re-initialize when halted.
+ * @note It will re-initialize when halted.
  */
 template<class ServiceT>
 class BtServiceNode : public BT::ActionNodeBase
@@ -69,9 +68,8 @@ public:
         node_->get_logger(), "\"%s\" service server not available after waiting for %.2fs",
         service_name_.c_str(), wait_for_service_timeout_.count() / 1000.0);
       throw std::runtime_error(
-              std::string(
-                "Service server %s not available",
-                service_name_.c_str()));
+              std::string("Service server ") + service_name_ +
+              std::string(" not available"));
     }
 
     RCLCPP_DEBUG(
@@ -111,6 +109,15 @@ public:
   {
     std::string service_new;
     getInput("service_name", service_new);
+    // If port_name is empty, fallback to the service name provided in the constructor.
+    // If that is empty too, throw an error.
+    service_new = service_new.empty() ? service_name_ : service_new;
+    if (service_new.empty()) {
+      throw std::runtime_error(
+              std::string("Service name not provided for ") + service_node_name_ +
+              std::string(" BT node"));
+    }
+
     if (service_new != service_name_ || !service_client_) {
       service_name_ = service_new;
       node_ = config().blackboard->template get<nav2::LifecycleNode::SharedPtr>("node");
