@@ -549,7 +549,7 @@ bool VelocityPolygon::validateSteering(
     "[%s] validateSteering: target_sw_speed=%.3f, current_sw_speed=%.3f, "
     "current_field=%s",
     polygon_name_.c_str(), target_sw_speed, current_sw_speed,
-    current_field ? current_field->sub_polygon_name_.c_str() : "null");
+    current_field ? current_field->velocity_polygon_name_.c_str() : "null");
 
   // 2. Check if target angle is in same bucket (angle range) as current
   bool same_bucket = current_field != nullptr &&
@@ -585,7 +585,7 @@ bool VelocityPolygon::validateSteering(
                 logger_,
                 "[%s] validateSteering: same_bucket speed limit — next field '%s' in collision, "
                 "limiting vel.x from %.3f to %.3f (sw_limit=%.3f)",
-                polygon_name_.c_str(), next_field->sub_polygon_name_.c_str(),
+                polygon_name_.c_str(), next_field->velocity_polygon_name_.c_str(),
                 result_vel.x, max_baselink, limit_sw);
               result_vel.x = max_baselink;
               result_vel.tw = steeringAngleToTw(result_vel.x, target_steering_angle);
@@ -670,12 +670,12 @@ bool VelocityPolygon::validateSteering(
       logger_,
       "[%s] validateSteering: all neighbour fields in collision, "
       "falling back to slowest field '%s'",
-      polygon_name_.c_str(), valid_field->sub_polygon_name_.c_str());
+      polygon_name_.c_str(), valid_field->velocity_polygon_name_.c_str());
   } else {
     RCLCPP_INFO(
       logger_,
       "[%s] validateSteering: valid neighbour field found: '%s'",
-      polygon_name_.c_str(), valid_field->sub_polygon_name_.c_str());
+      polygon_name_.c_str(), valid_field->velocity_polygon_name_.c_str());
   }
 
   // 4. Adapt speed and steering angle
