@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -138,6 +139,58 @@ public:
   {
     return sub_polygons_;
   }
+
+  double getCurrentSteeringAngle() const
+  {
+    return current_steering_angle_;
+  }
+
+  double callComputeSteeringAngle(const nav2_collision_monitor::Velocity & vel) const
+  {
+    return computeSteeringAngle(vel);
+  }
+
+  double callBaselinkToSteeringSpeed(double linear_vel, double angular_vel) const
+  {
+    return baselinkToSteeringSpeed(linear_vel, angular_vel);
+  }
+
+  double callSteeringToBaselinkSpeed(double steering_speed, double steering_angle) const
+  {
+    return steeringToBaselinkSpeed(steering_speed, steering_angle);
+  }
+
+  double callSteeringAngleToTw(double baselink_speed, double steering_angle) const
+  {
+    return steeringAngleToTw(baselink_speed, steering_angle);
+  }
+
+  const SubPolygonParameter * callFindField(
+    double steering_wheel_speed, double steering_angle) const
+  {
+    return findField(steering_wheel_speed, steering_angle);
+  }
+
+  std::vector<const SubPolygonParameter *> callFindFieldsForAngle(
+    double steering_angle, bool forward) const
+  {
+    return findFieldsForAngle(steering_angle, forward);
+  }
+
+  static bool callIsPointInsidePoly(
+    const nav2_collision_monitor::Point & point,
+    const std::vector<nav2_collision_monitor::Point> & vertices)
+  {
+    return isPointInsidePoly(point, vertices);
+  }
+
+  int callGetPointsInsideSubPolygon(
+    const SubPolygonParameter & sub_polygon,
+    const std::unordered_map<std::string,
+    std::vector<nav2_collision_monitor::Point>> & collision_points_map) const
+  {
+    return getPointsInsideSubPolygon(sub_polygon, collision_points_map);
+  }
 };  // VelocityPolygonWrapper
 
 class Tester : public ::testing::Test
@@ -161,8 +214,18 @@ protected:
     const double direction_end_angle, const double direction_start_angle,
     const std::string & polygon_points, const bool is_holonomic);
 
+  void addSteeringAngleSubPolygon(
+    const std::string & sub_polygon_name,
+    const double linear_min, const double linear_max,
+    const double steering_angle_min, const double steering_angle_max,
+    const std::string & polygon_points);
+  void setSteeringVelocityPolygonParameters(
+    const double wheelbase, const double low_speed_threshold,
+    const std::vector<std::string> & sub_polygon_names);
+
   // Creating routines
   void createVelocityPolygon(const std::string & action_type, const bool is_holonomic);
+  void createSteeringVelocityPolygon(const std::string & action_type);
 
   // Wait until polygon will be received
   bool waitPolygon(
@@ -385,6 +448,79 @@ void Tester::addPolygonVelocitySubPolygon(
   }
 }
 
+void Tester::addSteeringAngleSubPolygon(
+  const std::string & sub_polygon_name,
+  const double linear_min, const double linear_max,
+  const double steering_angle_min, const double steering_angle_max,
+  const std::string & polygon_points)
+{
+  const std::string prefix = std::string(POLYGON_NAME) + "." + sub_polygon_name;
+
+  test_node_->declare_parameter(
+    prefix + ".points", rclcpp::ParameterValue(polygon_points));
+  test_node_->set_parameter(
+    rclcpp::Parameter(prefix + ".points", polygon_points));
+
+  test_node_->declare_parameter(
+    prefix + ".linear_min", rclcpp::ParameterValue(linear_min));
+  test_node_->set_parameter(
+    rclcpp::Parameter(prefix + ".linear_min", linear_min));
+
+  test_node_->declare_parameter(
+    prefix + ".linear_max", rclcpp::ParameterValue(linear_max));
+  test_node_->set_parameter(
+    rclcpp::Parameter(prefix + ".linear_max", linear_max));
+
+  test_node_->declare_parameter(
+    prefix + ".steering_angle_min", rclcpp::ParameterValue(steering_angle_min));
+  test_node_->set_parameter(
+    rclcpp::Parameter(prefix + ".steering_angle_min", steering_angle_min));
+
+  test_node_->declare_parameter(
+    prefix + ".steering_angle_max", rclcpp::ParameterValue(steering_angle_max));
+  test_node_->set_parameter(
+    rclcpp::Parameter(prefix + ".steering_angle_max", steering_angle_max));
+}
+
+void Tester::setSteeringVelocityPolygonParameters(
+  const double wheelbase, const double low_speed_threshold,
+  const std::vector<std::string> & sub_polygon_names)
+{
+  test_node_->declare_parameter(
+    std::string(POLYGON_NAME) + ".holonomic", rclcpp::ParameterValue(false));
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + ".holonomic", false));
+
+  test_node_->declare_parameter(
+    std::string(POLYGON_NAME) + ".wheelbase", rclcpp::ParameterValue(wheelbase));
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + ".wheelbase", wheelbase));
+
+  test_node_->declare_parameter(
+    std::string(POLYGON_NAME) + ".low_speed_threshold",
+    rclcpp::ParameterValue(low_speed_threshold));
+  test_node_->set_parameter(
+    rclcpp::Parameter(
+      std::string(POLYGON_NAME) + ".low_speed_threshold", low_speed_threshold));
+
+  test_node_->declare_parameter(
+    std::string(POLYGON_NAME) + ".velocity_polygons",
+    rclcpp::ParameterValue(sub_polygon_names));
+  test_node_->set_parameter(
+    rclcpp::Parameter(std::string(POLYGON_NAME) + ".velocity_polygons", sub_polygon_names));
+}
+
+void Tester::createSteeringVelocityPolygon(const std::string & action_type)
+{
+  setCommonParameters(POLYGON_NAME, action_type);
+
+  velocity_polygon_ = std::make_shared<VelocityPolygonWrapper>(
+    test_node_, POLYGON_NAME,
+    tf_buffer_, BASE_FRAME_ID, TRANSFORM_TOLERANCE);
+  ASSERT_TRUE(velocity_polygon_->configure());
+  velocity_polygon_->activate();
+}
+
 void Tester::createVelocityPolygon(const std::string & action_type, const bool is_holonomic)
 {
   setCommonParameters(POLYGON_NAME, action_type);
@@ -596,6 +732,554 @@ TEST_F(Tester, testVelocityPolygonHolonomicVelocitySwitching)
   EXPECT_NEAR(poly[2].y, RIGHT_POLYGON[5], EPSILON);
   EXPECT_NEAR(poly[3].x, RIGHT_POLYGON[6], EPSILON);
   EXPECT_NEAR(poly[3].y, RIGHT_POLYGON[7], EPSILON);
+}
+
+
+// ==================== Steering wheel speed conversion tests ====================
+
+// Polygon for steering tests: a simple square around the robot
+static const char STEERING_POLYGON_STR[]{
+  "[[1.0, 0.5], [1.0, -0.5], [-0.5, -0.5], [-0.5, 0.5]]"};
+// Smaller polygon for the slower field
+static const char STEERING_POLYGON_SLOW_STR[]{
+  "[[0.5, 0.3], [0.5, -0.3], [-0.3, -0.3], [-0.3, 0.3]]"};
+// Larger polygon for the faster field
+static const char STEERING_POLYGON_FAST_STR[]{
+  "[[1.5, 0.8], [1.5, -0.8], [-0.8, -0.8], [-0.8, 0.8]]"};
+
+static const double WHEELBASE{1.0};
+static const double LOW_SPEED_THRESHOLD{0.1};
+
+TEST_F(Tester, testBaselinkToSteeringSpeedConversion)
+{
+  // Setup: create a simple steering velocity polygon
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // At zero angular vel, steering speed == baselink speed
+  EXPECT_NEAR(velocity_polygon_->callBaselinkToSteeringSpeed(1.0, 0.0), 1.0, 1e-6);
+  EXPECT_NEAR(velocity_polygon_->callBaselinkToSteeringSpeed(-0.5, 0.0), -0.5, 1e-6);
+
+  // At 60 deg steering: tw = vx * tan(60°) / wheelbase = sqrt(3), expected = hypot(1, sqrt(3)) = 2
+  EXPECT_NEAR(velocity_polygon_->callBaselinkToSteeringSpeed(1.0, std::sqrt(3.0)), 2.0, 1e-6);
+
+  // At 45 deg steering: tw = vx * tan(45°) / wheelbase = 1.0, expected = hypot(1, 1) = sqrt(2)
+  double expected = std::sqrt(2.0);
+  EXPECT_NEAR(velocity_polygon_->callBaselinkToSteeringSpeed(1.0, 1.0), expected, 1e-6);
+
+  // At 90 deg steering (vx=0, tw!=0): continuous result, not infinity
+  double result = velocity_polygon_->callBaselinkToSteeringSpeed(0.0, 1.0);
+  EXPECT_NEAR(result, WHEELBASE * 1.0, 1e-6);
+
+  // Negative speed: sign is preserved
+  EXPECT_NEAR(velocity_polygon_->callBaselinkToSteeringSpeed(-1.0, 1.0), -expected, 1e-6);
+}
+
+TEST_F(Tester, testSteeringToBaselinkSpeedConversion)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // At zero steering angle, baselink speed == steering speed
+  EXPECT_NEAR(velocity_polygon_->callSteeringToBaselinkSpeed(1.0, 0.0), 1.0, 1e-6);
+
+  // At 60 degrees, cos(60°)=0.5, so baselink = steering * 0.5
+  EXPECT_NEAR(velocity_polygon_->callSteeringToBaselinkSpeed(1.0, M_PI / 3), 0.5, 1e-6);
+
+  // Roundtrip: baselink -> steering -> baselink should be identity
+  double sa = 0.3;  // steering angle
+  double baselink = 0.8;
+  // tw = |vx| * tan(sa) / wheelbase (for vx > 0, wheelbase = 1.0)
+  double tw = baselink * std::tan(sa) / WHEELBASE;
+  double steering = velocity_polygon_->callBaselinkToSteeringSpeed(baselink, tw);
+  double roundtrip = velocity_polygon_->callSteeringToBaselinkSpeed(steering, sa);
+  EXPECT_NEAR(roundtrip, baselink, 1e-6);
+}
+
+TEST_F(Tester, testSteeringAngleToTw)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // At zero steering angle, tw should be 0
+  EXPECT_NEAR(velocity_polygon_->callSteeringAngleToTw(1.0, 0.0), 0.0, 1e-6);
+
+  // Forward, positive steering angle → positive tw
+  // tw = tan(angle) * |v| / wheelbase
+  double sa = 0.3;
+  double v = 1.0;
+  double expected_tw = std::tan(sa) * std::abs(v) / WHEELBASE;
+  EXPECT_NEAR(velocity_polygon_->callSteeringAngleToTw(v, sa), expected_tw, 1e-6);
+
+  // Reverse, positive steering angle → negative tw (sign-corrected for reverse)
+  double expected_tw_reverse = -(std::tan(sa) * std::abs(-v) / WHEELBASE);
+  EXPECT_NEAR(velocity_polygon_->callSteeringAngleToTw(-v, sa), expected_tw_reverse, 1e-6);
+}
+
+TEST_F(Tester, testIsInRangeWithSteeringWheelSpeed)
+{
+  // Setup: 2 speed fields with steering angle params
+  // Slow: 0.0 to 0.5 steering wheel speed, steering angle -0.5 to 0.5
+  // Fast: 0.5 to 1.0 steering wheel speed, steering angle -0.5 to 0.5
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // With zero steering angle: baselink speed == steering wheel speed
+  // 0.3 m/s baselink → 0.3 steering → should be "slow" field
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "slow");
+
+  // 0.7 m/s baselink → 0.7 steering → should be "fast" field
+  vel = {0.7, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "fast");
+
+  // With non-zero steering angle, the baselink speed that maps to a given
+  // steering wheel speed is lower. E.g., at 0.3 rad steering angle:
+  // v_steering = v_baselink / cos(0.3) ≈ v_baselink / 0.9553
+  // So 0.48 baselink → 0.48 / 0.9553 ≈ 0.502 steering → "fast" field
+  // We need to set tw correctly: tw = tan(sa) * |v| / wheelbase
+  double sa = 0.3;
+  double v_base = 0.48;
+  double tw = std::tan(sa) * std::abs(v_base) / WHEELBASE;
+  vel = {v_base, 0.0, tw};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "fast");
+
+  // With same steering angle, 0.45 baselink → 0.45 / 0.9553 ≈ 0.471 steering → "slow" field
+  v_base = 0.45;
+  tw = std::tan(sa) * std::abs(v_base) / WHEELBASE;
+  vel = {v_base, 0.0, tw};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "slow");
+}
+
+TEST_F(Tester, testLinearLimitConversionInUpdatePolygon)
+{
+  // Setup: create a LIMIT velocity polygon with steering angle
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+
+  // Add a sub-polygon with linear_limit = 0.49 (steering wheel speed)
+  const std::string prefix = std::string(POLYGON_NAME) + ".slow";
+  test_node_->declare_parameter(prefix + ".points", rclcpp::ParameterValue(
+      std::string(STEERING_POLYGON_SLOW_STR)));
+  test_node_->set_parameter(rclcpp::Parameter(prefix + ".points",
+    std::string(STEERING_POLYGON_SLOW_STR)));
+  test_node_->declare_parameter(prefix + ".linear_min", rclcpp::ParameterValue(0.0));
+  test_node_->set_parameter(rclcpp::Parameter(prefix + ".linear_min", 0.0));
+  test_node_->declare_parameter(prefix + ".linear_max", rclcpp::ParameterValue(1.0));
+  test_node_->set_parameter(rclcpp::Parameter(prefix + ".linear_max", 1.0));
+  test_node_->declare_parameter(prefix + ".steering_angle_min", rclcpp::ParameterValue(-0.5));
+  test_node_->set_parameter(rclcpp::Parameter(prefix + ".steering_angle_min", -0.5));
+  test_node_->declare_parameter(prefix + ".steering_angle_max", rclcpp::ParameterValue(0.5));
+  test_node_->set_parameter(rclcpp::Parameter(prefix + ".steering_angle_max", 0.5));
+  test_node_->declare_parameter(prefix + ".linear_limit", rclcpp::ParameterValue(0.49));
+  test_node_->set_parameter(rclcpp::Parameter(prefix + ".linear_limit", 0.49));
+  test_node_->declare_parameter(prefix + ".angular_limit", rclcpp::ParameterValue(0.5));
+  test_node_->set_parameter(rclcpp::Parameter(prefix + ".angular_limit", 0.5));
+
+  createSteeringVelocityPolygon("limit");
+
+  // At zero steering angle, linear_limit should be 0.49 * cos(0) = 0.49
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_NEAR(velocity_polygon_->getLinearLimit(), 0.49, 1e-6);
+
+  // At steering angle 0.3 rad, linear_limit should be 0.49 * cos(0.3) ≈ 0.4681
+  double sa = 0.3;
+  double v_base = 0.3;
+  double tw = std::tan(sa) * std::abs(v_base) / WHEELBASE;
+  vel = {v_base, 0.0, tw};
+  velocity_polygon_->updatePolygon(vel);
+  double expected_limit = 0.49 * std::cos(sa);
+  EXPECT_NEAR(velocity_polygon_->getLinearLimit(), expected_limit, 1e-3);
+}
+
+TEST_F(Tester, testIsPointInsidePoly)
+{
+  // Simple square polygon: (-1,-1), (1,-1), (1,1), (-1,1)
+  std::vector<nav2_collision_monitor::Point> square = {
+    {-1.0, -1.0}, {1.0, -1.0}, {1.0, 1.0}, {-1.0, 1.0}
+  };
+
+  // Point inside
+  EXPECT_TRUE(VelocityPolygonWrapper::callIsPointInsidePoly({0.0, 0.0}, square));
+  EXPECT_TRUE(VelocityPolygonWrapper::callIsPointInsidePoly({0.5, 0.5}, square));
+
+  // Point outside
+  EXPECT_FALSE(VelocityPolygonWrapper::callIsPointInsidePoly({2.0, 0.0}, square));
+  EXPECT_FALSE(VelocityPolygonWrapper::callIsPointInsidePoly({0.0, 2.0}, square));
+  EXPECT_FALSE(VelocityPolygonWrapper::callIsPointInsidePoly({-2.0, -2.0}, square));
+}
+
+TEST_F(Tester, testGetPointsInsideSubPolygon)
+{
+  // Setup a steering velocity polygon
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+  // Use a polygon that covers (-0.3,-0.3) to (0.5,0.3)
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  auto sub_polygons = velocity_polygon_->getSubPolygons();
+  ASSERT_EQ(sub_polygons.size(), 1u);
+
+  // Create collision points: some inside, some outside
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {
+    {0.0, 0.0},     // inside
+    {0.2, 0.1},     // inside
+    {10.0, 10.0},   // outside
+    {-10.0, -10.0}  // outside
+  };
+
+  int count = velocity_polygon_->callGetPointsInsideSubPolygon(sub_polygons[0], collision_map);
+  EXPECT_EQ(count, 2);
+}
+
+TEST_F(Tester, testFindField)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // Find field for 0.3 speed at 0 angle → slow
+  auto field = velocity_polygon_->callFindField(0.3, 0.0);
+  ASSERT_NE(field, nullptr);
+  EXPECT_EQ(field->velocity_polygon_name_, "slow");
+
+  // Find field for 0.7 speed at 0 angle → fast
+  field = velocity_polygon_->callFindField(0.7, 0.0);
+  ASSERT_NE(field, nullptr);
+  EXPECT_EQ(field->velocity_polygon_name_, "fast");
+
+  // Out of range speed
+  field = velocity_polygon_->callFindField(1.5, 0.0);
+  EXPECT_EQ(field, nullptr);
+
+  // Out of range angle
+  field = velocity_polygon_->callFindField(0.3, 1.0);
+  EXPECT_EQ(field, nullptr);
+}
+
+TEST_F(Tester, testFindFieldsForAngle)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // At angle 0, both forward fields should match, sorted by linear_min ascending
+  auto fields = velocity_polygon_->callFindFieldsForAngle(0.0, true);
+  ASSERT_EQ(fields.size(), 2u);
+  EXPECT_EQ(fields[0]->velocity_polygon_name_, "slow");
+  EXPECT_EQ(fields[1]->velocity_polygon_name_, "fast");
+
+  // At angle 1.0 (outside range), no fields
+  fields = velocity_polygon_->callFindFieldsForAngle(1.0, true);
+  EXPECT_EQ(fields.size(), 0u);
+}
+
+// ==================== validateSteering tests ====================
+
+TEST_F(Tester, testValidateSteeringDirectionReversalHighSpeed)
+{
+  // Setup: 2 speed fields with steering angle
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // Update polygon first so internal state is set
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Target: forward, Current: backward (speed crosses zero), |current| > threshold
+  nav2_collision_monitor::Velocity cmd_vel{0.5, 0.0, 0.3};  // forward target with steering
+  nav2_collision_monitor::Velocity odom_vel{-0.5, 0.0, 0.1};  // moving backward
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  // Should clamp tw to maintain current steering angle
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+}
+
+TEST_F(Tester, testValidateSteeringDirectionReversalLowSpeed)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.05, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Target: forward, Current: backward but below threshold → allow steering freely
+  nav2_collision_monitor::Velocity cmd_vel{0.3, 0.0, 0.1};
+  nav2_collision_monitor::Velocity odom_vel{-0.05, 0.0, 0.0};  // below threshold
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_FALSE(modified);  // steering allowed freely
+}
+
+TEST_F(Tester, testValidateSteeringBothBelowThreshold)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.05, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Both target and current below threshold → done (no modification)
+  nav2_collision_monitor::Velocity cmd_vel{0.05, 0.0, 0.02};
+  nav2_collision_monitor::Velocity odom_vel{0.05, 0.0, 0.01};
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_FALSE(modified);
+}
+
+TEST_F(Tester, testValidateSteeringSameBucketResultStaysInField)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Same field, result velocity stays in same field, no collision check needed → no modification
+  nav2_collision_monitor::Velocity cmd_vel{0.4, 0.0, 0.0};  // target in slow field
+  nav2_collision_monitor::Velocity odom_vel{0.2, 0.0, 0.0};  // current in slow field
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};  // no collision points
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_FALSE(modified);
+}
+
+TEST_F(Tester, testValidateSteeringSameBucketFasterFieldCollision)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Same field (cmd_vel maps to slow field), but result velocity from prior processing
+  // falls in the next faster (fast) field which has collision → limit speed.
+  // The steering check sees result_vel is in a different field than current, checks
+  // collision there, and caps speed to current field's linear_max.
+  nav2_collision_monitor::Velocity cmd_vel{0.4, 0.0, 0.0};  // target in slow field
+  nav2_collision_monitor::Velocity odom_vel{0.2, 0.0, 0.0};  // current in slow field
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Place collision points inside the fast polygon
+  collision_map["source"] = {
+    {1.2, 0.0},   // inside fast polygon
+    {1.3, 0.1},   // inside fast polygon
+  };
+
+  // Set robot_action with a velocity that exceeds the slow field max
+  // (simulating that the main loop allowed higher speed)
+  nav2_collision_monitor::Velocity action_vel{0.6, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, action_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Speed should be limited to slow field's linear_max in baselink speed
+  // At 0 steering angle, that's just 0.5
+  EXPECT_LE(std::abs(action.req_vel.x), 0.5 + 1e-6);
+}
+
+TEST_F(Tester, testValidateSteeringDifferentBucketCollisionFree)
+{
+  // Fields at different steering angles
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "left_slow", "left_fast"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("left_fast", 0.5, 1.0, 0.1, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight at 0.3, Target: left at 0.3
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};  // straight
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.3 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.3, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};  // no collision
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_FALSE(modified);  // fastest field is collision-free → done
+}
+
+TEST_F(Tester, testValidateSteeringDifferentBucketAllCollision)
+{
+  // Fields at different steering angles
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "left_slow"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight at 0.3, Target: left at 0.3
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.3 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.3, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Collision in all left fields
+  collision_map["source"] = {
+    {0.0, 0.0},
+    {0.2, 0.1},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  // All fields in collision → use slowest field (allowed even if in collision), LIMIT not STOP
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Speed should be limited to slowest field's linear_max (0.5) converted to baselink
+  // At the neighbour bucket boundary (0.1 rad)
+  double neighbour_angle = 0.1;  // straight bucket boundary toward left
+  double expected_max = 0.5 * std::cos(neighbour_angle);
+  EXPECT_LE(std::abs(action.req_vel.x), expected_max + 1e-3);
+}
+
+TEST_F(Tester, testValidateSteeringDifferentBucketDecelerationToValidField)
+{
+  // Setup: straight and left, each with slow and fast fields
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "left_slow", "left_fast"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("left_fast", 0.5, 1.0, 0.1, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.7, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight at 0.7 (fast field), Target: left at 0.7 (fast field)
+  nav2_collision_monitor::Velocity odom_vel{0.7, 0.0, 0.0};
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.7 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.7, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Collision in the fast left polygon only (points inside the large polygon)
+  collision_map["source"] = {
+    {1.2, 0.5},
+    {1.3, 0.6},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Speed should be limited to slow field's linear_max (0.5) converted to baselink
+  // At the neighbour bucket boundary (0.1 rad), baselink = 0.5 * cos(0.1)
+  double neighbour_angle = 0.1;  // straight bucket boundary toward left
+  double expected_max = 0.5 * std::cos(neighbour_angle);
+  EXPECT_LE(std::abs(action.req_vel.x), expected_max + 1e-3);
+}
+
+TEST_F(Tester, testValidateSteeringBackwardSameBucketFasterFieldCollision)
+{
+  // Two backward fields in the same bucket:
+  // backward_slow: [-0.3, 0.0], backward_mid: [-0.7, -0.3]
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"backward_slow", "backward_mid"});
+  addSteeringAngleSubPolygon("backward_slow", -0.3, 0.0, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("backward_mid", -0.7, -0.3, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{-0.2, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // cmd_vel and odom both in backward_slow field
+  nav2_collision_monitor::Velocity cmd_vel{-0.2, 0.0, 0.0};
+  nav2_collision_monitor::Velocity odom_vel{-0.1, 0.0, 0.0};
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Collision points inside the backward_mid (larger) polygon
+  collision_map["source"] = {
+    {-0.6, 0.0},
+    {-0.7, 0.1},
+  };
+
+  // result velocity from prior processing falls in backward_mid field
+  nav2_collision_monitor::Velocity action_vel{-0.5, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, action_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Speed should be limited to backward_slow's linear_min (-0.3) converted to baselink
+  // At 0 steering angle, that's -0.3
+  EXPECT_GE(action.req_vel.x, -0.3 - 1e-6);  // not more negative than -0.3
+}
+
+TEST_F(Tester, testValidateSteeringNotApplicableToNonSteering)
+{
+  // Create a normal theta-based velocity polygon (not steering angle)
+  createVelocityPolygon("stop", IS_NOT_HOLONOMIC);
+
+  nav2_collision_monitor::Velocity cmd_vel{0.3, 0.0, 0.0};
+  nav2_collision_monitor::Velocity odom_vel{0.2, 0.0, 0.0};
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_FALSE(modified);  // Should not apply to theta-based polygons
 }
 
 
