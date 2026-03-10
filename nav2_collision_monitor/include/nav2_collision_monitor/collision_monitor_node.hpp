@@ -267,6 +267,8 @@ protected:
   rclcpp::Time stop_stamp_;
   /// @brief Timeout after which 0-velocity ceases to be published
   rclcpp::Duration stop_pub_timeout_;
+  /// @brief Whether steering validation is enabled
+  bool enable_steering_validation_;
   /// @brief Active polygons publisher
   rclcpp::Publisher<nav2_msgs::msg::ActiveVelocityPolygons>::SharedPtr active_polygons_pub_;
 };  // class CollisionMonitor
