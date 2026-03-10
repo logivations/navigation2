@@ -264,14 +264,9 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   auto file_or_id =
     bt_xml_filename_or_id.empty() ? default_bt_xml_filename_or_id_ : bt_xml_filename_or_id;
 
-  // This is removed as part of the changes about BT hashing as we still want to check for
-  // changes in the xml file even if current_bt_xml_filename_ == filename
-
-  // Use previous BT if it is the existing one and always reload flag is not set to true
-  if (!always_reload_bt_ && current_bt_file_or_id_ == file_or_id) {
-    RCLCPP_DEBUG(logger_, "BT will not be reloaded as the given xml or ID is already loaded");
-    return true;
-  }
+  // The early return on same filename/ID is intentionally removed.
+  // We always re-read the XML files and hash their contents so that
+  // modifications on disk are detected and the tree is recreated.
 
   // Reset any existing Groot2 monitoring
   bt_->resetGrootMonitor();
@@ -286,6 +281,7 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   std::set<std::string> registered_ids;
   std::vector<std::string> conflicting_files;
   std::string main_id;
+  std::string all_xml_content;  // Accumulate XML content for hashing
   auto register_all_bt_files = [&](const std::string & skip_file = "") {
       for (const auto & directory : search_directories_) {
         for (const auto & entry : fs::directory_iterator(directory)) {
@@ -314,6 +310,14 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
             continue;
           }
 
+          // Read file content for hashing to detect on-disk changes
+          std::ifstream xml_file(entry.path().string());
+          if (xml_file.good()) {
+            std::ostringstream buffer;
+            buffer << xml_file.rdbuf();
+            all_xml_content += buffer.str();
+          }
+
           RCLCPP_DEBUG(logger_, "Registering Tree from File: %s", entry.path().string().c_str());
           bt_->registerTreeFromFile(entry.path().string());
           for (const auto & id : tree_info.behavior_tree_ids) {
@@ -336,6 +340,15 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
         return false;
       }
       main_id = tree_info.main_id;
+
+      // Read main file content for hashing to detect on-disk changes
+      std::ifstream main_xml_file(main_file);
+      if (main_xml_file.good()) {
+        std::ostringstream buffer;
+        buffer << main_xml_file.rdbuf();
+        all_xml_content += buffer.str();
+      }
+
       RCLCPP_DEBUG(logger_, "Registering Tree from File: %s", main_file.c_str());
       bt_->registerTreeFromFile(main_file);
       for (const auto & id : tree_info.behavior_tree_ids) {
@@ -380,10 +393,10 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
     return false;
   }
 
-  // Create the tree with the specified ID
+  // Create the tree with the specified ID, using content hash to detect on-disk changes
   try {
     std::hash<std::string> hasher;
-    std::size_t tree_hash = hasher(main_id);
+    std::size_t tree_hash = hasher(all_xml_content);
 
     if (std::find(cached_tree_hashes.begin(), cached_tree_hashes.end(), tree_hash) !=
       cached_tree_hashes.end())
@@ -391,7 +404,7 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
       RCLCPP_DEBUG(logger_, "BT will not be loaded as it exists in cache");
       tree_ = &cached_trees[tree_hash];
     } else {
-      RCLCPP_INFO(logger_, "Created BT from ID: %s", main_id.c_str());
+      RCLCPP_INFO(logger_, "Created BT from ID: %s (xml content changed)", main_id.c_str());
       cached_trees[tree_hash] = bt_->createTree(main_id, blackboard_);
       cached_tree_hashes.push_back(tree_hash);
       tree_ = &cached_trees[tree_hash];
