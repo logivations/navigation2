@@ -44,6 +44,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TrajectoryPoint.msg"
   "msg/VelocityPolygonPair.msg"
   "msg/ActiveVelocityPolygons.msg"
+  "msg/SteeringValidationDebug.msg"
   "srv/GetCosts.srv"
   "msg/PolygonObject.msg"
   "msg/CircleObject.msg"

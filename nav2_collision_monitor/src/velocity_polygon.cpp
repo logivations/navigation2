@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "nav2_ros_common/node_utils.hpp"
 
@@ -205,6 +206,10 @@ bool VelocityPolygon::getParameters(
       ex.what());
     return false;
   }
+
+  steering_debug_pub_ = node->create_publisher<nav2_msgs::msg::SteeringValidationDebug>(
+    "~/steering_validation_debug", rclcpp::QoS(1));
+
   return true;
 }
 
@@ -393,7 +398,7 @@ VelocityPolygon::findFieldsForAngle(double steering_angle, bool forward) const
       continue;
     }
     if (steering_angle >= sp.steering_angle_min_ && steering_angle <= sp.steering_angle_max_) {
-      if (forward ? (sp.linear_max_ >= 0) : (sp.linear_min_ <= 0)) {
+      if (forward ? (sp.linear_max_ > 0) : (sp.linear_min_ < 0)) {
         result.push_back(&sp);
       }
     }
@@ -461,20 +466,112 @@ bool VelocityPolygon::validateSteering(
     return false;
   }
 
+  nav2_msgs::msg::SteeringValidationDebug debug_msg;
+  debug_msg.header.stamp = clock_->now();
+  debug_msg.polygon_name = polygon_name_;
+  debug_msg.steering_angle_limit = std::numeric_limits<double>::quiet_NaN();
+  debug_msg.speed_limit_applied = 0.0;
+  debug_msg.next_field_collision_pts = -1;
+  debug_msg.neighbour_collision_pts = -1;
+
+  // Step 1 diagnostics: re-check the polygon state from processStopSlowdownLimit
+  debug_msg.step1_active_sub_polygon = current_subpolygon_name_;
+  debug_msg.step1_shape_set = isShapeSet();
+  debug_msg.step1_min_points = min_points_;
+  debug_msg.step1_points_inside = getPointsInside(collision_points_map);
+  debug_msg.step1_linear_limit = linear_limit_;
+  debug_msg.step1_angular_limit = angular_limit_;
+  debug_msg.step1_action_type = robot_action.action_type;
+  debug_msg.step1_req_vel_x = robot_action.req_vel.x;
+  debug_msg.step1_req_vel_y = robot_action.req_vel.y;
+  debug_msg.step1_req_vel_tw = robot_action.req_vel.tw;
+
+  // Source filtering diagnostics
+  debug_msg.step1_configured_sources = getSourcesNames();
+  debug_msg.step1_polygon_vertex_count = static_cast<int32_t>(poly_.size());
+  int configured_pts = 0;
+  for (const auto & src_name : debug_msg.step1_configured_sources) {
+    auto it = collision_points_map.find(src_name);
+    if (it != collision_points_map.end()) {
+      configured_pts += static_cast<int>(it->second.size());
+    }
+  }
+  debug_msg.step1_configured_source_pts = configured_pts;
+  int all_pts = 0;
+  for (const auto & kv : collision_points_map) {
+    all_pts += static_cast<int>(kv.second.size());
+  }
+  debug_msg.step1_all_source_pts = all_pts;
+
+  // Bounding box of polygon vertices
+  double poly_min_x = std::numeric_limits<double>::max();
+  double poly_max_x = std::numeric_limits<double>::lowest();
+  double poly_min_y = std::numeric_limits<double>::max();
+  double poly_max_y = std::numeric_limits<double>::lowest();
+  for (const auto & v : poly_) {
+    poly_min_x = std::min(poly_min_x, v.x);
+    poly_max_x = std::max(poly_max_x, v.x);
+    poly_min_y = std::min(poly_min_y, v.y);
+    poly_max_y = std::max(poly_max_y, v.y);
+  }
+  debug_msg.step1_poly_min_x = poly_min_x;
+  debug_msg.step1_poly_max_x = poly_max_x;
+  debug_msg.step1_poly_min_y = poly_min_y;
+  debug_msg.step1_poly_max_y = poly_max_y;
+
+  // Bounding box of collision points from configured sources
+  double pts_min_x = std::numeric_limits<double>::max();
+  double pts_max_x = std::numeric_limits<double>::lowest();
+  double pts_min_y = std::numeric_limits<double>::max();
+  double pts_max_y = std::numeric_limits<double>::lowest();
+  for (const auto & src_name : debug_msg.step1_configured_sources) {
+    auto it = collision_points_map.find(src_name);
+    if (it != collision_points_map.end()) {
+      for (const auto & pt : it->second) {
+        pts_min_x = std::min(pts_min_x, pt.x);
+        pts_max_x = std::max(pts_max_x, pt.x);
+        pts_min_y = std::min(pts_min_y, pt.y);
+        pts_max_y = std::max(pts_max_y, pt.y);
+      }
+    }
+  }
+  debug_msg.step1_pts_min_x = pts_min_x;
+  debug_msg.step1_pts_max_x = pts_max_x;
+  debug_msg.step1_pts_min_y = pts_min_y;
+  debug_msg.step1_pts_max_y = pts_max_y;
+
+  // Count points within the polygon's bounding box
+  int pts_in_bbox = 0;
+  for (const auto & src_name : debug_msg.step1_configured_sources) {
+    auto it = collision_points_map.find(src_name);
+    if (it != collision_points_map.end()) {
+      for (const auto & pt : it->second) {
+        if (pt.x >= poly_min_x && pt.x <= poly_max_x &&
+          pt.y >= poly_min_y && pt.y <= poly_max_y)
+        {
+          pts_in_bbox++;
+        }
+      }
+    }
+  }
+  debug_msg.step1_pts_in_bbox = pts_in_bbox;
+
   const double target_speed = cmd_vel_in.x;
   const double current_speed = odom_vel.x;
 
   const double target_steering_angle = computeSteeringAngle(cmd_vel_in);
   const double current_sa = computeSteeringAngle(odom_vel);
 
-  RCLCPP_INFO(
-    logger_,
-    "[%s] validateSteering: target_speed=%.3f, current_speed=%.3f, "
-    "target_sa=%.3f, current_sa=%.3f, cmd_vel_in=(%.3f, %.3f, %.3f), odom_vel=(%.3f, %.3f, %.3f)",
-    polygon_name_.c_str(), target_speed, current_speed,
-    target_steering_angle, current_sa,
-    cmd_vel_in.x, cmd_vel_in.y, cmd_vel_in.tw,
-    odom_vel.x, odom_vel.y, odom_vel.tw);
+  debug_msg.target_speed = target_speed;
+  debug_msg.current_speed = current_speed;
+  debug_msg.target_steering_angle = target_steering_angle;
+  debug_msg.current_steering_angle = current_sa;
+  debug_msg.cmd_vel_x = cmd_vel_in.x;
+  debug_msg.cmd_vel_y = cmd_vel_in.y;
+  debug_msg.cmd_vel_tw = cmd_vel_in.tw;
+  debug_msg.odom_vel_x = odom_vel.x;
+  debug_msg.odom_vel_y = odom_vel.y;
+  debug_msg.odom_vel_tw = odom_vel.tw;
 
   bool modified = false;
   Velocity result_vel = robot_action.req_vel;
@@ -482,17 +579,14 @@ bool VelocityPolygon::validateSteering(
   // Check if speed crosses zero (direction reversal)
   bool crosses_zero = (target_speed > 0 && current_speed < 0) ||
     (target_speed < 0 && current_speed > 0);
+  debug_msg.crosses_zero = crosses_zero;
 
   if (crosses_zero) {
     if (std::abs(current_speed) > low_speed_threshold_) {
       // Must decelerate first — clamp tw to maintain current steering angle
       result_vel.tw = steeringAngleToTw(result_vel.x, current_sa);
       modified = true;
-      RCLCPP_INFO(
-        logger_,
-        "[%s] validateSteering: direction reversal detected, clamping tw to maintain "
-        "current_sa=%.3f (current_speed=%.3f > threshold=%.3f)",
-        polygon_name_.c_str(), current_sa, current_speed, low_speed_threshold_);
+      debug_msg.steering_angle_limit = current_sa;
     }
     // else: abs(current) < threshold → allow steering freely
     if (modified) {
@@ -500,38 +594,42 @@ bool VelocityPolygon::validateSteering(
       robot_action.polygon_name = polygon_name_;
       robot_action.action_type = LIMIT;
     }
+    debug_msg.modified = modified;
+    debug_msg.result_vel_x = result_vel.x;
+    debug_msg.result_vel_y = result_vel.y;
+    debug_msg.result_vel_tw = result_vel.tw;
+    steering_debug_pub_->publish(debug_msg);
     return modified;
   }
 
   // Speed does NOT cross zero
   // 1. Both abs(target) and abs(current) below threshold → done
-  if (std::abs(target_speed) < low_speed_threshold_ &&
-    std::abs(current_speed) < low_speed_threshold_)
-  {
+  bool both_below = std::abs(target_speed) < low_speed_threshold_ &&
+    std::abs(current_speed) < low_speed_threshold_;
+  debug_msg.both_below_threshold = both_below;
+  if (both_below) {
+    debug_msg.modified = false;
+    debug_msg.result_vel_x = result_vel.x;
+    debug_msg.result_vel_y = result_vel.y;
+    debug_msg.result_vel_tw = result_vel.tw;
+    steering_debug_pub_->publish(debug_msg);
     return false;
   }
 
   double target_sw_speed = baselinkToSteeringSpeed(cmd_vel_in.x, cmd_vel_in.tw);
   double current_sw_speed = baselinkToSteeringSpeed(odom_vel.x, odom_vel.tw);
+  debug_msg.target_sw_speed = target_sw_speed;
+  debug_msg.current_sw_speed = current_sw_speed;
 
   const SubPolygonParameter * current_field = findField(current_sw_speed, current_sa);
+  debug_msg.current_field_name = current_field ? current_field->velocity_polygon_name_ : "";
 
-  RCLCPP_INFO(
-    logger_,
-    "[%s] validateSteering: target_sw_speed=%.3f, current_sw_speed=%.3f, "
-    "current_field=%s",
-    polygon_name_.c_str(), target_sw_speed, current_sw_speed,
-    current_field ? current_field->velocity_polygon_name_.c_str() : "null");
 
   // 2. Check if target angle is in same bucket (angle range) as current
   bool same_bucket = current_field != nullptr &&
     target_steering_angle >= current_field->steering_angle_min_ &&
     target_steering_angle <= current_field->steering_angle_max_;
-
-  RCLCPP_INFO(
-    logger_,
-    "[%s] validateSteering: same_bucket=%s",
-    polygon_name_.c_str(), same_bucket ? "true" : "false");
+  debug_msg.same_bucket = same_bucket;
 
   if (same_bucket) {
     // If result velocity falls into some faster field (same bucket), check the
@@ -546,19 +644,17 @@ bool VelocityPolygon::validateSteering(
       for (size_t i = 0; i < fields_at_angle.size(); i++) {
         if (fields_at_angle[i] == current_field && i + 1 < fields_at_angle.size()) {
           const SubPolygonParameter * next_field = fields_at_angle[i + 1];
-          if (getPointsInsideSubPolygon(*next_field, collision_points_map) >= min_points_) {
+          debug_msg.next_field_name = next_field->velocity_polygon_name_;
+          int pts = getPointsInsideSubPolygon(*next_field, collision_points_map);
+          debug_msg.next_field_collision_pts = pts;
+          if (pts >= min_points_) {
             // Forward: limit to linear_max (upper bound)
             // Backward: limit to linear_min (lower bound, more negative = faster)
             double limit_sw = (current_sw_speed >= 0) ?
               current_field->linear_max_ : current_field->linear_min_;
             double max_baselink = steeringToBaselinkSpeed(limit_sw, current_sa);
             if (std::abs(result_vel.x) > std::abs(max_baselink)) {
-              RCLCPP_INFO(
-                logger_,
-                "[%s] validateSteering: same_bucket speed limit — next field '%s' in collision, "
-                "limiting vel.x from %.3f to %.3f (sw_limit=%.3f)",
-                polygon_name_.c_str(), next_field->velocity_polygon_name_.c_str(),
-                result_vel.x, max_baselink, limit_sw);
+              debug_msg.speed_limit_applied = max_baselink;
               result_vel.x = max_baselink;
               result_vel.tw = steeringAngleToTw(result_vel.x, target_steering_angle);
               modified = true;
@@ -574,15 +670,16 @@ bool VelocityPolygon::validateSteering(
       robot_action.polygon_name = polygon_name_;
       robot_action.action_type = LIMIT;
     }
+    debug_msg.modified = modified;
+    debug_msg.result_vel_x = result_vel.x;
+    debug_msg.result_vel_y = result_vel.y;
+    debug_msg.result_vel_tw = result_vel.tw;
+    steering_debug_pub_->publish(debug_msg);
     return modified;
   }
 
   // 3. Different bucket — find neighbouring bucket (one step in steering direction)
-  RCLCPP_INFO(
-    logger_,
-    "[%s] validateSteering: different bucket — target_sa=%.3f outside current field [%.3f, %.3f]",
-    polygon_name_.c_str(), target_steering_angle,
-    current_field->steering_angle_min_, current_field->steering_angle_max_);
+
   double neighbour_angle;
   if (target_steering_angle > current_sa) {
     neighbour_angle = current_field->steering_angle_max_;
@@ -597,6 +694,11 @@ bool VelocityPolygon::validateSteering(
   bool forward = target_sw_speed >= 0;
   auto neighbour_fields = findFieldsForAngle(lookup_angle, forward);
   if (neighbour_fields.empty()) {
+    debug_msg.modified = false;
+    debug_msg.result_vel_x = result_vel.x;
+    debug_msg.result_vel_y = result_vel.y;
+    debug_msg.result_vel_tw = result_vel.tw;
+    steering_debug_pub_->publish(debug_msg);
     return false;
   }
 
@@ -622,7 +724,15 @@ bool VelocityPolygon::validateSteering(
   }
 
   // Check if fastest field is collision-free → done
-  if (getPointsInsideSubPolygon(*neighbour_fields[start_idx], collision_points_map) < min_points_) {
+  int start_pts = getPointsInsideSubPolygon(
+    *neighbour_fields[start_idx], collision_points_map);
+  debug_msg.neighbour_collision_pts = start_pts;
+  if (start_pts < min_points_) {
+    debug_msg.modified = false;
+    debug_msg.result_vel_x = result_vel.x;
+    debug_msg.result_vel_y = result_vel.y;
+    debug_msg.result_vel_tw = result_vel.tw;
+    steering_debug_pub_->publish(debug_msg);
     return false;
   }
 
@@ -638,17 +748,9 @@ bool VelocityPolygon::validateSteering(
     // All fields in collision — use the slowest field in the target direction
     // (allowed even if in collision)
     valid_field = neighbour_fields[0];  // sorted ascending, index 0 is slowest
-    RCLCPP_INFO(
-      logger_,
-      "[%s] validateSteering: all neighbour fields in collision, "
-      "falling back to slowest field '%s'",
-      polygon_name_.c_str(), valid_field->velocity_polygon_name_.c_str());
-  } else {
-    RCLCPP_INFO(
-      logger_,
-      "[%s] validateSteering: valid neighbour field found: '%s'",
-      polygon_name_.c_str(), valid_field->velocity_polygon_name_.c_str());
+
   }
+  debug_msg.valid_field_name = valid_field->velocity_polygon_name_;
 
   // 4. Adapt speed and steering angle
   // 4a. Limit target speed to valid field's speed boundary (converted to baselink)
@@ -658,12 +760,7 @@ bool VelocityPolygon::validateSteering(
   double valid_max_baselink = steeringToBaselinkSpeed(
     valid_limit_sw, neighbour_angle);
   if (std::abs(result_vel.x) > std::abs(valid_max_baselink)) {
-    RCLCPP_INFO(
-      logger_,
-      "[%s] validateSteering: limiting speed from %.3f to %.3f "
-      "(valid_limit_sw=%.3f, neighbour_angle=%.3f)",
-      polygon_name_.c_str(), result_vel.x, valid_max_baselink,
-      valid_limit_sw, neighbour_angle);
+    debug_msg.speed_limit_applied = valid_max_baselink;
     result_vel.x = valid_max_baselink;
   }
 
@@ -677,22 +774,19 @@ bool VelocityPolygon::validateSteering(
     } else {
       limited_sa = current_field->steering_angle_min_;
     }
-    RCLCPP_INFO(
-      logger_,
-      "[%s] validateSteering: limiting steering angle to %.3f "
-      "(current_speed=%.3f > valid_max=%.3f)",
-      polygon_name_.c_str(), limited_sa, current_baselink_abs, valid_max_baselink_abs);
+    debug_msg.steering_angle_limit = limited_sa;
     result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
   }
-
-  RCLCPP_INFO(
-    logger_,
-    "[%s] validateSteering: final result_vel=(%.3f, %.3f, %.3f)",
-    polygon_name_.c_str(), result_vel.x, result_vel.y, result_vel.tw);
 
   robot_action.req_vel = result_vel;
   robot_action.polygon_name = polygon_name_;
   robot_action.action_type = LIMIT;
+
+  debug_msg.modified = true;
+  debug_msg.result_vel_x = result_vel.x;
+  debug_msg.result_vel_y = result_vel.y;
+  debug_msg.result_vel_tw = result_vel.tw;
+  steering_debug_pub_->publish(debug_msg);
   return true;
 }
 

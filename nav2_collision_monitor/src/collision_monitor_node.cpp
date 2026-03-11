@@ -501,6 +501,8 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
                        std::abs(last_odom_msg_.linear.y) < velocity_threshold &&
                        std::abs(last_odom_msg_.angular.z) < velocity_threshold;
 
+  std::shared_ptr<VelocityPolygon> active_limit_vel_polygon;
+
   for (std::shared_ptr<Polygon> polygon : polygons_) {
     if (!polygon->getEnabled() || !enabled_) {
       continue;
@@ -531,6 +533,14 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
       polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
     }
 
+    // Track the active LIMIT VelocityPolygon (the one matching current speed/steering angle)
+    if (polygon->getActionType() == LIMIT) {
+      auto vp = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+      if (vp && vp->getCurrentSubPolygonName() != "none") {
+        active_limit_vel_polygon = vp;
+      }
+    }
+
     const ActionType at = polygon->getActionType();
     if (at == STOP || at == SLOWDOWN || at == LIMIT) {
       // Process STOP/SLOWDOWN for the selected polygon
@@ -547,19 +557,15 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
     }
   }
 
-  // Step 2: Steering validation
-  if (enable_steering_validation_) {
-    for (auto polygon : polygons_) {
-      auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
-      if (!vel_polygon || !polygon->getEnabled()) {
-        continue;
-      }
-      Velocity odom_vel{last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z};
-      if (vel_polygon->validateSteering(
-          cmd_vel_in, odom_vel, sources_collision_points_map, robot_action))
-      {
-        action_polygon = polygon;
-      }
+  // Step 2: Steering validation (only for the active LIMIT VelocityPolygon)
+  if (enable_steering_validation_ && active_limit_vel_polygon &&
+    robot_action.action_type != STOP)
+  {
+    Velocity odom_vel{last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z};
+    if (active_limit_vel_polygon->validateSteering(
+        cmd_vel_in, odom_vel, sources_collision_points_map, robot_action))
+    {
+      action_polygon = active_limit_vel_polygon;
     }
   }
 

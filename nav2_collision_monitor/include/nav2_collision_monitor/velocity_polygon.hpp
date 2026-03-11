@@ -26,6 +26,7 @@
 #include "nav2_collision_monitor/types.hpp"
 #include "nav2_ros_common/lifecycle_node.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "nav2_msgs/msg/steering_validation_debug.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.hpp"
 
@@ -206,6 +207,8 @@ protected:
 
   // Clock
   rclcpp::Clock::SharedPtr clock_;
+  // Debug publisher for steering validation
+  rclcpp::Publisher<nav2_msgs::msg::SteeringValidationDebug>::SharedPtr steering_debug_pub_;
   // Current subpolygon name
   std::string current_subpolygon_name_;
   // Variables
