@@ -141,6 +141,9 @@ protected:
   // The factory that will be used to dynamically construct the behavior tree
   BT::BehaviorTreeFactory factory_;
 
+  // Logger
+  rclcpp::Logger logger_{rclcpp::get_logger("BehaviorTreeEngine")};
+
   // Clock
   rclcpp::Clock::SharedPtr clock_;
 
