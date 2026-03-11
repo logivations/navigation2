@@ -39,6 +39,9 @@ BehaviorTreeEngine::BehaviorTreeEngine(
     factory_.registerFromPlugin(loader.getOSName(p));
   }
 
+  // use node logger so messages appear on /rosout
+  logger_ = node->get_logger();
+
   // clock for throttled debug log
   clock_ = node->get_clock();
 }
@@ -72,7 +75,7 @@ BehaviorTreeEngine::run(
   #if RCLCPP_VERSION_GTE(30, 1, 5)
   } catch (const BT::NodeExecutionError & ex) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("BehaviorTreeEngine"),
+      logger_,
       "BT Exception at Node: [%s] (Path: %s). Original error: %s. Exiting with failure.",
       ex.failedNode().registration_name.c_str(),
       ex.failedNode().node_path.c_str(),
@@ -81,7 +84,7 @@ BehaviorTreeEngine::run(
   #endif
   } catch (const std::exception & ex) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("BehaviorTreeEngine"),
+      logger_,
       "Behavior tree threw exception: %s. Exiting with failure.", ex.what());
     return BtStatus::FAILED;
   }
@@ -109,19 +112,19 @@ BTInfo BehaviorTreeEngine::parseTreeInfo(const std::string & filename)
 {
   BTInfo info;
   if (filename.empty()) {
-    RCLCPP_ERROR(rclcpp::get_logger("BehaviorTreeEngine"), "Empty BT file path.");
+    RCLCPP_ERROR(logger_, "Empty BT file path.");
     return info;
   }
 
   tinyxml2::XMLDocument doc;
   if (doc.LoadFile(filename.c_str()) != tinyxml2::XML_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("BehaviorTreeEngine"), "Could not parse: %s", filename.c_str());
+    RCLCPP_ERROR(logger_, "Could not parse: %s", filename.c_str());
     return info;
   }
 
   tinyxml2::XMLElement * root = doc.RootElement();
   if (!root) {
-    RCLCPP_ERROR(rclcpp::get_logger("BehaviorTreeEngine"), "No root element in: %s",
+    RCLCPP_ERROR(logger_, "No root element in: %s",
       filename.c_str());
     return info;
   }
