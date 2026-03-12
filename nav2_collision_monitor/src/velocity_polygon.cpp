@@ -723,32 +723,29 @@ bool VelocityPolygon::validateSteering(
     }
   }
 
-  // Check if fastest field is collision-free → done
+  // Determine valid field: fastest collision-free field in neighbor bucket
   int start_pts = getPointsInsideSubPolygon(
     *neighbour_fields[start_idx], collision_points_map);
   debug_msg.neighbour_collision_pts = start_pts;
   if (start_pts < min_points_) {
-    debug_msg.modified = false;
-    debug_msg.result_vel_x = result_vel.x;
-    debug_msg.result_vel_y = result_vel.y;
-    debug_msg.result_vel_tw = result_vel.tw;
-    steering_debug_pub_->publish(debug_msg);
-    return false;
-  }
-
-  // Walk down speed fields until a collision-free one is found
-  for (int i = start_idx; i >= 0; i--) {
-    if (getPointsInsideSubPolygon(*neighbour_fields[i], collision_points_map) < min_points_) {
-      valid_field = neighbour_fields[i];
-      break;
+    // Fastest field is collision-free — use it as valid field.
+    // Speed must still be limited to this field's max to prevent field exceedance
+    // when entering a bucket with lower max speed (e.g. straight → turned).
+    valid_field = neighbour_fields[start_idx];
+  } else {
+    // Walk down speed fields until a collision-free one is found
+    for (int i = start_idx; i >= 0; i--) {
+      if (getPointsInsideSubPolygon(*neighbour_fields[i], collision_points_map) < min_points_) {
+        valid_field = neighbour_fields[i];
+        break;
+      }
     }
-  }
 
-  if (valid_field == nullptr) {
-    // All fields in collision — use the slowest field in the target direction
-    // (allowed even if in collision)
-    valid_field = neighbour_fields[0];  // sorted ascending, index 0 is slowest
-
+    if (valid_field == nullptr) {
+      // All fields in collision — use the slowest field in the target direction
+      // (allowed even if in collision)
+      valid_field = neighbour_fields[0];  // sorted ascending, index 0 is slowest
+    }
   }
   debug_msg.valid_field_name = valid_field->velocity_polygon_name_;
 
@@ -762,6 +759,7 @@ bool VelocityPolygon::validateSteering(
   if (std::abs(result_vel.x) > std::abs(valid_max_baselink)) {
     debug_msg.speed_limit_applied = valid_max_baselink;
     result_vel.x = valid_max_baselink;
+    modified = true;
   }
 
   // 4b. Only limit steering angle if current speed is larger than max valid speed
@@ -776,18 +774,85 @@ bool VelocityPolygon::validateSteering(
     }
     debug_msg.steering_angle_limit = limited_sa;
     result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
+    modified = true;
   }
 
-  robot_action.req_vel = result_vel;
-  robot_action.polygon_name = polygon_name_;
-  robot_action.action_type = LIMIT;
+  if (modified) {
+    robot_action.req_vel = result_vel;
+    robot_action.polygon_name = polygon_name_;
+    robot_action.action_type = LIMIT;
+  }
 
-  debug_msg.modified = true;
+  debug_msg.modified = modified;
   debug_msg.result_vel_x = result_vel.x;
   debug_msg.result_vel_y = result_vel.y;
   debug_msg.result_vel_tw = result_vel.tw;
   steering_debug_pub_->publish(debug_msg);
-  return true;
+  return modified;
+}
+
+bool VelocityPolygon::clampToMaxField(
+  const Velocity & odom_vel, Action & robot_action)
+{
+  // Only applies to steering-angle-based velocity polygons
+  if (sub_polygons_.empty() || !sub_polygons_[0].use_steering_angle_) {
+    return false;
+  }
+
+  // Physical steering angle from odometry
+  double physical_sa = computeSteeringAngle(odom_vel);
+
+  // Direction from commanded velocity
+  double cmd_x = robot_action.req_vel.x;
+  bool forward = cmd_x >= 0;
+
+  // Find all fields at the physical steering angle for the commanded direction
+  auto fields = findFieldsForAngle(physical_sa, forward);
+
+  if (fields.empty()) {
+    // No fields at this angle — if velocity is non-zero, zero it
+    if (std::abs(cmd_x) > 1e-6) {
+      RCLCPP_INFO(
+        logger_,
+        "[%s] clampToMaxField: no fields at physical_sa=%.3f, zeroing velocity",
+        polygon_name_.c_str(), physical_sa);
+      robot_action.req_vel.x = 0.0;
+      robot_action.req_vel.y = 0.0;
+      robot_action.req_vel.tw = 0.0;
+      robot_action.polygon_name = polygon_name_;
+      robot_action.action_type = LIMIT;
+      return true;
+    }
+    return false;
+  }
+
+  // Fastest field is the last one (sorted slowest first)
+  const SubPolygonParameter * fastest = fields.back();
+
+  // Max steering wheel speed for this field
+  double max_sw = forward ? fastest->linear_max_ : fastest->linear_min_;
+
+  // Compute commanded steering angle and steering wheel speed
+  double cmd_sa = computeSteeringAngle(robot_action.req_vel);
+  double cmd_sw = baselinkToSteeringSpeed(robot_action.req_vel.x, robot_action.req_vel.tw);
+
+  // Check if commanded sw speed exceeds max
+  if (std::abs(cmd_sw) > std::abs(max_sw)) {
+    double clamped_baselink = steeringToBaselinkSpeed(max_sw, cmd_sa);
+    RCLCPP_INFO(
+      logger_,
+      "[%s] clampToMaxField: cmd_sw=%.3f exceeds max_sw=%.3f at physical_sa=%.3f, "
+      "clamping vel.x from %.3f to %.3f",
+      polygon_name_.c_str(), cmd_sw, max_sw, physical_sa,
+      robot_action.req_vel.x, clamped_baselink);
+    robot_action.req_vel.x = clamped_baselink;
+    robot_action.req_vel.tw = steeringAngleToTw(clamped_baselink, cmd_sa);
+    robot_action.polygon_name = polygon_name_;
+    robot_action.action_type = LIMIT;
+    return true;
+  }
+
+  return false;
 }
 
 }  // namespace nav2_collision_monitor

@@ -160,3 +160,24 @@ else:
 → done
 
 After some iterations, the current speed will be in the valid field → AMR will be allowed to steer, as in 4b, the current speed will not be above max valid speed
+
+### Field exceedance prevention
+
+A fundamental safety invariant: **the commanded speed must never exceed the fastest configured field for the current steering angle bucket.** Violating this would cause the safety lidar to activate an e-stop, since no matching protective field exists for that speed/angle combination.
+
+#### Rule 1: Speed must stay within the available fields of the current bucket
+
+For any given steering angle, the lidar has a finite set of configured fields (each covering a speed range). The collision monitor must clamp the commanded speed so that it never exceeds the maximum speed of the fastest field defined for that bucket. If a bucket only has fields up to 0.5 m/s, the robot must not be commanded above 0.5 m/s while in that bucket — regardless of what the planner requests.
+
+This applies at all times, not only when obstacles are detected. Even in free space, sending a speed that has no corresponding field for the current angle would be unsafe.
+
+#### Rule 2: High speed only after entering the corresponding bucket
+
+When the robot transitions from a fully turned position (where only slow-speed fields exist) toward a straight position (where high-speed fields are available), the higher speed must **not** be sent until the steering angle has actually entered the bucket that supports that speed.
+
+Example: if the robot is fully turned left at 0.3 m/s and the planner requests straight driving at 1.0 m/s, the sequence must be:
+1. The robot begins straightening the steering while remaining at the slow speed allowed by the current (turned) bucket.
+2. Only once the steering angle crosses into the straight bucket — which has fields defined up to 1.0 m/s — may the speed be increased.
+3. Speed increases follow the normal one-field-step-at-a-time logic from Step 2.
+
+The opposite direction (straight → turned) is handled naturally: as the steering angle enters a more turned bucket with lower max speed, Rule 1 immediately clamps the speed down.

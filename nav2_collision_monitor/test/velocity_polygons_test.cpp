@@ -183,6 +183,13 @@ public:
   {
     return getPointsInsideSubPolygon(sub_polygon, collision_points_map);
   }
+
+  bool callClampToMaxField(
+    const nav2_collision_monitor::Velocity & odom_vel,
+    nav2_collision_monitor::Action & robot_action)
+  {
+    return clampToMaxField(odom_vel, robot_action);
+  }
 };  // VelocityPolygonWrapper
 
 class Tester : public ::testing::Test
@@ -1127,14 +1134,8 @@ TEST_F(Tester, testValidateSteeringDifferentBucketAllCollision)
     nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
 
   bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
-  EXPECT_TRUE(modified);
-  // All fields in collision → use slowest field (allowed even if in collision), LIMIT not STOP
-  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
-  // Speed should be limited to slowest field's linear_max (0.5) converted to baselink
-  // At the neighbour bucket boundary (0.1 rad)
-  double neighbour_angle = 0.1;  // straight bucket boundary toward left
-  double expected_max = 0.5 * std::cos(neighbour_angle);
-  EXPECT_LE(std::abs(action.req_vel.x), expected_max + 1e-3);
+  // Speed (0.3) is already within the slowest field's max (0.5), so nothing to change
+  EXPECT_FALSE(modified);
 }
 
 TEST_F(Tester, testValidateSteeringDifferentBucketDecelerationToValidField)
@@ -1228,6 +1229,245 @@ TEST_F(Tester, testValidateSteeringNotApplicableToNonSteering)
 
   bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
   EXPECT_FALSE(modified);  // Should not apply to theta-based polygons
+}
+
+// ==================== validateSteering different-bucket exceedance fix tests ====================
+
+TEST_F(Tester, testValidateSteeringDifferentBucketExceedsFastestField)
+{
+  // straight: slow[0,0.5] + fast[0.5,1.0] sa[-0.1,0.1]
+  // left: slow[0,0.5] only sa[0.1,0.5]
+  // When steering from straight into left at speed 0.7, which exceeds left's max (0.5),
+  // speed should be clamped even though left is collision-free.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "left_slow"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.7, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight at 0.7 (fast field), Target: left at 0.7
+  nav2_collision_monitor::Velocity odom_vel{0.7, 0.0, 0.0};
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.7 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.7, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};  // no collisions
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Speed should be clamped to left_slow's max (0.5) at neighbour boundary (0.1 rad)
+  double neighbour_angle = 0.1;
+  double expected_max = 0.5 * std::cos(neighbour_angle);
+  EXPECT_LE(std::abs(action.req_vel.x), expected_max + 1e-3);
+}
+
+// ==================== clampToMaxField tests ====================
+
+TEST_F(Tester, testClampToMaxFieldNoClamping)
+{
+  // slow[0,0.5] + fast[0.5,1.0] sa[-0.5,0.5]
+  // phys_sa=0, cmd=0.8 → within 1.0 max, no clamping
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity odom_vel{0.8, 0.0, 0.0};  // phys_sa=0
+  nav2_collision_monitor::Velocity cmd_vel{0.8, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_FALSE(modified);
+}
+
+TEST_F(Tester, testClampToMaxFieldExceedsMax)
+{
+  // slow[0,0.5] only sa[-0.5,0.5]
+  // phys_sa=0, cmd=0.8 → exceeds 0.5, should clamp
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};  // phys_sa=0
+  nav2_collision_monitor::Velocity cmd_vel{0.8, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Clamped to 0.5 at sa=0 → baselink = 0.5 * cos(0) = 0.5
+  EXPECT_LE(std::abs(action.req_vel.x), 0.5 + 1e-6);
+}
+
+TEST_F(Tester, testClampToMaxFieldTurnedBucketLower)
+{
+  // straight: slow[0,0.5] + fast[0.5,1.0] sa[-0.1,0.1]
+  // turned: slow[0,0.5] only sa[0.3,0.6]
+  // phys_sa=0.4 (turned bucket), cmd=0.8 → exceeds turned max (0.5), clamp
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "turned_slow"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("turned_slow", 0.0, 0.5, 0.3, 0.6, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  double phys_sa = 0.4;
+  double phys_tw = std::tan(phys_sa) * 0.5 / WHEELBASE;
+  nav2_collision_monitor::Velocity odom_vel{0.5, 0.0, phys_tw};  // phys_sa=0.4
+
+  // cmd targets some steering angle at 0.8 speed
+  double cmd_sa = 0.2;
+  double cmd_tw = std::tan(cmd_sa) * 0.8 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.8, 0.0, cmd_tw};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Max sw speed at physical angle (0.4) is 0.5, clamped baselink = 0.5 * cos(cmd_sa)
+  double expected_max_baselink = 0.5 * std::cos(cmd_sa);
+  EXPECT_LE(std::abs(action.req_vel.x), expected_max_baselink + 1e-3);
+}
+
+TEST_F(Tester, testClampToMaxFieldRule2NotYetInBucket)
+{
+  // Rule 2: turned→straight transition, still physically turned
+  // turned[0.3,0.6]: slow[0,0.5]; straight[-0.1,0.1]: slow[0,0.5]+fast[0.5,1.0]
+  // phys_sa=0.4 (turned), cmd targets straight at 0.8 → clamp to turned max (0.5)
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"turned_slow", "straight_slow", "straight_fast"});
+  addSteeringAngleSubPolygon("turned_slow", 0.0, 0.5, 0.3, 0.6, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  double phys_sa = 0.4;
+  double phys_tw = std::tan(phys_sa) * 0.3 / WHEELBASE;
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, phys_tw};  // phys in turned bucket
+
+  // Cmd targets straight at 0.8
+  nav2_collision_monitor::Velocity cmd_vel{0.8, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Max at phys_sa=0.4 is turned_slow max = 0.5
+  // cmd_sa=0, so clamped baselink = 0.5 * cos(0) = 0.5
+  EXPECT_LE(std::abs(action.req_vel.x), 0.5 + 1e-3);
+}
+
+TEST_F(Tester, testClampToMaxFieldRule2Arrived)
+{
+  // Same setup as above but phys_sa=0.0 (arrived in straight bucket)
+  // cmd=0.8 → within straight fast max (1.0), no clamping
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"turned_slow", "straight_slow", "straight_fast"});
+  addSteeringAngleSubPolygon("turned_slow", 0.0, 0.5, 0.3, 0.6, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity odom_vel{0.8, 0.0, 0.0};  // phys_sa=0, in straight bucket
+
+  nav2_collision_monitor::Velocity cmd_vel{0.8, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_FALSE(modified);  // Within fast field max, no clamping needed
+}
+
+TEST_F(Tester, testClampToMaxFieldBackward)
+{
+  // backward[-0.5,0] sa[-0.5,0.5]
+  // phys_sa=0, cmd.x=-0.8 → exceeds -0.5, should clamp
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"backward"});
+  addSteeringAngleSubPolygon("backward", -0.5, 0.0, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity odom_vel{-0.3, 0.0, 0.0};  // phys_sa=0
+  nav2_collision_monitor::Velocity cmd_vel{-0.8, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Clamped to -0.5 at sa=0 → baselink = -0.5 * cos(0) = -0.5
+  EXPECT_GE(action.req_vel.x, -0.5 - 1e-6);
+}
+
+TEST_F(Tester, testClampToMaxFieldNoFieldsZeros)
+{
+  // Fields only at sa[0.3,0.6]
+  // phys_sa=0.0 → no fields found, velocity should be zeroed
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"turned_only"});
+  addSteeringAngleSubPolygon("turned_only", 0.0, 0.5, 0.3, 0.6, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};  // phys_sa=0
+  nav2_collision_monitor::Velocity cmd_vel{0.3, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  EXPECT_NEAR(action.req_vel.x, 0.0, 1e-6);
+  EXPECT_NEAR(action.req_vel.tw, 0.0, 1e-6);
+}
+
+TEST_F(Tester, testClampToMaxFieldNonSteeringSkipped)
+{
+  // Create a normal theta-based velocity polygon (not steering angle)
+  createVelocityPolygon("stop", IS_NOT_HOLONOMIC);
+
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};
+  nav2_collision_monitor::Velocity cmd_vel{0.3, 0.0, 0.0};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_FALSE(modified);  // Should not apply to theta-based polygons
+}
+
+TEST_F(Tester, testClampToMaxFieldPreservesDirection)
+{
+  // slow[0,0.5] sa[-0.5,0.5]
+  // phys_sa=0, cmd x=0.8 tw=0.3 → speed clamped, tw adjusted to same steering angle
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};  // phys_sa=0
+  double cmd_sa_input = 0.2;
+  double cmd_tw_input = std::tan(cmd_sa_input) * 0.8 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.8, 0.0, cmd_tw_input};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Speed clamped, steering angle should be preserved
+  double clamped_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
+  EXPECT_NEAR(clamped_sa, cmd_sa_input, 0.05);
+  // Speed should be limited
+  EXPECT_LE(std::abs(action.req_vel.x), 0.5 + 1e-3);
 }
 
 

@@ -92,6 +92,16 @@ public:
     const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
     Action & robot_action);
 
+  /**
+   * @brief Clamp commanded speed to the max available field at the current physical angle.
+   * Final safety gate to prevent field exceedance within the current bucket and
+   * during turned→straight transitions.
+   * @param odom_vel Current robot velocity from odometry (physical state)
+   * @param robot_action Robot action to modify if speed exceeds max field
+   * @return True if velocity was clamped
+   */
+  bool clampToMaxField(const Velocity & odom_vel, Action & robot_action);
+
 protected:
   /**
     * @brief Custom struct to store the parameters of the sub-polygon
