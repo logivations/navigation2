@@ -341,6 +341,10 @@ public:
   void halt() override
   {
     if (should_cancel_goal()) {
+      RCLCPP_WARN(
+        node_->get_logger(),
+        "BtActionNode::halt() cancelling goal for action '%s' (node: '%s')",
+        action_name_.c_str(), name().c_str());
       auto future_result = action_client_->async_get_result(goal_handle_);
       auto future_cancel = action_client_->async_cancel_goal(goal_handle_);
       if (callback_group_executor_.spin_until_future_complete(future_cancel, server_timeout_) !=
