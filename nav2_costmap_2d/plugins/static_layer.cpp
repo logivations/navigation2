@@ -302,7 +302,7 @@ StaticLayer::incomingMap(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & ne
   }
   std::lock_guard<Costmap2D::mutex_t> guard(*getMutex());
   map_buffer_ = new_map;
-  setCurrent(false);
+  // setCurrent(false);
   // Not setting current_ = false here (reverted from upstream #5984).
   // With many frequently-updated static layers (ceiling cameras, w2mo layout,
   // other AMRs, etc.), each incomingMap() would mark the layer non-current,
