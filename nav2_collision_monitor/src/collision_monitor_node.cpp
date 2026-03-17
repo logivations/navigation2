@@ -453,6 +453,10 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
       if (!source->getData(curr_time, iter.first->second) &&
         source->getSourceTimeout().seconds() != 0.0)
       {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "[%s]: Source getData() failed (no data / stale / TF error) — triggering STOP",
+          source->getSourceName().c_str());
         action_polygon = nullptr;
         robot_action.polygon_name = "invalid source";
         robot_action.action_type = STOP;
@@ -461,6 +465,17 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
         robot_action.req_vel.tw = 0.0;
         break;
       }
+      if (iter.first->second.empty()) {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "[%s]: Source enabled and getData() succeeded but returned 0 points",
+          source->getSourceName().c_str());
+      }
+    } else {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "[%s]: Source is disabled — skipping getData(), 0 points contributed",
+        source->getSourceName().c_str());
     }
 
     if (collision_points_marker_pub_->get_subscription_count() > 0) {

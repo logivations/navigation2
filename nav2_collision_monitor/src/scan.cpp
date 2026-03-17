@@ -73,14 +73,27 @@ bool Scan::getData(
   // Ignore data from the source if it is not being published yet or
   // not being published for a long time
   if (data_ == nullptr) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: No scan data received yet (data_ is null)", source_name_.c_str());
     return false;
   }
   if (!sourceValid(data_->header.stamp, curr_time)) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: Scan data is stale (stamp=%.3f, now=%.3f, timeout=%.3fs)",
+      source_name_.c_str(),
+      rclcpp::Time(data_->header.stamp).seconds(), curr_time.seconds(),
+      source_timeout_.seconds());
     return false;
   }
 
   tf2::Transform tf_transform;
   if (!getTransform(curr_time, data_->header, tf_transform)) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: TF lookup failed for scan (frame=%s)",
+      source_name_.c_str(), data_->header.frame_id.c_str());
     return false;
   }
 

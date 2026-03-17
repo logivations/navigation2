@@ -74,6 +74,9 @@ bool Range::getData(
   // Ignore data from the source if it is not being published yet or
   // not being published for a long time
   if (data_ == nullptr) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: No range data received yet (data_ is null)", source_name_.c_str());
     return false;
   }
   if (!sourceValid(data_->header.stamp, curr_time)) {
@@ -82,8 +85,8 @@ bool Range::getData(
 
   // Ignore data, if its range is out of scope of range sensor abilities
   if (data_->range < data_->min_range || data_->range > data_->max_range) {
-    RCLCPP_DEBUG(
-      logger_,
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
       "[%s]: Data range %fm is out of {%f..%f} sensor span. Ignoring...",
       source_name_.c_str(), data_->range, data_->min_range, data_->max_range);
     return false;
@@ -91,6 +94,10 @@ bool Range::getData(
 
   tf2::Transform tf_transform;
   if (!getTransform(curr_time, data_->header, tf_transform)) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: TF lookup failed for range (frame=%s)",
+      source_name_.c_str(), data_->header.frame_id.c_str());
     return false;
   }
 
