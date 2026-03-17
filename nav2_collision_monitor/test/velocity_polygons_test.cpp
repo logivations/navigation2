@@ -1471,6 +1471,59 @@ TEST_F(Tester, testClampToMaxFieldPreservesDirection)
 }
 
 
+TEST_F(Tester, testValidateSteeringSameBucket90DegLimitsTw)
+{
+  // Two speed tiers at 90° steering angle range.
+  // At 90° steering the robot is doing pure rotation (x≈0, tw carries all speed).
+  // The old code compared result_vel.x against max_baselink (both ≈0 at 90°)
+  // and never triggered a limit. The fix compares steering wheel speeds and
+  // decomposes via sin/cos so that tw is correctly limited.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow_turn", "fast_turn"});
+  // steering_angle range [1.0, 1.571] covers 90° (π/2 ≈ 1.5708)
+  addSteeringAngleSubPolygon("slow_turn", 0.0, 0.3, 1.0, 1.571, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast_turn", 0.3, 1.0, 1.0, 1.571, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // updatePolygon with a velocity that maps to the slow field at ~90°
+  // Pure rotation: x=0, tw=0.2 → sw_speed = hypot(0, 1.0*0.2) = 0.2 (in slow field)
+  nav2_collision_monitor::Velocity vel{0.0, 0.0, 0.2};
+  velocity_polygon_->updatePolygon(vel);
+
+  // cmd_vel: pure rotation, steering angle = π/2
+  // x=0, tw=0.5 → sw_speed = hypot(0, 1.0*0.5) = 0.5 (in fast field)
+  nav2_collision_monitor::Velocity cmd_vel{0.0, 0.0, 0.5};
+  // odom: currently in slow field
+  nav2_collision_monitor::Velocity odom_vel{0.0, 0.0, 0.15};
+
+  // Place collision points inside the fast polygon
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {
+    {1.0, 0.0},
+    {1.2, 0.1},
+  };
+
+  // robot_action with result velocity in the fast field (sw_speed = 0.5)
+  nav2_collision_monitor::Velocity action_vel{0.0, 0.0, 0.5};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, action_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+
+  // At 90° steering, x should be ~0 and tw should be limited
+  EXPECT_NEAR(action.req_vel.x, 0.0, 1e-6);
+  // tw should be limited to slow field's linear_max (0.3) decomposed at 90°:
+  // limited_tw = limit_sw * sin(π/2) / wheelbase = 0.3 * 1.0 / 1.0 = 0.3
+  EXPECT_LE(std::abs(action.req_vel.tw), 0.3 + 1e-6);
+  EXPECT_GT(std::abs(action.req_vel.tw), 0.0);  // tw should not be zeroed
+
+  // Verify the steering wheel speed of the result doesn't exceed the slow field max
+  double result_sw = velocity_polygon_->callBaselinkToSteeringSpeed(
+    action.req_vel.x, action.req_vel.tw);
+  EXPECT_LE(std::abs(result_sw), 0.3 + 1e-6);
+}
+
 int main(int argc, char ** argv)
 {
   // Initialize the system

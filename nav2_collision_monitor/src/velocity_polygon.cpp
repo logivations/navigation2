@@ -681,6 +681,23 @@ bool VelocityPolygon::validateSteering(
   }
 
   // 3. Different bucket — find neighbouring bucket (one step in steering direction)
+  if (current_field == nullptr) {
+    RCLCPP_WARN(
+      logger_,
+      "[%s] validateSteering: current_field is null — no field matches current velocity. "
+      "odom_vel=(%.3f, %.3f, %.3f), current_sw_speed=%.3f, current_sa=%.3f, "
+      "cmd_vel=(%.3f, %.3f, %.3f), target_sw_speed=%.3f, target_sa=%.3f. "
+      "Check that velocity polygon field ranges cover all reachable velocities.",
+      polygon_name_.c_str(),
+      odom_vel.x, odom_vel.y, odom_vel.tw, current_sw_speed, current_sa,
+      cmd_vel_in.x, cmd_vel_in.y, cmd_vel_in.tw, target_sw_speed, target_steering_angle);
+    debug_msg.modified = false;
+    debug_msg.result_vel_x = result_vel.x;
+    debug_msg.result_vel_y = result_vel.y;
+    debug_msg.result_vel_tw = result_vel.tw;
+    steering_debug_pub_->publish(debug_msg);
+    return false;
+  }
 
   double neighbour_angle;
   if (target_steering_angle > current_sa) {
