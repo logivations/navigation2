@@ -604,8 +604,14 @@ bool VelocityPolygon::validateSteering(
 
   // Speed does NOT cross zero
   // 1. Both abs(target) and abs(current) below threshold → done
-  bool both_below = std::abs(target_speed) < low_speed_threshold_ &&
-    std::abs(current_speed) < low_speed_threshold_;
+  //    Use steering wheel speed (accounts for angular velocity) instead of baselink linear speed
+  double target_sw_speed = baselinkToSteeringSpeed(cmd_vel_in.x, cmd_vel_in.tw);
+  double current_sw_speed = baselinkToSteeringSpeed(odom_vel.x, odom_vel.tw);
+  debug_msg.target_sw_speed = target_sw_speed;
+  debug_msg.current_sw_speed = current_sw_speed;
+
+  bool both_below = std::abs(target_sw_speed) < low_speed_threshold_ &&
+    std::abs(current_sw_speed) < low_speed_threshold_;
   debug_msg.both_below_threshold = both_below;
   if (both_below) {
     debug_msg.modified = false;
@@ -615,11 +621,6 @@ bool VelocityPolygon::validateSteering(
     steering_debug_pub_->publish(debug_msg);
     return false;
   }
-
-  double target_sw_speed = baselinkToSteeringSpeed(cmd_vel_in.x, cmd_vel_in.tw);
-  double current_sw_speed = baselinkToSteeringSpeed(odom_vel.x, odom_vel.tw);
-  debug_msg.target_sw_speed = target_sw_speed;
-  debug_msg.current_sw_speed = current_sw_speed;
 
   const SubPolygonParameter * current_field = findField(current_sw_speed, current_sa);
   debug_msg.current_field_name = current_field ? current_field->velocity_polygon_name_ : "";
