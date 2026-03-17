@@ -633,31 +633,37 @@ bool VelocityPolygon::validateSteering(
   debug_msg.same_bucket = same_bucket;
 
   if (same_bucket) {
-    // Proactively check the next-faster field at the current steering angle.
-    // If that field has obstacles, limit speed to the current field's max
-    // so the robot can never cross into the e-stop zone.
-    bool forward = current_sw_speed >= 0;
-    auto fields_at_angle = findFieldsForAngle(target_steering_angle, forward);
-    for (size_t i = 0; i < fields_at_angle.size(); i++) {
-      if (fields_at_angle[i] == current_field && i + 1 < fields_at_angle.size()) {
-        const SubPolygonParameter * next_field = fields_at_angle[i + 1];
-        debug_msg.next_field_name = next_field->velocity_polygon_name_;
-        int pts = getPointsInsideSubPolygon(*next_field, collision_points_map);
-        debug_msg.next_field_collision_pts = pts;
-        if (pts >= min_points_) {
-          // Forward: limit to linear_max (upper bound)
-          // Backward: limit to linear_min (lower bound, more negative = faster)
-          double limit_sw = (current_sw_speed >= 0) ?
-            current_field->linear_max_ : current_field->linear_min_;
-          double max_baselink = steeringToBaselinkSpeed(limit_sw, current_sa);
-          if (std::abs(result_vel.x) > std::abs(max_baselink)) {
-            debug_msg.speed_limit_applied = max_baselink;
-            result_vel.x = max_baselink;
-            result_vel.tw = steeringAngleToTw(result_vel.x, target_steering_angle);
-            modified = true;
+    // If result velocity falls into some faster field (same bucket), check the
+    // one-step-faster field for collision. If in collision, limit to current field.
+    double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
+    const SubPolygonParameter * result_field = findField(result_sw_speed, target_steering_angle);
+    if (result_field != nullptr && result_field != current_field &&
+      std::abs(result_sw_speed) > std::abs(current_sw_speed))
+    {
+      bool forward = current_sw_speed >= 0;
+      auto fields_at_angle = findFieldsForAngle(target_steering_angle, forward);
+      for (size_t i = 0; i < fields_at_angle.size(); i++) {
+        if (fields_at_angle[i] == current_field && i + 1 < fields_at_angle.size()) {
+          const SubPolygonParameter * next_field = fields_at_angle[i + 1];
+          debug_msg.next_field_name = next_field->velocity_polygon_name_;
+          int pts = getPointsInsideSubPolygon(*next_field, collision_points_map);
+          debug_msg.next_field_collision_pts = pts;
+          if (pts >= min_points_) {
+            // Limit steering wheel speed to current field boundary.
+            // Decompose directly into x and tw to avoid tan(π/2) singularity.
+            double limit_sw = (current_sw_speed >= 0) ?
+              current_field->linear_max_ : current_field->linear_min_;
+            if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
+              double limited_x = limit_sw * std::cos(target_steering_angle);
+              double limited_tw = limit_sw * std::sin(target_steering_angle) / wheelbase_;
+              debug_msg.speed_limit_applied = limited_x;
+              result_vel.x = limited_x;
+              result_vel.tw = limited_tw;
+              modified = true;
+            }
           }
+          break;
         }
-        break;
       }
     }
     // Same bucket → done
