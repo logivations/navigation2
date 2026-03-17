@@ -281,7 +281,7 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   std::set<std::string> registered_ids;
   std::vector<std::string> conflicting_files;
   std::string main_id;
-  std::string all_xml_content;  // Accumulate XML content for hashing
+  std::string main_bt_xml_content;  // XML content of the target BT file only (for hashing)
   auto register_all_bt_files = [&](const std::string & skip_file = "") {
       for (const auto & directory : search_directories_) {
         for (const auto & entry : fs::directory_iterator(directory)) {
@@ -310,12 +310,19 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
             continue;
           }
 
-          // Read file content for hashing to detect on-disk changes
-          std::ifstream xml_file(entry.path().string());
-          if (xml_file.good()) {
-            std::ostringstream buffer;
-            buffer << xml_file.rdbuf();
-            all_xml_content += buffer.str();
+          // If this file contains the target BT ID, read its content for hashing
+          if (main_bt_xml_content.empty() && !main_id.empty()) {
+            for (const auto & id : tree_info.behavior_tree_ids) {
+              if (id == main_id) {
+                std::ifstream xml_file(entry.path().string());
+                if (xml_file.good()) {
+                  std::ostringstream buffer;
+                  buffer << xml_file.rdbuf();
+                  main_bt_xml_content = buffer.str();
+                }
+                break;
+              }
+            }
           }
 
           RCLCPP_DEBUG(logger_, "Registering Tree from File: %s", entry.path().string().c_str());
@@ -346,7 +353,7 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
       if (main_xml_file.good()) {
         std::ostringstream buffer;
         buffer << main_xml_file.rdbuf();
-        all_xml_content += buffer.str();
+        main_bt_xml_content = buffer.str();
       }
 
       RCLCPP_DEBUG(logger_, "Registering Tree from File: %s", main_file.c_str());
@@ -396,7 +403,7 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   // Create the tree with the specified ID, using content hash to detect on-disk changes
   try {
     std::hash<std::string> hasher;
-    std::size_t tree_hash = hasher(all_xml_content);
+    std::size_t tree_hash = hasher(main_bt_xml_content);
 
     if (std::find(cached_tree_hashes.begin(), cached_tree_hashes.end(), tree_hash) !=
       cached_tree_hashes.end())
