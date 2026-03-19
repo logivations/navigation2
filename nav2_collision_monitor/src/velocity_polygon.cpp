@@ -634,13 +634,15 @@ bool VelocityPolygon::validateSteering(
 
   if (same_bucket) {
     // Check one field up from the current field at the current physical angle.
-    // - Next field exists and is collision-free → allow
+    // Always limit speed to at most the next reachable field's max:
+    // - Next field exists and is collision-free → limit to next field's max
     // - Next field exists and has obstacles → limit to current field's max
-    // - No next field exists → limit to current field's max (prevent e-stop
-    //   beyond defined fields)
+    // - No next field exists → limit to current field's max
+    // This ensures progressive speed increase (one field per cycle) and
+    // prevents exceeding defined field ranges into e-stop territory.
     bool forward = current_sw_speed >= 0;
     auto fields_at_angle = findFieldsForAngle(current_sa, forward);
-    bool should_limit = false;
+    const SubPolygonParameter * limit_field = current_field;
 
     // Find the current field in the sorted list
     for (size_t i = 0; i < fields_at_angle.size(); i++) {
@@ -648,34 +650,31 @@ bool VelocityPolygon::validateSteering(
         continue;
       }
 
-      if (i + 1 >= fields_at_angle.size()) {
-        // No faster field exists — cap at current field's max
-        should_limit = true;
-      } else {
+      if (i + 1 < fields_at_angle.size()) {
         const SubPolygonParameter * next_field = fields_at_angle[i + 1];
         debug_msg.next_field_name = next_field->velocity_polygon_name_;
         int pts = getPointsInsideSubPolygon(*next_field, collision_points_map);
         debug_msg.next_field_collision_pts = pts;
-        if (pts >= min_points_) {
-          // Next field has obstacles — cap at current field's max
-          should_limit = true;
+        if (pts < min_points_) {
+          // Next field is collision-free — allow up to next field's max
+          limit_field = next_field;
         }
+        // else: next field has obstacles — stay at current field's max
       }
+      // else: no faster field — stay at current field's max
       break;
     }
 
-    if (should_limit) {
-      double limit_sw = forward ?
-        current_field->linear_max_ : current_field->linear_min_;
-      double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
-      if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
-        double limited_x = limit_sw * std::cos(current_sa);
-        double limited_tw = limit_sw * std::sin(current_sa) / wheelbase_;
-        debug_msg.speed_limit_applied = limited_x;
-        result_vel.x = limited_x;
-        result_vel.tw = limited_tw;
-        modified = true;
-      }
+    double limit_sw = forward ?
+      limit_field->linear_max_ : limit_field->linear_min_;
+    double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
+    if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
+      double limited_x = limit_sw * std::cos(current_sa);
+      double limited_tw = limit_sw * std::sin(current_sa) / wheelbase_;
+      debug_msg.speed_limit_applied = limited_x;
+      result_vel.x = limited_x;
+      result_vel.tw = limited_tw;
+      modified = true;
     }
 
     // Same bucket → done
