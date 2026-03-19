@@ -681,8 +681,8 @@ bool VelocityPolygon::validateSteering(
       limit_field->linear_max_ : limit_field->linear_min_;
     double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
     if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
-      double limited_x = limit_sw * std::cos(current_sa);
-      double limited_tw = limit_sw * std::sin(current_sa) / wheelbase_;
+      double limited_x = limit_sw * std::cos(target_steering_angle);
+      double limited_tw = limit_sw * std::sin(target_steering_angle) / wheelbase_;
       debug_msg.speed_limit_applied = limited_x;
       result_vel.x = limited_x;
       result_vel.tw = limited_tw;
