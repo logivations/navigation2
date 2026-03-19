@@ -633,6 +633,18 @@ bool VelocityPolygon::validateSteering(
   debug_msg.same_bucket = same_bucket;
 
   if (same_bucket) {
+    // Skip same-bucket limiting when the robot is at or near standstill.
+    // The current field at standstill (e.g. creeping/stopped) is not meaningful
+    // for speed limiting — the robot must be free to start moving.
+    if (std::abs(current_sw_speed) < low_speed_threshold_) {
+      debug_msg.modified = false;
+      debug_msg.result_vel_x = result_vel.x;
+      debug_msg.result_vel_y = result_vel.y;
+      debug_msg.result_vel_tw = result_vel.tw;
+      steering_debug_pub_->publish(debug_msg);
+      return false;
+    }
+
     // Check one field up from the current field at the current physical angle.
     // Always limit speed to at most the next reachable field's max:
     // - Next field exists and is collision-free → limit to next field's max
