@@ -478,7 +478,6 @@ bool VelocityPolygon::validateSteering(
   nav2_msgs::msg::SteeringValidationDebug debug_msg;
   debug_msg.header.stamp = clock_->now();
   debug_msg.polygon_name = polygon_name_;
-  debug_msg.wheelbase = wheelbase_;
   debug_msg.steering_angle_limit = std::numeric_limits<double>::quiet_NaN();
   debug_msg.speed_limit_applied = 0.0;
   debug_msg.next_field_collision_pts = -1;
