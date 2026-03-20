@@ -70,5 +70,6 @@ float64 result_vel_tw           # final output velocity tw
 float64 speed_limit_applied     # baselink speed limit applied (0 if none)
 float64 steering_angle_limit    # steering angle limit applied (NaN if none)
 
-# Polygon name
+# Polygon configuration
 string polygon_name
+float64 wheelbase               # wheelbase used for steering calculations

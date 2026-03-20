@@ -62,19 +62,16 @@ bool VelocityPolygon::getParameters(
     holonomic_ = node->declare_or_get_parameter(
       polygon_name_ + ".holonomic", false);
 
-    // Try polygon-specific wheelbase first, then fall back to the global
-    // robot wheelbase parameter (from amr_parameters.yaml), then default 1.0
-    double default_wheelbase = 1.0;
-    try {
-      default_wheelbase = node->declare_or_get_parameter<double>("wheelbase");
-    } catch (const rclcpp::exceptions::ParameterNotDeclaredException &) {
-    } catch (const rclcpp::exceptions::ParameterUninitializedException &) {
-    } catch (const rclcpp::exceptions::InvalidParameterValueException &) {
-    }
-    wheelbase_ = node->declare_or_get_parameter(
-      polygon_name_ + ".wheelbase", default_wheelbase);
+    wheelbase_ = node->declare_or_get_parameter(polygon_name_ + ".wheelbase", 1.0);
     RCLCPP_INFO(
       logger_, "[%s]: Using wheelbase: %.4f m", polygon_name_.c_str(), wheelbase_);
+    if (std::abs(wheelbase_ - 1.0) < 1e-6) {
+      RCLCPP_WARN(
+        logger_,
+        "[%s]: Wheelbase is default (1.0 m). Set '%s.wheelbase' to the robot's "
+        "actual wheelbase to ensure correct steering wheel speed calculations.",
+        polygon_name_.c_str(), polygon_name_.c_str());
+    }
 
     low_speed_threshold_ = node->declare_or_get_parameter(
       polygon_name_ + ".low_speed_threshold", 0.1);
@@ -481,6 +478,7 @@ bool VelocityPolygon::validateSteering(
   nav2_msgs::msg::SteeringValidationDebug debug_msg;
   debug_msg.header.stamp = clock_->now();
   debug_msg.polygon_name = polygon_name_;
+  debug_msg.wheelbase = wheelbase_;
   debug_msg.steering_angle_limit = std::numeric_limits<double>::quiet_NaN();
   debug_msg.speed_limit_applied = 0.0;
   debug_msg.next_field_collision_pts = -1;
