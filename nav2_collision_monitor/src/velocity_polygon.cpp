@@ -762,9 +762,13 @@ bool VelocityPolygon::validateSteering(
 
   // Find the starting field (fastest that covers max_sw_speed)
   for (int i = start_idx; i >= 0; i--) {
-    if (max_sw_speed >= std::abs(neighbour_fields[i]->linear_min_) &&
-      max_sw_speed <= std::abs(neighbour_fields[i]->linear_max_))
-    {
+    double abs_lo = std::min(
+      std::abs(neighbour_fields[i]->linear_min_),
+      std::abs(neighbour_fields[i]->linear_max_));
+    double abs_hi = std::max(
+      std::abs(neighbour_fields[i]->linear_min_),
+      std::abs(neighbour_fields[i]->linear_max_));
+    if (max_sw_speed >= abs_lo && max_sw_speed <= abs_hi) {
       start_idx = i;
       break;
     }
