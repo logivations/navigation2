@@ -33,10 +33,12 @@ struct State
   Eigen::ArrayXXf vx;
   Eigen::ArrayXXf vy;
   Eigen::ArrayXXf wz;
+  Eigen::ArrayXXf delta;
 
   Eigen::ArrayXXf cvx;
   Eigen::ArrayXXf cvy;
   Eigen::ArrayXXf cwz;
+  Eigen::ArrayXXf cdelta;
 
   geometry_msgs::msg::PoseStamped pose;
   geometry_msgs::msg::Twist speed;
@@ -50,10 +52,12 @@ struct State
     vx.setZero(batch_size, time_steps);
     vy.setZero(batch_size, time_steps);
     wz.setZero(batch_size, time_steps);
+    delta.setZero(batch_size, time_steps);
 
     cvx.setZero(batch_size, time_steps);
     cvy.setZero(batch_size, time_steps);
     cwz.setZero(batch_size, time_steps);
+    cdelta.setZero(batch_size, time_steps);
   }
 };
 }  // namespace mppi::models

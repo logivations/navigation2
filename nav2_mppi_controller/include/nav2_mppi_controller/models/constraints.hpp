@@ -44,6 +44,7 @@ struct SamplingStd
   float vx;
   float vy;
   float wz;
+  float delta;
 };
 
 }  // namespace mppi::models

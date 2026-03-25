@@ -49,7 +49,8 @@ void Optimizer::initialize(
   getParams();
 
   critic_manager_.on_configure(parent_, name_, costmap_ros_, parameters_handler_);
-  noise_generator_.initialize(settings_, isHolonomic(), name_, parameters_handler_);
+  noise_generator_.initialize(
+    settings_, isHolonomic(), motion_model_->usesSteeringControls(), name_, parameters_handler_);
 
   // This may throw an exception if not valid and fail initialization
   nav2::declare_parameter_if_not_declared(
@@ -119,6 +120,7 @@ void Optimizer::getParams()
   getParam(s.sampling_std.vx, "vx_std", 0.2f);
   getParam(s.sampling_std.vy, "vy_std", 0.2f);
   getParam(s.sampling_std.wz, "wz_std", 0.4f);
+  getParam(s.sampling_std.delta, "delta_std", 0.0f);
   getParam(s.retry_attempt_limit, "retry_attempt_limit", 1);
   getParam(s.open_loop, "open_loop", false);
 
@@ -175,10 +177,11 @@ void Optimizer::reset(bool reset_dynamic_speed_limits)
 {
   state_.reset(settings_.batch_size, settings_.time_steps);
   control_sequence_.reset(settings_.time_steps);
-  control_history_[0] = {0.0f, 0.0f, 0.0f};
-  control_history_[1] = {0.0f, 0.0f, 0.0f};
-  control_history_[2] = {0.0f, 0.0f, 0.0f};
-  control_history_[3] = {0.0f, 0.0f, 0.0f};
+  control_history_[0] = {0.0f, 0.0f, 0.0f, 0.0f};
+  control_history_[1] = {0.0f, 0.0f, 0.0f, 0.0f};
+  control_history_[2] = {0.0f, 0.0f, 0.0f, 0.0f};
+  control_history_[3] = {0.0f, 0.0f, 0.0f, 0.0f};
+  last_steering_angle_ = 0.0f;
 
   if (settings_.open_loop) {
     last_command_vel_ = geometry_msgs::msg::Twist();
@@ -191,7 +194,7 @@ void Optimizer::reset(bool reset_dynamic_speed_limits)
   costs_.setZero(settings_.batch_size);
   generated_trajectories_.reset(settings_.batch_size, settings_.time_steps);
 
-  noise_generator_.reset(settings_, isHolonomic());
+  noise_generator_.reset(settings_, isHolonomic(), motion_model_->usesSteeringControls());
   motion_model_->initialize(settings_.constraints, settings_.model_dt);
   trajectory_validator_->initialize(
     parent_, name_ + ".TrajectoryValidator",
@@ -249,6 +252,9 @@ std::tuple<geometry_msgs::msg::TwistStamped, Eigen::ArrayXXf> Optimizer::evalCon
   } while (fallback(critics_data_.fail_flag || !trajectory_valid));
 
   auto control = getControlFromSequenceAsTwist(plan.header.stamp);
+  if (motion_model_->usesSteeringControls()) {
+    last_steering_angle_ = control_sequence_.delta(settings_.shift_control_sequence ? 1 : 0);
+  }
 
   last_command_vel_ = control.twist;
 
@@ -316,6 +322,11 @@ void Optimizer::shiftControlSequence()
   control_sequence_.vx(size - 1) = control_sequence_.vx(size - 2);
   control_sequence_.wz(size - 1) = control_sequence_.wz(size - 2);
 
+  if (motion_model_->usesSteeringControls()) {
+    utils::shiftColumnsByOnePlace(control_sequence_.delta, -1);
+    control_sequence_.delta(size - 1) = control_sequence_.delta(size - 2);
+  }
+
   if (isHolonomic()) {
     utils::shiftColumnsByOnePlace(control_sequence_.vy, -1);
     control_sequence_.vy(size - 1) = control_sequence_.vy(size - 2);
@@ -338,11 +349,8 @@ void Optimizer::applyControlSequenceConstraints()
   float min_delta_vx = s.model_dt * s.constraints.ax_min;
   float max_delta_vy = s.model_dt * s.constraints.ay_max;
   float min_delta_vy = s.model_dt * s.constraints.ay_min;
-  float max_delta_wz = s.model_dt * s.constraints.az_max;
   float vx_last = utils::clamp(s.constraints.vx_min, s.constraints.vx_max, control_sequence_.vx(0));
-  float wz_last = utils::clamp(-s.constraints.wz, s.constraints.wz, control_sequence_.wz(0));
   control_sequence_.vx(0) = vx_last;
-  control_sequence_.wz(0) = wz_last;
   float vy_last = 0;
   if (isHolonomic()) {
     vy_last = utils::clamp(-s.constraints.vy, s.constraints.vy, control_sequence_.vy(0));
@@ -359,11 +367,6 @@ void Optimizer::applyControlSequenceConstraints()
     }
     vx_last = vx_curr;
 
-    float & wz_curr = control_sequence_.wz(i);
-    wz_curr = utils::clamp(-s.constraints.wz, s.constraints.wz, wz_curr);
-    wz_curr = utils::clamp(wz_last - max_delta_wz, wz_last + max_delta_wz, wz_curr);
-    wz_last = wz_curr;
-
     if (isHolonomic()) {
       float & vy_curr = control_sequence_.vy(i);
       vy_curr = utils::clamp(-s.constraints.vy, s.constraints.vy, vy_curr);
@@ -374,6 +377,21 @@ void Optimizer::applyControlSequenceConstraints()
       }
       vy_last = vy_curr;
     }
+  }
+
+  if (motion_model_->usesSteeringControls()) {
+    motion_model_->applySteeringConstraints(control_sequence_, last_steering_angle_);
+    return;
+  }
+
+  float max_delta_wz = s.model_dt * s.constraints.az_max;
+  float wz_last = utils::clamp(-s.constraints.wz, s.constraints.wz, control_sequence_.wz(0));
+  control_sequence_.wz(0) = wz_last;
+  for (unsigned int i = 1; i != control_sequence_.wz.size(); i++) {
+    float & wz_curr = control_sequence_.wz(i);
+    wz_curr = utils::clamp(-s.constraints.wz, s.constraints.wz, wz_curr);
+    wz_curr = utils::clamp(wz_last - max_delta_wz, wz_last + max_delta_wz, wz_curr);
+    wz_last = wz_curr;
   }
 
   motion_model_->applyConstraints(control_sequence_);
@@ -390,6 +408,16 @@ void Optimizer::updateInitialStateVelocities(models::State & state) const
 {
   state.vx.col(0) = static_cast<float>(state.speed.linear.x);
   state.wz.col(0) = static_cast<float>(state.speed.angular.z);
+  if (motion_model_->usesSteeringControls()) {
+    auto ackermann_model = dynamic_cast<AckermannMotionModel *>(motion_model_.get());
+    const float initial_delta = ackermann_model != nullptr ?
+      ackermann_model->inferSteeringAngle(
+      static_cast<float>(state.speed.linear.x),
+      static_cast<float>(state.speed.angular.z),
+      last_steering_angle_) :
+      last_steering_angle_;
+    state.delta.col(0).setConstant(initial_delta);
+  }
 
   if (isHolonomic()) {
     state.vy.col(0) = static_cast<float>(state.speed.linear.y);
@@ -528,7 +556,14 @@ void Optimizer::updateControlSequence()
   const float gamma_vx = s.gamma / (s.sampling_std.vx * s.sampling_std.vx);
   costs_ += (gamma_vx * (bounded_noises_vx.rowwise() * vx_T).rowwise().sum()).eval();
 
-  if (s.sampling_std.wz > 0.0f) {
+  if (motion_model_->usesSteeringControls()) {
+    if (s.sampling_std.delta > 0.0f) {
+      auto delta_T = control_sequence_.delta.transpose();
+      auto bounded_noises_delta = state_.cdelta.rowwise() - delta_T;
+      const float gamma_delta = s.gamma / (s.sampling_std.delta * s.sampling_std.delta);
+      costs_ += (gamma_delta * (bounded_noises_delta.rowwise() * delta_T).rowwise().sum()).eval();
+    }
+  } else if (s.sampling_std.wz > 0.0f) {
     auto wz_T = control_sequence_.wz.transpose();
     auto bounded_noises_wz = state_.cwz.rowwise() - wz_T;
     const float gamma_wz = s.gamma / (s.sampling_std.wz * s.sampling_std.wz);
@@ -549,7 +584,11 @@ void Optimizer::updateControlSequence()
 
   auto softmax_mat = softmaxes.matrix();
   control_sequence_.vx = state_.cvx.transpose().matrix() * softmax_mat;
-  control_sequence_.wz = state_.cwz.transpose().matrix() * softmax_mat;
+  if (motion_model_->usesSteeringControls()) {
+    control_sequence_.delta = state_.cdelta.transpose().matrix() * softmax_mat;
+  } else {
+    control_sequence_.wz = state_.cwz.transpose().matrix() * softmax_mat;
+  }
 
   if (is_holo) {
     control_sequence_.vy = state_.cvy.transpose().matrix() * softmax_mat;

@@ -251,6 +251,60 @@ TEST(MotionModelTests, AckermannReversingTest)
   model.reset();
 }
 
+TEST(MotionModelTests, AckermannSteeringStateTest)
+{
+  models::ControlSequence control_sequence;
+  models::State state;
+  int batches = 4;
+  int timesteps = 5;
+  control_sequence.reset(timesteps);
+  state.reset(batches, timesteps);
+
+  auto node = std::make_shared<nav2::LifecycleNode>("my_node");
+  node->declare_parameter("my_node.AckermannConstraints.wheelbase", 2.0);
+  node->declare_parameter("my_node.AckermannConstraints.delta_max", 0.4);
+  node->declare_parameter("my_node.AckermannConstraints.delta_dot_max", 1.0);
+  std::string name = "test";
+  ParametersHandler param_handler(node, name);
+
+  std::unique_ptr<AckermannMotionModel> model =
+    std::make_unique<AckermannMotionModel>(&param_handler, node->get_name());
+
+  models::ControlConstraints constraints{2.0f, -2.0f, 0.0f, 10.0f, 10.0f, -10.0f, -10.0f,
+    10.0f, 10.0f};
+  model->initialize(constraints, 0.1f);
+
+  EXPECT_TRUE(model->usesSteeringControls());
+  EXPECT_NEAR(model->inferSteeringAngle(1.0f, 0.5f, 0.0f), 0.4f, 1e-6);
+  EXPECT_NEAR(model->inferSteeringAngle(0.0f, 0.5f, 0.2f), 0.2f, 1e-6);
+
+  state.vx.col(0).setConstant(1.0f);
+  state.delta.col(0).setConstant(0.0f);
+  state.wz.col(0).setConstant(0.5f);
+  state.cvx.setConstant(1.0f);
+  state.cdelta.setConstant(1.0f);
+
+  model->predict(state);
+
+  EXPECT_NEAR(state.wz(0, 0), 0.5f, 1e-6);
+  EXPECT_NEAR(state.delta(0, 1), 0.1f, 1e-6);
+  EXPECT_NEAR(state.delta(0, 2), 0.2f, 1e-6);
+  EXPECT_NEAR(state.wz(0, 1), std::tan(0.1f) / 2.0f, 1e-6);
+  EXPECT_NEAR(state.wz(0, 2), std::tan(0.2f) / 2.0f, 1e-6);
+
+  control_sequence.vx.setConstant(1.0f);
+  control_sequence.delta.setConstant(1.0f);
+  model->applySteeringConstraints(control_sequence, 0.0f);
+
+  EXPECT_NEAR(control_sequence.delta(0), 0.1f, 1e-6);
+  EXPECT_NEAR(control_sequence.delta(1), 0.2f, 1e-6);
+  EXPECT_NEAR(control_sequence.delta(2), 0.3f, 1e-6);
+  EXPECT_NEAR(control_sequence.delta(3), 0.4f, 1e-6);
+  EXPECT_NEAR(control_sequence.delta(4), 0.4f, 1e-6);
+  EXPECT_NEAR(control_sequence.wz(0), std::tan(0.1f) / 2.0f, 1e-6);
+  EXPECT_NEAR(control_sequence.wz(3), std::tan(0.4f) / 2.0f, 1e-6);
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

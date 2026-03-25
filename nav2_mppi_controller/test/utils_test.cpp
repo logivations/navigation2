@@ -285,6 +285,7 @@ TEST(UtilsTests, SmootherTest)
   noisey_sequence.vx = 0.2 * Eigen::ArrayXf::Ones(30);
   noisey_sequence.vy = 0.0 * Eigen::ArrayXf::Ones(30);
   noisey_sequence.wz = 0.3 * Eigen::ArrayXf::Ones(30);
+  noisey_sequence.delta = 0.0 * Eigen::ArrayXf::Ones(30);
 
   // Make the sequence noisy
   std::mt19937 engine;
@@ -300,15 +301,19 @@ TEST(UtilsTests, SmootherTest)
   history[3].vx = 0.1;
   history[3].vy = 0.0;
   history[3].wz = 0.3;
+  history[3].delta = 0.0;
   history[2].vx = 0.1;
   history[2].vy = 0.0;
   history[2].wz = 0.3;
+  history[2].delta = 0.0;
   history[1].vx = 0.1;
   history[1].vy = 0.0;
   history[1].wz = 0.3;
+  history[1].delta = 0.0;
   history[0].vx = 0.0;
   history[0].vy = 0.0;
   history[0].wz = 0.0;
+  history[0].delta = 0.0;
   history_init = history;
 
   models::OptimizerSettings settings;
@@ -476,6 +481,7 @@ TEST(UtilsTests, toTrajectoryMsgTest)
   control_sequence.vx = Eigen::ArrayXf::Ones(5);
   control_sequence.wz = Eigen::ArrayXf::Ones(5);
   control_sequence.vy = Eigen::ArrayXf::Zero(5);
+  control_sequence.delta = Eigen::ArrayXf::Zero(5);
 
   std_msgs::msg::Header header;
   header.frame_id = "map";

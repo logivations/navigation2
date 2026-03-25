@@ -21,16 +21,18 @@ namespace mppi
 {
 
 void NoiseGenerator::initialize(
-  mppi::models::OptimizerSettings & settings, bool is_holonomic,
+  mppi::models::OptimizerSettings & settings, bool is_holonomic, bool use_steering,
   const std::string & name, ParametersHandler * param_handler)
 {
   settings_ = settings;
   is_holonomic_ = is_holonomic;
+  use_steering_ = use_steering;
   active_ = true;
 
   ndistribution_vx_ = std::normal_distribution(0.0f, settings_.sampling_std.vx);
   ndistribution_vy_ = std::normal_distribution(0.0f, settings_.sampling_std.vy);
   ndistribution_wz_ = std::normal_distribution(0.0f, settings_.sampling_std.wz);
+  ndistribution_delta_ = std::normal_distribution(0.0f, settings_.sampling_std.delta);
 
   auto getParam = param_handler->getParamGetter(name);
   getParam(regenerate_noises_, "regenerate_noises", false);
@@ -72,12 +74,15 @@ void NoiseGenerator::setNoisedControls(
   state.cvx = noises_vx_.rowwise() + control_sequence.vx.transpose();
   state.cvy = noises_vy_.rowwise() + control_sequence.vy.transpose();
   state.cwz = noises_wz_.rowwise() + control_sequence.wz.transpose();
+  state.cdelta = noises_delta_.rowwise() + control_sequence.delta.transpose();
 }
 
-void NoiseGenerator::reset(mppi::models::OptimizerSettings & settings, bool is_holonomic)
+void NoiseGenerator::reset(
+  mppi::models::OptimizerSettings & settings, bool is_holonomic, bool use_steering)
 {
   settings_ = settings;
   is_holonomic_ = is_holonomic;
+  use_steering_ = use_steering;
 
   // Recompute the noises on reset, initialization, and fallback
   {
@@ -85,6 +90,7 @@ void NoiseGenerator::reset(mppi::models::OptimizerSettings & settings, bool is_h
     noises_vx_.setZero(settings_.batch_size, settings_.time_steps);
     noises_vy_.setZero(settings_.batch_size, settings_.time_steps);
     noises_wz_.setZero(settings_.batch_size, settings_.time_steps);
+    noises_delta_.setZero(settings_.batch_size, settings_.time_steps);
     ready_ = true;
   }
 
@@ -112,6 +118,10 @@ void NoiseGenerator::generateNoisedControls()
     s.batch_size, s.time_steps, [&]() {return ndistribution_vx_(generator_);});
   noises_wz_ = Eigen::ArrayXXf::NullaryExpr(
     s.batch_size, s.time_steps, [&]() {return ndistribution_wz_(generator_);});
+  if (use_steering_) {
+    noises_delta_ = Eigen::ArrayXXf::NullaryExpr(
+      s.batch_size, s.time_steps, [&]() {return ndistribution_delta_(generator_);});
+  }
   if (is_holonomic_) {
     noises_vy_ = Eigen::ArrayXXf::NullaryExpr(
       s.batch_size, s.time_steps, [&]() {return ndistribution_vy_(generator_);});

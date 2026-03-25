@@ -30,11 +30,13 @@ TEST(ModelsTest, ControlSequenceTest)
   sequence.vx = Eigen::ArrayXf::Ones(10);
   sequence.vy = Eigen::ArrayXf::Ones(10);
   sequence.wz = Eigen::ArrayXf::Ones(10);
+  sequence.delta = Eigen::ArrayXf::Ones(10);
 
   // Show you can get contents
   EXPECT_EQ(sequence.vx(4), 1);
   EXPECT_EQ(sequence.vy(4), 1);
   EXPECT_EQ(sequence.wz(4), 1);
+  EXPECT_EQ(sequence.delta(4), 1);
 
   sequence.reset(20);
 
@@ -42,9 +44,11 @@ TEST(ModelsTest, ControlSequenceTest)
   EXPECT_EQ(sequence.vx(4), 0);
   EXPECT_EQ(sequence.vy(4), 0);
   EXPECT_EQ(sequence.wz(4), 0);
+  EXPECT_EQ(sequence.delta(4), 0);
   EXPECT_EQ(sequence.vx.rows(), 20);
   EXPECT_EQ(sequence.vy.rows(), 20);
   EXPECT_EQ(sequence.wz.rows(), 20);
+  EXPECT_EQ(sequence.delta.rows(), 20);
 }
 
 TEST(ModelsTest, PathTest)
@@ -78,17 +82,21 @@ TEST(ModelsTest, StateTest)
   state.vx = Eigen::ArrayXXf::Ones(10, 10);
   state.vy = Eigen::ArrayXXf::Ones(10, 10);
   state.wz = Eigen::ArrayXXf::Ones(10, 10);
+  state.delta = Eigen::ArrayXXf::Ones(10, 10);
   state.cvx = Eigen::ArrayXXf::Ones(10, 10);
   state.cvy = Eigen::ArrayXXf::Ones(10, 10);
   state.cwz = Eigen::ArrayXXf::Ones(10, 10);
+  state.cdelta = Eigen::ArrayXXf::Ones(10, 10);
 
   // Show you can get contents
   EXPECT_EQ(state.cvx(4), 1);
   EXPECT_EQ(state.cvy(4), 1);
   EXPECT_EQ(state.cwz(4), 1);
+  EXPECT_EQ(state.cdelta(4), 1);
   EXPECT_EQ(state.vx(4), 1);
   EXPECT_EQ(state.vy(4), 1);
   EXPECT_EQ(state.wz(4), 1);
+  EXPECT_EQ(state.delta(4), 1);
 
   state.reset(20, 40);
 
@@ -96,21 +104,27 @@ TEST(ModelsTest, StateTest)
   EXPECT_EQ(state.cvx(4), 0);
   EXPECT_EQ(state.cvy(4), 0);
   EXPECT_EQ(state.cwz(4), 0);
+  EXPECT_EQ(state.cdelta(4), 0);
   EXPECT_EQ(state.vx(4), 0);
   EXPECT_EQ(state.vy(4), 0);
   EXPECT_EQ(state.wz(4), 0);
+  EXPECT_EQ(state.delta(4), 0);
   EXPECT_EQ(state.cvx.rows(), 20);
   EXPECT_EQ(state.cvy.rows(), 20);
   EXPECT_EQ(state.cwz.rows(), 20);
+  EXPECT_EQ(state.cdelta.rows(), 20);
   EXPECT_EQ(state.cvx.cols(), 40);
   EXPECT_EQ(state.cvy.cols(), 40);
   EXPECT_EQ(state.cwz.cols(), 40);
+  EXPECT_EQ(state.cdelta.cols(), 40);
   EXPECT_EQ(state.vx.rows(), 20);
   EXPECT_EQ(state.vy.rows(), 20);
   EXPECT_EQ(state.wz.rows(), 20);
+  EXPECT_EQ(state.delta.rows(), 20);
   EXPECT_EQ(state.vx.cols(), 40);
   EXPECT_EQ(state.vy.cols(), 40);
   EXPECT_EQ(state.wz.cols(), 40);
+  EXPECT_EQ(state.delta.cols(), 40);
 }
 
 TEST(ModelsTest, TrajectoriesTest)

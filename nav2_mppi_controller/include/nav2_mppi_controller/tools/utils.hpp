@@ -500,6 +500,9 @@ inline void savitskyGolayFilter(
   applyFilterOverAxis(
     control_sequence.wz, initial_control_sequence.wz, control_history[0].wz,
     control_history[1].wz, control_history[2].wz, control_history[3].wz);
+  applyFilterOverAxis(
+    control_sequence.delta, initial_control_sequence.delta, control_history[0].delta,
+    control_history[1].delta, control_history[2].delta, control_history[3].delta);
 
   // Update control history
   unsigned int offset = settings.shift_control_sequence ? 1 : 0;
@@ -509,7 +512,8 @@ inline void savitskyGolayFilter(
   control_history[3] = {
     control_sequence.vx(offset),
     control_sequence.vy(offset),
-    control_sequence.wz(offset)};
+    control_sequence.wz(offset),
+    control_sequence.delta(offset)};
 }
 
 /**

@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <string>
 #include <algorithm>
+#include <cmath>
 
 #include "nav2_mppi_controller/models/control_sequence.hpp"
 #include "nav2_mppi_controller/models/state.hpp"
@@ -125,10 +126,28 @@ public:
   virtual bool isHolonomic() = 0;
 
   /**
+   * @brief Whether the motion model samples a steering state instead of angular velocity
+   * @return Bool if steering controls are used
+   */
+  virtual bool usesSteeringControls() const
+  {
+    return false;
+  }
+
+  /**
    * @brief Apply hard vehicle constraints to a control sequence
    * @param control_sequence Control sequence to apply constraints to
    */
   virtual void applyConstraints(models::ControlSequence & /*control_sequence*/) {}
+
+  /**
+   * @brief Apply stateful steering constraints to a control sequence
+   * @param control_sequence Control sequence to apply constraints to
+   * @param initial_steering_angle Steering angle at the current control cycle start
+   */
+  virtual void applySteeringConstraints(
+    models::ControlSequence & /*control_sequence*/,
+    float /*initial_steering_angle*/) const {}
 
 protected:
   float model_dt_{0.0};
@@ -150,6 +169,10 @@ public:
   {
     auto getParam = param_handler->getParamGetter(name + ".AckermannConstraints");
     getParam(min_turning_r_, "min_turning_r", 0.2);
+    getParam(wheelbase_, "wheelbase", 1.0);
+    getParam(delta_max_, "delta_max", 0.0);
+    getParam(delta_dot_max_, "delta_dot_max", 0.0);
+    use_steering_model_ = wheelbase_ > 0.0f && delta_max_ > 0.0f && delta_dot_max_ > 0.0f;
   }
 
   /**
@@ -161,16 +184,85 @@ public:
     return false;
   }
 
+  bool usesSteeringControls() const override
+  {
+    return use_steering_model_;
+  }
+
+  void predict(models::State & state) override
+  {
+    if (!use_steering_model_) {
+      MotionModel::predict(state);
+      return;
+    }
+
+    float max_delta_vx = model_dt_ * control_constraints_.ax_max;
+    float min_delta_vx = model_dt_ * control_constraints_.ax_min;
+    float max_delta_delta = model_dt_ * delta_dot_max_;
+
+    unsigned int n_cols = state.vx.cols();
+
+    for (unsigned int i = 1; i < n_cols; i++) {
+      auto lower_bound_vx = (state.vx.col(i - 1) > 0).select(
+        state.vx.col(i - 1) + min_delta_vx,
+        state.vx.col(i - 1) - max_delta_vx);
+      auto upper_bound_vx = (state.vx.col(i - 1) > 0).select(
+        state.vx.col(i - 1) + max_delta_vx,
+        state.vx.col(i - 1) - min_delta_vx);
+
+      state.cvx.col(i - 1) = state.cvx.col(i - 1)
+        .cwiseMax(lower_bound_vx)
+        .cwiseMin(upper_bound_vx);
+      state.vx.col(i) = state.cvx.col(i - 1);
+
+      state.cdelta.col(i - 1) = state.cdelta.col(i - 1)
+        .cwiseMax(state.delta.col(i - 1) - max_delta_delta)
+        .cwiseMin(state.delta.col(i - 1) + max_delta_delta)
+        .cwiseMax(-delta_max_)
+        .cwiseMin(delta_max_);
+      state.delta.col(i) = state.cdelta.col(i - 1);
+      state.wz.col(i) =
+        steeringAngleToAngularVelocity(state.vx.col(i).eval(), state.delta.col(i).eval());
+      state.cwz.col(i - 1) = state.wz.col(i);
+    }
+  }
+
   /**
    * @brief Apply hard vehicle constraints to a control sequence
    * @param control_sequence Control sequence to apply constraints to
    */
   void applyConstraints(models::ControlSequence & control_sequence) override
   {
+    if (use_steering_model_) {
+      control_sequence.wz =
+        steeringAngleToAngularVelocity(control_sequence.vx, control_sequence.delta);
+      return;
+    }
+
     const auto wz_constrained = control_sequence.vx.abs() / min_turning_r_;
     control_sequence.wz = control_sequence.wz
       .max((-wz_constrained))
       .min(wz_constrained);
+  }
+
+  void applySteeringConstraints(
+    models::ControlSequence & control_sequence,
+    float initial_steering_angle) const override
+  {
+    if (!use_steering_model_) {
+      return;
+    }
+
+    const float max_delta_delta = model_dt_ * delta_dot_max_;
+    float delta_last = std::clamp(initial_steering_angle, -delta_max_, delta_max_);
+
+    for (unsigned int i = 0; i != control_sequence.delta.size(); i++) {
+      float & delta_curr = control_sequence.delta(i);
+      delta_curr = std::clamp(delta_curr, -delta_max_, delta_max_);
+      delta_curr = std::clamp(delta_curr, delta_last - max_delta_delta, delta_last + max_delta_delta);
+      delta_last = delta_curr;
+      control_sequence.wz(i) = steeringAngleToAngularVelocity(control_sequence.vx(i), delta_curr);
+    }
   }
 
   /**
@@ -178,9 +270,44 @@ public:
    * @return Minimum turning radius
    */
   float getMinTurningRadius() {return min_turning_r_;}
+  float getSteeringAngleMax() const {return delta_max_;}
+  float getSteeringRateMax() const {return delta_dot_max_;}
+  float inferSteeringAngle(float vx, float wz, float fallback_delta) const
+  {
+    if (!use_steering_model_) {
+      return fallback_delta;
+    }
+
+    constexpr float min_speed_for_inference = 1e-3f;
+    if (std::fabs(vx) < min_speed_for_inference) {
+      return std::clamp(fallback_delta, -delta_max_, delta_max_);
+    }
+
+    const float inferred_delta = std::atan((wheelbase_ * wz) / vx);
+    return std::clamp(inferred_delta, -delta_max_, delta_max_);
+  }
+
+  float steeringAngleToAngularVelocity(float vx, float delta) const
+  {
+    return use_steering_model_ ? (vx / wheelbase_) * std::tan(delta) : 0.0f;
+  }
+
+  Eigen::ArrayXf steeringAngleToAngularVelocity(
+    const Eigen::ArrayXf & vx, const Eigen::ArrayXf & delta) const
+  {
+    if (!use_steering_model_) {
+      return Eigen::ArrayXf::Zero(vx.size());
+    }
+
+    return ((vx / wheelbase_) * delta.tan()).eval();
+  }
 
 private:
   float min_turning_r_{0};
+  float wheelbase_{1.0f};
+  float delta_max_{0.0f};
+  float delta_dot_max_{0.0f};
+  bool use_steering_model_{false};
 };
 
 /**

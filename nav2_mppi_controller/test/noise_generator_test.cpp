@@ -41,8 +41,8 @@ TEST(NoiseGeneratorTest, NoiseGeneratorLifecycle)
   std::string name = "test";
   ParametersHandler handler(node, name);
 
-  generator.initialize(settings, false, "test_name", &handler);
-  generator.reset(settings, false);
+  generator.initialize(settings, false, false, "test_name", &handler);
+  generator.reset(settings, false, false);
   generator.shutdown();
 }
 
@@ -60,6 +60,7 @@ TEST(NoiseGeneratorTest, NoiseGeneratorMain)
   settings.sampling_std.vx = 0.1;
   settings.sampling_std.vy = 0.1;
   settings.sampling_std.wz = 0.1;
+  settings.sampling_std.delta = 0.1;
 
   // Populate a potential control sequence
   mppi::models::ControlSequence control_sequence;
@@ -68,14 +69,15 @@ TEST(NoiseGeneratorTest, NoiseGeneratorMain)
     control_sequence.vx(i) = i;
     control_sequence.vy(i) = i;
     control_sequence.wz(i) = i;
+    control_sequence.delta(i) = i;
   }
 
   mppi::models::State state;
   state.reset(settings.batch_size, settings.time_steps);
 
   // Request an update with no noise yet generated, should result in identical outputs
-  generator.initialize(settings, false, "test_name", &handler);
-  generator.reset(settings, false);  // sets initial sizing and zeros out noises
+  generator.initialize(settings, false, false, "test_name", &handler);
+  generator.reset(settings, false, false);  // sets initial sizing and zeros out noises
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   generator.setNoisedControls(state, control_sequence);
 
@@ -114,7 +116,7 @@ TEST(NoiseGeneratorTest, NoiseGeneratorMain)
 
 
   // Test holonomic setting
-  generator.reset(settings, true);  // Now holonomically
+  generator.reset(settings, true, false);  // Now holonomically
   generator.generateNextNoises();
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   generator.setNoisedControls(state, control_sequence);
@@ -149,6 +151,7 @@ TEST(NoiseGeneratorTest, NoiseGeneratorMainNoRegenerate)
   settings.sampling_std.vx = 0.1;
   settings.sampling_std.vy = 0.1;
   settings.sampling_std.wz = 0.1;
+  settings.sampling_std.delta = 0.1;
 
   // Populate a potential control sequence
   mppi::models::ControlSequence control_sequence;
@@ -157,14 +160,15 @@ TEST(NoiseGeneratorTest, NoiseGeneratorMainNoRegenerate)
     control_sequence.vx(i) = i;
     control_sequence.vy(i) = i;
     control_sequence.wz(i) = i;
+    control_sequence.delta(i) = i;
   }
 
   mppi::models::State state;
   state.reset(settings.batch_size, settings.time_steps);
 
   // Request an update with no noise yet generated, should result in identical outputs
-  generator.initialize(settings, false, "test_name", &handler);
-  generator.reset(settings, false);  // sets initial sizing and zeros out noises
+  generator.initialize(settings, false, false, "test_name", &handler);
+  generator.reset(settings, false, false);  // sets initial sizing and zeros out noises
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   generator.setNoisedControls(state, control_sequence);
 

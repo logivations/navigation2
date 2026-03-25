@@ -26,7 +26,7 @@ namespace mppi::models
  */
 struct Control
 {
-  float vx, vy, wz;
+  float vx, vy, wz, delta;
 };
 
 /**
@@ -38,12 +38,14 @@ struct ControlSequence
   Eigen::ArrayXf vx;
   Eigen::ArrayXf vy;
   Eigen::ArrayXf wz;
+  Eigen::ArrayXf delta;
 
   void reset(unsigned int time_steps)
   {
     vx.setZero(time_steps);
     vy.setZero(time_steps);
     wz.setZero(time_steps);
+    delta.setZero(time_steps);
   }
 };
 

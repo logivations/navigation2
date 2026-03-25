@@ -287,6 +287,7 @@ protected:
   models::Path path_;
   geometry_msgs::msg::Pose goal_;
   Eigen::ArrayXf costs_;
+  float last_steering_angle_{0.0f};
 
   CriticData critics_data_ = {
     state_, generated_trajectories_, path_, goal_,

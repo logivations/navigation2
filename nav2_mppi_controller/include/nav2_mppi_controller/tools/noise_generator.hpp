@@ -54,7 +54,7 @@ public:
    */
   void initialize(
     mppi::models::OptimizerSettings & settings,
-    bool is_holonomic, const std::string & name, ParametersHandler * param_handler);
+    bool is_holonomic, bool use_steering, const std::string & name, ParametersHandler * param_handler);
 
   /**
    * @brief Shutdown noise generator thread
@@ -78,7 +78,7 @@ public:
    * @param settings Settings of controller
    * @param is_holonomic If base is holonomic
    */
-  void reset(mppi::models::OptimizerSettings & settings, bool is_holonomic);
+  void reset(mppi::models::OptimizerSettings & settings, bool is_holonomic, bool use_steering);
 
 protected:
   /**
@@ -98,14 +98,17 @@ protected:
   Eigen::ArrayXXf noises_vx_;
   Eigen::ArrayXXf noises_vy_;
   Eigen::ArrayXXf noises_wz_;
+  Eigen::ArrayXXf noises_delta_;
 
   std::default_random_engine generator_;
   std::normal_distribution<float> ndistribution_vx_;
   std::normal_distribution<float> ndistribution_wz_;
   std::normal_distribution<float> ndistribution_vy_;
+  std::normal_distribution<float> ndistribution_delta_;
 
   mppi::models::OptimizerSettings settings_;
   bool is_holonomic_;
+  bool use_steering_{false};
 
   std::thread noise_thread_;
   std::condition_variable noise_cond_;

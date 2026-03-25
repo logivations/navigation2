@@ -91,7 +91,7 @@ public:
   {
     state_.vx = 0.43432 * Eigen::ArrayXXf::Ones(1000, 10);
     control_sequence_.vx = 342.0 * Eigen::ArrayXf::Ones(30);
-    control_history_[0] = {43, 5646, 32432};
+    control_history_[0] = {43, 5646, 32432, 12};
     costs_ = 5.32 * Eigen::ArrayXf::Ones(56453);
     generated_trajectories_.x = 432.234 * Eigen::ArrayXf::Ones(7865);
   }
