@@ -754,25 +754,25 @@ bool VelocityPolygon::validateSteering(
   }
 
   // Find the fastest field that covers max(|current|, |target|) speed
+  // Use signed speed so the range check works for both forward and backward fields
+  // (backward fields have linear_min_ < linear_max_ < 0, so |min| > |max|
+  //  which inverts the abs-based comparison)
   double max_sw_speed = std::max(std::abs(current_sw_speed), std::abs(target_sw_speed));
+  double signed_max_sw = forward ? max_sw_speed : -max_sw_speed;
 
   // Find the valid field: start from fastest covering field, walk down
   const SubPolygonParameter * valid_field = nullptr;
   int start_idx = static_cast<int>(neighbour_fields.size()) - 1;
 
-  // Find the starting field (fastest that covers max_sw_speed)
+  // Find the starting field (fastest that covers the speed)
   for (int i = start_idx; i >= 0; i--) {
-    double abs_lo = std::min(
-      std::abs(neighbour_fields[i]->linear_min_),
-      std::abs(neighbour_fields[i]->linear_max_));
-    double abs_hi = std::max(
-      std::abs(neighbour_fields[i]->linear_min_),
-      std::abs(neighbour_fields[i]->linear_max_));
-    if (max_sw_speed >= abs_lo && max_sw_speed <= abs_hi) {
+    if (signed_max_sw >= neighbour_fields[i]->linear_min_ &&
+      signed_max_sw <= neighbour_fields[i]->linear_max_)
+    {
       start_idx = i;
       break;
     }
-    // If max_sw_speed is beyond all fields, start from the fastest
+    // If speed is beyond all fields, start from the fastest
     if (i == 0) {
       start_idx = static_cast<int>(neighbour_fields.size()) - 1;
     }
