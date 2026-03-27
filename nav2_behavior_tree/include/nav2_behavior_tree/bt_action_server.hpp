@@ -24,6 +24,7 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav2_behavior_tree/behavior_tree_engine.hpp"
 #include "nav2_behavior_tree/ros_topic_logger.hpp"
+#include "nav2_behavior_tree/ros_transition_logger.hpp"
 #include "nav2_ros_common/lifecycle_node.hpp"
 #include "nav2_ros_common/simple_action_server.hpp"
 
@@ -96,6 +97,12 @@ public:
    * @param server_port Groot2 Server port, first of the pair (server_port, publisher_port)
    */
   void setGrootMonitoring(const bool enable, const unsigned server_port);
+
+  /**
+   * @brief Setter function for BT transition logging
+   * @param enable Whether to publish individual BT transitions and periodic snapshots
+   */
+  void setBtTransitionLogging(const bool enable);
 
   /**
    * @brief Replace current BT with another one
@@ -278,6 +285,9 @@ protected:
   // To publish BT logs
   std::unique_ptr<RosTopicLogger> topic_logger_;
 
+  // To publish individual BT transitions and periodic snapshots
+  std::unique_ptr<RosTransitionLogger> transition_logger_;
+
   // Duration for each iteration of BT execution
   std::chrono::milliseconds bt_loop_duration_;
 
@@ -298,6 +308,9 @@ protected:
 
   // Parameters for Groot2 monitoring
   bool enable_groot_monitoring_ = false;
+
+  // Publish individual BT transitions and periodic snapshots
+  bool enable_bt_transition_logging_ = false;
   int groot_server_port_ = 1667;
 
   // User-provided callbacks

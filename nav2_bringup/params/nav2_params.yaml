@@ -56,11 +56,13 @@ bt_navigator:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
       enable_groot_monitoring: false
       groot_server_port: 1667
+      enable_bt_transition_logging: true
       search_window: 2.0
     navigate_through_poses:
       plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
       enable_groot_monitoring: false
       groot_server_port: 1669
+      enable_bt_transition_logging: true
       search_window: 2.0
     bt_search_directories:
       - $(find-pkg-share nav2_bt_navigator)/behavior_trees

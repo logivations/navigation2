@@ -239,6 +239,12 @@ void BtActionServer<ActionT, NodeT>::setGrootMonitoring(
 }
 
 template<class ActionT, class NodeT>
+void BtActionServer<ActionT, NodeT>::setBtTransitionLogging(const bool enable)
+{
+  enable_bt_transition_logging_ = enable;
+}
+
+template<class ActionT, class NodeT>
 bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml_filename_or_id)
 {
   namespace fs = std::filesystem;
@@ -384,6 +390,11 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
 
   // Optional logging and monitoring
   topic_logger_ = std::make_unique<RosTopicLogger>(client_node_, tree_, log_idle_);
+  if (enable_bt_transition_logging_) {
+    transition_logger_ = std::make_unique<RosTransitionLogger>(client_node_, tree_, log_idle_);
+  } else {
+    transition_logger_.reset();
+  }
   current_bt_file_or_id_ = file_or_id;
 
   if (enable_groot_monitoring_) {
@@ -441,6 +452,9 @@ void BtActionServer<ActionT, NodeT>::executeCallback()
         on_preempt_callback_(action_server_->get_pending_goal());
       }
       topic_logger_->flush();
+      if (transition_logger_) {
+        transition_logger_->flush();
+      }
       on_loop_callback_();
     };
 

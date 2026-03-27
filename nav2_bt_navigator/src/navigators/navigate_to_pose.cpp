@@ -62,6 +62,10 @@ NavigateToPoseNavigator::configure(
     enable_groot_monitoring,
     groot_server_port);
 
+  bool enable_bt_transition_logging =
+    node->declare_or_get_parameter(getName() + ".enable_bt_transition_logging", false);
+  bt_action_server_->setBtTransitionLogging(enable_bt_transition_logging);
+
   return true;
 }
 
