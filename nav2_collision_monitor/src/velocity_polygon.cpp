@@ -645,19 +645,69 @@ bool VelocityPolygon::validateSteering(
     target_steering_angle <= current_field->steering_angle_max_;
   debug_msg.same_bucket = same_bucket;
 
-  if (same_bucket) {
-    // Skip same-bucket limiting when the robot is at or near standstill.
-    // The current field at standstill (e.g. creeping/stopped) is not meaningful
-    // for speed limiting — the robot must be free to start moving.
-    if (std::abs(current_sw_speed) < low_speed_threshold_) {
-      debug_msg.modified = false;
-      debug_msg.result_vel_x = result_vel.x;
-      debug_msg.result_vel_y = result_vel.y;
-      debug_msg.result_vel_tw = result_vel.tw;
-      steering_debug_pub_->publish(debug_msg);
-      return false;
+  // When the robot is at near-standstill or its speed falls in a gap between
+  // fields (current_field == nullptr), use the TARGET direction's fields to
+  // check for obstacles.  This prevents blind acceleration from low speed into
+  // obstructed fields that would otherwise trigger an e-stop.
+  bool low_speed = current_field == nullptr ||
+    std::abs(current_sw_speed) < low_speed_threshold_;
+
+  if (low_speed) {
+    bool target_forward = target_sw_speed >= 0;
+    auto target_fields = findFieldsForAngle(target_steering_angle, target_forward);
+
+    if (!target_fields.empty()) {
+      // Use the slowest field (index 0) as effective "current" and check one
+      // step up, mirroring the normal progressive-acceleration logic.
+      const SubPolygonParameter * limit_field = target_fields[0];
+
+      int slowest_pts = getPointsInsideSubPolygon(*target_fields[0], collision_points_map);
+      debug_msg.next_field_collision_pts = slowest_pts;
+
+      if (slowest_pts >= min_points_) {
+        // Even the slowest field has obstacles — force stop
+        result_vel = {0.0, 0.0, 0.0};
+        modified = true;
+      } else {
+        // Slowest field clear — check one step up
+        if (target_fields.size() > 1) {
+          debug_msg.next_field_name = target_fields[1]->velocity_polygon_name_;
+          int next_pts = getPointsInsideSubPolygon(*target_fields[1], collision_points_map);
+          debug_msg.next_field_collision_pts = next_pts;
+          if (next_pts < min_points_) {
+            limit_field = target_fields[1];
+          }
+        }
+
+        double limit_sw = target_forward ?
+          limit_field->linear_max_ : limit_field->linear_min_;
+        double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
+        if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
+          double limited_x = limit_sw * std::cos(target_steering_angle);
+          double limited_tw = limit_sw * std::sin(target_steering_angle) / wheelbase_;
+          debug_msg.speed_limit_applied = limited_x;
+          result_vel.x = limited_x;
+          result_vel.tw = limited_tw;
+          modified = true;
+        }
+      }
+
+      if (modified) {
+        robot_action.req_vel = result_vel;
+        robot_action.polygon_name = polygon_name_;
+        robot_action.action_type = LIMIT;
+      }
     }
 
+    debug_msg.modified = modified;
+    debug_msg.result_vel_x = result_vel.x;
+    debug_msg.result_vel_y = result_vel.y;
+    debug_msg.result_vel_tw = result_vel.tw;
+    steering_debug_pub_->publish(debug_msg);
+    return modified;
+  }
+
+  if (same_bucket) {
     // Check one field up from the current field at the current physical angle.
     // Always limit speed to at most the next reachable field's max:
     // - Next field exists and is collision-free → limit to next field's max
@@ -717,23 +767,7 @@ bool VelocityPolygon::validateSteering(
   }
 
   // 3. Different bucket — find neighbouring bucket (one step in steering direction)
-  if (current_field == nullptr) {
-    RCLCPP_WARN(
-      logger_,
-      "[%s] validateSteering: current_field is null — no field matches current velocity. "
-      "odom_vel=(%.3f, %.3f, %.3f), current_sw_speed=%.3f, current_sa=%.3f, "
-      "cmd_vel=(%.3f, %.3f, %.3f), target_sw_speed=%.3f, target_sa=%.3f. "
-      "Check that velocity polygon field ranges cover all reachable velocities.",
-      polygon_name_.c_str(),
-      odom_vel.x, odom_vel.y, odom_vel.tw, current_sw_speed, current_sa,
-      cmd_vel_in.x, cmd_vel_in.y, cmd_vel_in.tw, target_sw_speed, target_steering_angle);
-    debug_msg.modified = false;
-    debug_msg.result_vel_x = result_vel.x;
-    debug_msg.result_vel_y = result_vel.y;
-    debug_msg.result_vel_tw = result_vel.tw;
-    steering_debug_pub_->publish(debug_msg);
-    return false;
-  }
+  // current_field is guaranteed non-null here (low_speed case handled above)
 
   double neighbour_angle;
   if (target_steering_angle > current_sa) {
