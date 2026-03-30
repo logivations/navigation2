@@ -52,6 +52,11 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   parallel_state_transitions_ = nav2::declare_or_get_parameter(
     node, "parallel_state_transitions", false);
 
+  // Pre-declare the bond heartbeat timeout parameter so that concurrent
+  // bond::Bond constructions (during parallel state transitions) do not
+  // race on has_parameter / declare_parameter.
+  this->declare_parameter(bond::msg::Constants::DISABLE_HEARTBEAT_TIMEOUT_PARAM, false);
+
   registerRclPreshutdownCallback();
 
   bond_timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(
