@@ -710,6 +710,7 @@ bool VelocityPolygon::validateSteering(
       } else {
         // Slowest field is clear (or is a creeping field — always allowed).
         // Check one step up using the stable-free timer to prevent oscillation.
+        bool next_occupied = false;
         if (target_fields.size() > 1) {
           debug_msg.next_field_name = target_fields[1]->velocity_polygon_name_;
           int next_pts;
@@ -718,11 +719,21 @@ bool VelocityPolygon::validateSteering(
           debug_msg.next_field_collision_pts = next_pts;
           if (stably_free) {
             limit_field = target_fields[1];
+          } else {
+            next_occupied = true;
           }
         }
 
         double limit_sw = target_forward ?
           limit_field->linear_max_ : limit_field->linear_min_;
+
+        // When the next field is occupied, use linear_limit (safety speed)
+        if (next_occupied) {
+          double limit_cap = std::abs(limit_field->linear_limit_);
+          if (limit_cap > 0.0 && limit_cap < std::abs(limit_sw)) {
+            limit_sw = target_forward ? limit_cap : -limit_cap;
+          }
+        }
         double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
         if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
           double limited_x = limit_sw * std::cos(target_steering_angle);
@@ -760,6 +771,7 @@ bool VelocityPolygon::validateSteering(
     bool forward = current_sw_speed >= 0;
     auto fields_at_angle = findFieldsForAngle(current_sa, forward);
     const SubPolygonParameter * limit_field = current_field;
+    bool next_field_occupied = false;
 
     // Find the current field in the sorted list
     for (size_t i = 0; i < fields_at_angle.size(); i++) {
@@ -777,15 +789,9 @@ bool VelocityPolygon::validateSteering(
         if (stably_free) {
           // Next field has been stably collision-free — allow up to next field's max
           limit_field = next_field;
+        } else {
+          next_field_occupied = true;
         }
-        // else: next field has obstacles or not free long enough — stay at current field's max
-      }
-      // Always allow creeping fields: if the current field is a creeping field,
-      // do not restrict to its max even when the next field is occupied.
-      if (isCreepingField(*current_field) && i + 1 < fields_at_angle.size()) {
-        // Override limit to at least the next field's boundary so the robot
-        // can always leave a creeping field.
-        limit_field = fields_at_angle[i + 1];
       }
       // else: no faster field — stay at current field's max
       break;
@@ -793,6 +799,17 @@ bool VelocityPolygon::validateSteering(
 
     double limit_sw = forward ?
       limit_field->linear_max_ : limit_field->linear_min_;
+
+    // When the next field is occupied, use the current field's linear_limit
+    // (safety speed) instead of its full range boundary.  Obstacles are clearly
+    // nearby if the next field has collision points, so the more conservative
+    // limit is appropriate even when the current polygon doesn't detect them.
+    if (next_field_occupied) {
+      double limit_cap = std::abs(current_field->linear_limit_);
+      if (limit_cap > 0.0 && limit_cap < std::abs(limit_sw)) {
+        limit_sw = forward ? limit_cap : -limit_cap;
+      }
+    }
     double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
     if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
       double limited_x = limit_sw * std::cos(target_steering_angle);
