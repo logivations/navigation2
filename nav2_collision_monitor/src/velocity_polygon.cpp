@@ -19,6 +19,7 @@
 #include <limits>
 
 #include "nav2_ros_common/node_utils.hpp"
+#include "nav2_util/geometry_utils.hpp"
 
 namespace nav2_collision_monitor
 {
@@ -443,24 +444,7 @@ VelocityPolygon::findFieldsForAngle(double steering_angle, bool forward) const
 bool VelocityPolygon::isPointInsidePoly(
   const Point & point, const std::vector<Point> & vertices)
 {
-  // Ray-casting algorithm (same as Polygon::isPointInside but for arbitrary vertices)
-  const int poly_size = static_cast<int>(vertices.size());
-  int i, j;
-  bool res = false;
-
-  i = poly_size - 1;
-  for (j = 0; j < poly_size; j++) {
-    if ((point.y <= vertices[i].y) == (point.y > vertices[j].y)) {
-      const double x_inter = vertices[i].x +
-        (point.y - vertices[i].y) * (vertices[j].x - vertices[i].x) /
-        (vertices[j].y - vertices[i].y);
-      if (x_inter > point.x) {
-        res = !res;
-      }
-    }
-    i = j;
-  }
-  return res;
+  return nav2_util::geometry_utils::isPointInsidePolygon(point.x, point.y, vertices);
 }
 
 int VelocityPolygon::getPointsInsideSubPolygon(

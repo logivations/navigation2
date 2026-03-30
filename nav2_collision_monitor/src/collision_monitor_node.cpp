@@ -471,11 +471,6 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
           "[%s]: Source enabled and getData() succeeded but returned 0 points",
           source->getSourceName().c_str());
       }
-    } else {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 2000,
-        "[%s]: Source is disabled — skipping getData(), 0 points contributed",
-        source->getSourceName().c_str());
     }
 
     if (collision_points_marker_pub_->get_subscription_count() > 0) {
