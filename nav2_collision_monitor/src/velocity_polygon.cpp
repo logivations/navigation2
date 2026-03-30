@@ -243,11 +243,15 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 
       slowdown_ratio_ = sub_polygon.slowdown_ratio_;
       if (sub_polygon.use_steering_angle_) {
-        // Convert linear_limit from steering wheel speed to baselink speed
-        linear_limit_ = steeringToBaselinkSpeed(
-          sub_polygon.linear_limit_, current_steering_angle_);
+        // Convert linear_limit from steering wheel speed to baselink speed.
+        // Use std::abs because processStopSlowdownLimit divides linear_limit_
+        // by the (always-positive) velocity magnitude to compute a ratio.
+        // Without abs, backward fields produce a negative limit → ratio clamped
+        // to 0 → unintended full stop instead of proportional slowdown.
+        linear_limit_ = std::abs(steeringToBaselinkSpeed(
+          sub_polygon.linear_limit_, current_steering_angle_));
       } else {
-        linear_limit_ = sub_polygon.linear_limit_;
+        linear_limit_ = std::abs(sub_polygon.linear_limit_);
       }
       angular_limit_ = sub_polygon.angular_limit_;
       time_before_collision_ = sub_polygon.time_before_collision_;
