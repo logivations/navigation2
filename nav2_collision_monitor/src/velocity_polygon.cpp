@@ -697,9 +697,18 @@ bool VelocityPolygon::validateSteering(
       debug_msg.next_field_collision_pts = slowest_pts;
 
       if (slowest_pts >= min_points_ && !isCreepingField(*target_fields[0])) {
-        // Slowest non-creeping field has obstacles — force stop
-        result_vel = {0.0, 0.0, 0.0};
-        modified = true;
+        // Slowest non-creeping field has obstacles — limit to creeping speed
+        // so the robot can always maneuver slowly, even when the way ahead
+        // is blocked at higher speeds.
+        double creep_sw = low_speed_threshold_;
+        double sign = target_forward ? 1.0 : -1.0;
+        double result_sw = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
+        if (std::abs(result_sw) > creep_sw) {
+          result_vel.x = sign * creep_sw * std::cos(target_steering_angle);
+          result_vel.tw = sign * creep_sw * std::sin(target_steering_angle) / wheelbase_;
+          debug_msg.speed_limit_applied = result_vel.x;
+          modified = true;
+        }
       } else {
         // Slowest field is clear (or is a creeping field — always allowed).
         // Check one step up using the stable-free timer to prevent oscillation.
