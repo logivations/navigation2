@@ -76,6 +76,13 @@ bool VelocityPolygon::getParameters(
     low_speed_threshold_ = node->declare_or_get_parameter(
       polygon_name_ + ".low_speed_threshold", 0.1);
 
+    field_free_duration_ = node->declare_or_get_parameter(
+      polygon_name_ + ".field_free_duration", 0.1);
+    RCLCPP_INFO(
+      logger_, "[%s]: Field free duration: %.3f s", polygon_name_.c_str(), field_free_duration_);
+
+    next_field_free_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+
     for (std::string velocity_polygon_name : velocity_polygons) {
       // polygon points parameter
       std::vector<Point> poly;
@@ -468,6 +475,38 @@ int VelocityPolygon::getPointsInsideSubPolygon(
   return num;
 }
 
+bool VelocityPolygon::isCreepingField(const SubPolygonParameter & sp)
+{
+  return sp.velocity_polygon_name_.find("creeping") != std::string::npos;
+}
+
+bool VelocityPolygon::isNextFieldStablyFree(
+  const SubPolygonParameter & field,
+  const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
+  int & pts_out)
+{
+  pts_out = getPointsInsideSubPolygon(field, collision_points_map);
+  bool currently_free = pts_out < min_points_;
+
+  // Reset timer when the monitored field changes
+  if (monitored_next_field_ != field.velocity_polygon_name_) {
+    monitored_next_field_ = field.velocity_polygon_name_;
+    next_field_free_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  }
+
+  if (!currently_free) {
+    next_field_free_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    return false;
+  }
+
+  // Field is currently free — check if it has been free long enough
+  if (next_field_free_stamp_.nanoseconds() == 0) {
+    next_field_free_stamp_ = clock_->now();
+  }
+  return (clock_->now() - next_field_free_stamp_) >=
+         rclcpp::Duration::from_seconds(field_free_duration_);
+}
+
 bool VelocityPolygon::validateSteering(
   const Velocity & cmd_vel_in,
   const Velocity & odom_vel,
@@ -664,17 +703,20 @@ bool VelocityPolygon::validateSteering(
       int slowest_pts = getPointsInsideSubPolygon(*target_fields[0], collision_points_map);
       debug_msg.next_field_collision_pts = slowest_pts;
 
-      if (slowest_pts >= min_points_) {
-        // Even the slowest field has obstacles — force stop
+      if (slowest_pts >= min_points_ && !isCreepingField(*target_fields[0])) {
+        // Slowest non-creeping field has obstacles — force stop
         result_vel = {0.0, 0.0, 0.0};
         modified = true;
       } else {
-        // Slowest field clear — check one step up
+        // Slowest field is clear (or is a creeping field — always allowed).
+        // Check one step up using the stable-free timer to prevent oscillation.
         if (target_fields.size() > 1) {
           debug_msg.next_field_name = target_fields[1]->velocity_polygon_name_;
-          int next_pts = getPointsInsideSubPolygon(*target_fields[1], collision_points_map);
+          int next_pts;
+          bool stably_free = isNextFieldStablyFree(
+            *target_fields[1], collision_points_map, next_pts);
           debug_msg.next_field_collision_pts = next_pts;
-          if (next_pts < min_points_) {
+          if (stably_free) {
             limit_field = target_fields[1];
           }
         }
@@ -728,13 +770,22 @@ bool VelocityPolygon::validateSteering(
       if (i + 1 < fields_at_angle.size()) {
         const SubPolygonParameter * next_field = fields_at_angle[i + 1];
         debug_msg.next_field_name = next_field->velocity_polygon_name_;
-        int pts = getPointsInsideSubPolygon(*next_field, collision_points_map);
+        int pts;
+        bool stably_free = isNextFieldStablyFree(
+          *next_field, collision_points_map, pts);
         debug_msg.next_field_collision_pts = pts;
-        if (pts < min_points_) {
-          // Next field is collision-free — allow up to next field's max
+        if (stably_free) {
+          // Next field has been stably collision-free — allow up to next field's max
           limit_field = next_field;
         }
-        // else: next field has obstacles — stay at current field's max
+        // else: next field has obstacles or not free long enough — stay at current field's max
+      }
+      // Always allow creeping fields: if the current field is a creeping field,
+      // do not restrict to its max even when the next field is occupied.
+      if (isCreepingField(*current_field) && i + 1 < fields_at_angle.size()) {
+        // Override limit to at least the next field's boundary so the robot
+        // can always leave a creeping field.
+        limit_field = fields_at_angle[i + 1];
       }
       // else: no faster field — stay at current field's max
       break;
