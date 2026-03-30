@@ -548,10 +548,14 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
       polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
     }
 
-    // Track the active LIMIT VelocityPolygon (the one matching current speed/steering angle)
+    // Track the active LIMIT VelocityPolygon.
+    // Always set it (even when subpolygon is "none" / velocity not covered)
+    // so that validateSteering runs and the low_speed path can check
+    // target fields for obstacles.  Without this, uncovered velocities
+    // have no field-based obstacle protection.
     if (polygon->getActionType() == LIMIT) {
       auto vp = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
-      if (vp && vp->getCurrentSubPolygonName() != "none") {
+      if (vp) {
         active_limit_vel_polygon = vp;
       }
     }

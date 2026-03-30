@@ -269,6 +269,11 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 
   current_subpolygon_name_ = "none";
 
+  // Clear the polygon so processStopSlowdownLimit doesn't use a stale shape
+  // from a previously matched (and now wrong) sub-polygon.
+  // validateSteering's low_speed path still provides protection via target-field checks.
+  poly_.clear();
+
   // Log for uncovered velocity
   RCLCPP_WARN_THROTTLE(
     logger_, *clock_, 2.0,
@@ -280,6 +285,10 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 bool VelocityPolygon::isInRange(
   const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon)
 {
+  // Small tolerance for field boundary comparisons to prevent velocities from
+  // falling into gaps between adjacent fields due to float precision.
+  constexpr double kBoundaryEps = 0.01;
+
   if (sub_polygon.use_steering_angle_) {
     current_steering_angle_ = computeSteeringAngle(cmd_vel_in);
 
@@ -299,23 +308,23 @@ bool VelocityPolygon::isInRange(
     );
 
     // Check linear range using steering wheel speed
-    bool in_range = steering_wheel_speed <= sub_polygon.linear_max_ &&
-                    steering_wheel_speed >= sub_polygon.linear_min_;
+    bool in_range = steering_wheel_speed <= sub_polygon.linear_max_ + kBoundaryEps &&
+                    steering_wheel_speed >= sub_polygon.linear_min_ - kBoundaryEps;
 
     if (!in_range) {
       return false;
     }
 
     // Check steering angle range
-    in_range &= current_steering_angle_ <= sub_polygon.steering_angle_max_ &&
-                current_steering_angle_ >= sub_polygon.steering_angle_min_;
+    in_range &= current_steering_angle_ <= sub_polygon.steering_angle_max_ + kBoundaryEps &&
+                current_steering_angle_ >= sub_polygon.steering_angle_min_ - kBoundaryEps;
 
     return in_range;
   }
 
   // Non-steering-angle mode: use baselink speed directly
-  bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ &&
-                  cmd_vel_in.x >= sub_polygon.linear_min_;
+  bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ + kBoundaryEps &&
+                  cmd_vel_in.x >= sub_polygon.linear_min_ - kBoundaryEps;
 
   if (!in_range) {
     return false;
