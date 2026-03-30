@@ -24,6 +24,7 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav2_behavior_tree/behavior_tree_engine.hpp"
 #include "nav2_behavior_tree/ros_topic_logger.hpp"
+#include "nav2_behavior_tree/ros_transition_logger.hpp"
 #include "nav2_ros_common/lifecycle_node.hpp"
 #include "nav2_ros_common/simple_action_server.hpp"
 
@@ -275,6 +276,9 @@ protected:
 
   // To publish BT logs
   std::unique_ptr<RosTopicLogger> topic_logger_;
+
+  // To publish individual BT transitions and periodic snapshots
+  std::unique_ptr<RosTransitionLogger> transition_logger_;
 
   // Duration for each iteration of BT execution
   std::chrono::milliseconds bt_loop_duration_;

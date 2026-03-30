@@ -438,6 +438,7 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
 
   // Optional logging and monitoring
   topic_logger_ = std::make_unique<RosTopicLogger>(client_node_, *tree_, log_idle_);
+  transition_logger_ = std::make_unique<RosTransitionLogger>(client_node_, *tree_, log_idle_);
   current_bt_file_or_id_ = file_or_id;
 
   if (enable_groot_monitoring_) {
@@ -492,6 +493,7 @@ void BtActionServer<ActionT, NodeT>::executeCallback()
         on_preempt_callback_(action_server_->get_pending_goal());
       }
       topic_logger_->flush();
+      transition_logger_->flush();
       on_loop_callback_();
     };
 
@@ -500,6 +502,7 @@ void BtActionServer<ActionT, NodeT>::executeCallback()
 
   // send remaining logs
   topic_logger_->flush();
+  transition_logger_->flush();
 
   // Make sure that the Bt is not in a running state from a previous execution
   // note: if all the ControlNodes are implemented correctly, this is not needed.
