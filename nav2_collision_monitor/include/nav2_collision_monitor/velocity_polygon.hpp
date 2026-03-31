@@ -215,17 +215,6 @@ protected:
     const SubPolygonParameter & sub_polygon,
     const std::unordered_map<std::string, std::vector<Point>> & collision_points_map) const;
 
-  /// @brief Check if a sub-polygon is a creeping field (always allowed)
-  static bool isCreepingField(const SubPolygonParameter & sp);
-
-  /// @brief Check if the next field has been stably free of obstacles
-  /// for at least field_free_duration_ seconds.  Returns the raw point
-  /// count in \p pts_out so callers can still use it for debug messages.
-  bool isNextFieldStablyFree(
-    const SubPolygonParameter & field,
-    const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
-    int & pts_out);
-
   // Clock
   rclcpp::Clock::SharedPtr clock_;
   // Debug publisher for steering validation
@@ -241,14 +230,6 @@ protected:
   double wheelbase_;
   /// @brief Speed below which steering is freely allowed
   double low_speed_threshold_;
-  /// @brief Duration (seconds) the next field must be continuously free before
-  ///        allowing acceleration into it.  Prevents oscillation from transient
-  ///        sensor readings near field boundaries.
-  double field_free_duration_;
-  /// @brief Timestamp when the currently-monitored next field first became free
-  rclcpp::Time next_field_free_stamp_;
-  /// @brief Name of the field being monitored for the free-duration check
-  std::string monitored_next_field_;
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
 };  // class VelocityPolygon

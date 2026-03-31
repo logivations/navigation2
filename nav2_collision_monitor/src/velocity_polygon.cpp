@@ -77,13 +77,6 @@ bool VelocityPolygon::getParameters(
     low_speed_threshold_ = node->declare_or_get_parameter(
       polygon_name_ + ".low_speed_threshold", 0.1);
 
-    field_free_duration_ = node->declare_or_get_parameter(
-      polygon_name_ + ".field_free_duration", 0.1);
-    RCLCPP_INFO(
-      logger_, "[%s]: Field free duration: %.3f s", polygon_name_.c_str(), field_free_duration_);
-
-    next_field_free_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
-
     for (std::string velocity_polygon_name : velocity_polygons) {
       // polygon points parameter
       std::vector<Point> poly;
@@ -251,15 +244,11 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 
       slowdown_ratio_ = sub_polygon.slowdown_ratio_;
       if (sub_polygon.use_steering_angle_) {
-        // Convert linear_limit from steering wheel speed to baselink speed.
-        // Use std::abs because processStopSlowdownLimit divides linear_limit_
-        // by the (always-positive) velocity magnitude to compute a ratio.
-        // Without abs, backward fields produce a negative limit → ratio clamped
-        // to 0 → unintended full stop instead of proportional slowdown.
-        linear_limit_ = std::abs(steeringToBaselinkSpeed(
-          sub_polygon.linear_limit_, current_steering_angle_));
+        // Convert linear_limit from steering wheel speed to baselink speed
+        linear_limit_ = steeringToBaselinkSpeed(
+          sub_polygon.linear_limit_, current_steering_angle_);
       } else {
-        linear_limit_ = std::abs(sub_polygon.linear_limit_);
+        linear_limit_ = sub_polygon.linear_limit_;
       }
       angular_limit_ = sub_polygon.angular_limit_;
       time_before_collision_ = sub_polygon.time_before_collision_;
@@ -269,11 +258,6 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
   }
 
   current_subpolygon_name_ = "none";
-
-  // Clear the polygon so processStopSlowdownLimit doesn't use a stale shape
-  // from a previously matched (and now wrong) sub-polygon.
-  // validateSteering's low_speed path still provides protection via target-field checks.
-  poly_.clear();
 
   // Log for uncovered velocity
   RCLCPP_WARN_THROTTLE(
@@ -286,10 +270,6 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 bool VelocityPolygon::isInRange(
   const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon)
 {
-  // Small tolerance for field boundary comparisons to prevent velocities from
-  // falling into gaps between adjacent fields due to float precision.
-  constexpr double kBoundaryEps = 0.01;
-
   if (sub_polygon.use_steering_angle_) {
     current_steering_angle_ = computeSteeringAngle(cmd_vel_in);
 
@@ -309,23 +289,23 @@ bool VelocityPolygon::isInRange(
     );
 
     // Check linear range using steering wheel speed
-    bool in_range = steering_wheel_speed <= sub_polygon.linear_max_ + kBoundaryEps &&
-                    steering_wheel_speed >= sub_polygon.linear_min_ - kBoundaryEps;
+    bool in_range = steering_wheel_speed <= sub_polygon.linear_max_ &&
+                    steering_wheel_speed >= sub_polygon.linear_min_;
 
     if (!in_range) {
       return false;
     }
 
     // Check steering angle range
-    in_range &= current_steering_angle_ <= sub_polygon.steering_angle_max_ + kBoundaryEps &&
-                current_steering_angle_ >= sub_polygon.steering_angle_min_ - kBoundaryEps;
+    in_range &= current_steering_angle_ <= sub_polygon.steering_angle_max_ &&
+                current_steering_angle_ >= sub_polygon.steering_angle_min_;
 
     return in_range;
   }
 
   // Non-steering-angle mode: use baselink speed directly
-  bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ + kBoundaryEps &&
-                  cmd_vel_in.x >= sub_polygon.linear_min_ - kBoundaryEps;
+  bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ &&
+                  cmd_vel_in.x >= sub_polygon.linear_min_;
 
   if (!in_range) {
     return false;
@@ -468,38 +448,6 @@ int VelocityPolygon::getPointsInsideSubPolygon(
   return num;
 }
 
-bool VelocityPolygon::isCreepingField(const SubPolygonParameter & sp)
-{
-  return sp.velocity_polygon_name_.find("creeping") != std::string::npos;
-}
-
-bool VelocityPolygon::isNextFieldStablyFree(
-  const SubPolygonParameter & field,
-  const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
-  int & pts_out)
-{
-  pts_out = getPointsInsideSubPolygon(field, collision_points_map);
-  bool currently_free = pts_out < min_points_;
-
-  // Reset timer when the monitored field changes
-  if (monitored_next_field_ != field.velocity_polygon_name_) {
-    monitored_next_field_ = field.velocity_polygon_name_;
-    next_field_free_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
-  }
-
-  if (!currently_free) {
-    next_field_free_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
-    return false;
-  }
-
-  // Field is currently free — check if it has been free long enough
-  if (next_field_free_stamp_.nanoseconds() == 0) {
-    next_field_free_stamp_ = clock_->now();
-  }
-  return (clock_->now() - next_field_free_stamp_) >=
-         rclcpp::Duration::from_seconds(field_free_duration_);
-}
-
 bool VelocityPolygon::validateSteering(
   const Velocity & cmd_vel_in,
   const Velocity & odom_vel,
@@ -607,92 +555,19 @@ bool VelocityPolygon::validateSteering(
     target_steering_angle <= current_field->steering_angle_max_;
   debug_msg.same_bucket = same_bucket;
 
-  // When the robot is at near-standstill or its speed falls in a gap between
-  // fields (current_field == nullptr), use the TARGET direction's fields to
-  // check for obstacles.  This prevents blind acceleration from low speed into
-  // obstructed fields that would otherwise trigger an e-stop.
-  bool low_speed = current_field == nullptr ||
-    std::abs(current_sw_speed) < low_speed_threshold_;
-
-  if (low_speed) {
-    bool target_forward = target_sw_speed >= 0;
-    auto target_fields = findFieldsForAngle(target_steering_angle, target_forward);
-
-    if (!target_fields.empty()) {
-      // Use the slowest field (index 0) as effective "current" and check one
-      // step up, mirroring the normal progressive-acceleration logic.
-      const SubPolygonParameter * limit_field = target_fields[0];
-
-      int slowest_pts = getPointsInsideSubPolygon(*target_fields[0], collision_points_map);
-      debug_msg.next_field_collision_pts = slowest_pts;
-
-      if (slowest_pts >= min_points_ && !isCreepingField(*target_fields[0])) {
-        // Slowest non-creeping field has obstacles — limit to creeping speed
-        // so the robot can always maneuver slowly, even when the way ahead
-        // is blocked at higher speeds.
-        double creep_sw = low_speed_threshold_;
-        double sign = target_forward ? 1.0 : -1.0;
-        double result_sw = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
-        if (std::abs(result_sw) > creep_sw) {
-          result_vel.x = sign * creep_sw * std::cos(target_steering_angle);
-          result_vel.tw = sign * creep_sw * std::sin(target_steering_angle) / wheelbase_;
-          debug_msg.speed_limit_applied = result_vel.x;
-          modified = true;
-        }
-      } else {
-        // Slowest field is clear (or is a creeping field — always allowed).
-        // Check one step up using the stable-free timer to prevent oscillation.
-        bool next_occupied = false;
-        if (target_fields.size() > 1) {
-          debug_msg.next_field_name = target_fields[1]->velocity_polygon_name_;
-          int next_pts;
-          bool stably_free = isNextFieldStablyFree(
-            *target_fields[1], collision_points_map, next_pts);
-          debug_msg.next_field_collision_pts = next_pts;
-          if (stably_free) {
-            limit_field = target_fields[1];
-          } else {
-            next_occupied = true;
-          }
-        }
-
-        double limit_sw = target_forward ?
-          limit_field->linear_max_ : limit_field->linear_min_;
-
-        // When the next field is occupied, use linear_limit (safety speed)
-        if (next_occupied) {
-          double limit_cap = std::abs(limit_field->linear_limit_);
-          if (limit_cap > 0.0 && limit_cap < std::abs(limit_sw)) {
-            limit_sw = target_forward ? limit_cap : -limit_cap;
-          }
-        }
-        double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
-        if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
-          double limited_x = limit_sw * std::cos(target_steering_angle);
-          double limited_tw = limit_sw * std::sin(target_steering_angle) / wheelbase_;
-          debug_msg.speed_limit_applied = limited_x;
-          result_vel.x = limited_x;
-          result_vel.tw = limited_tw;
-          modified = true;
-        }
-      }
-
-      if (modified) {
-        robot_action.req_vel = result_vel;
-        robot_action.polygon_name = polygon_name_;
-        robot_action.action_type = LIMIT;
-      }
+  if (same_bucket) {
+    // Skip same-bucket limiting when the robot is at or near standstill.
+    // The current field at standstill (e.g. creeping/stopped) is not meaningful
+    // for speed limiting — the robot must be free to start moving.
+    if (std::abs(current_sw_speed) < low_speed_threshold_) {
+      debug_msg.modified = false;
+      debug_msg.result_vel_x = result_vel.x;
+      debug_msg.result_vel_y = result_vel.y;
+      debug_msg.result_vel_tw = result_vel.tw;
+      steering_debug_pub_->publish(debug_msg);
+      return false;
     }
 
-    debug_msg.modified = modified;
-    debug_msg.result_vel_x = result_vel.x;
-    debug_msg.result_vel_y = result_vel.y;
-    debug_msg.result_vel_tw = result_vel.tw;
-    steering_debug_pub_->publish(debug_msg);
-    return modified;
-  }
-
-  if (same_bucket) {
     // Check one field up from the current field at the current physical angle.
     // Always limit speed to at most the next reachable field's max:
     // - Next field exists and is collision-free → limit to next field's max
@@ -703,7 +578,6 @@ bool VelocityPolygon::validateSteering(
     bool forward = current_sw_speed >= 0;
     auto fields_at_angle = findFieldsForAngle(current_sa, forward);
     const SubPolygonParameter * limit_field = current_field;
-    bool next_field_occupied = false;
 
     // Find the current field in the sorted list
     for (size_t i = 0; i < fields_at_angle.size(); i++) {
@@ -714,16 +588,13 @@ bool VelocityPolygon::validateSteering(
       if (i + 1 < fields_at_angle.size()) {
         const SubPolygonParameter * next_field = fields_at_angle[i + 1];
         debug_msg.next_field_name = next_field->velocity_polygon_name_;
-        int pts;
-        bool stably_free = isNextFieldStablyFree(
-          *next_field, collision_points_map, pts);
+        int pts = getPointsInsideSubPolygon(*next_field, collision_points_map);
         debug_msg.next_field_collision_pts = pts;
-        if (stably_free) {
-          // Next field has been stably collision-free — allow up to next field's max
+        if (pts < min_points_) {
+          // Next field is collision-free — allow up to next field's max
           limit_field = next_field;
-        } else {
-          next_field_occupied = true;
         }
+        // else: next field has obstacles — stay at current field's max
       }
       // else: no faster field — stay at current field's max
       break;
@@ -731,17 +602,6 @@ bool VelocityPolygon::validateSteering(
 
     double limit_sw = forward ?
       limit_field->linear_max_ : limit_field->linear_min_;
-
-    // When the next field is occupied, use the current field's linear_limit
-    // (safety speed) instead of its full range boundary.  Obstacles are clearly
-    // nearby if the next field has collision points, so the more conservative
-    // limit is appropriate even when the current polygon doesn't detect them.
-    if (next_field_occupied) {
-      double limit_cap = std::abs(current_field->linear_limit_);
-      if (limit_cap > 0.0 && limit_cap < std::abs(limit_sw)) {
-        limit_sw = forward ? limit_cap : -limit_cap;
-      }
-    }
     double result_sw_speed = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
     if (std::abs(result_sw_speed) > std::abs(limit_sw)) {
       double limited_x = limit_sw * std::cos(target_steering_angle);
@@ -767,7 +627,23 @@ bool VelocityPolygon::validateSteering(
   }
 
   // 3. Different bucket — find neighbouring bucket (one step in steering direction)
-  // current_field is guaranteed non-null here (low_speed case handled above)
+  if (current_field == nullptr) {
+    RCLCPP_WARN(
+      logger_,
+      "[%s] validateSteering: current_field is null — no field matches current velocity. "
+      "odom_vel=(%.3f, %.3f, %.3f), current_sw_speed=%.3f, current_sa=%.3f, "
+      "cmd_vel=(%.3f, %.3f, %.3f), target_sw_speed=%.3f, target_sa=%.3f. "
+      "Check that velocity polygon field ranges cover all reachable velocities.",
+      polygon_name_.c_str(),
+      odom_vel.x, odom_vel.y, odom_vel.tw, current_sw_speed, current_sa,
+      cmd_vel_in.x, cmd_vel_in.y, cmd_vel_in.tw, target_sw_speed, target_steering_angle);
+    debug_msg.modified = false;
+    debug_msg.result_vel_x = result_vel.x;
+    debug_msg.result_vel_y = result_vel.y;
+    debug_msg.result_vel_tw = result_vel.tw;
+    steering_debug_pub_->publish(debug_msg);
+    return false;
+  }
 
   double neighbour_angle;
   if (target_steering_angle > current_sa) {
@@ -792,20 +668,16 @@ bool VelocityPolygon::validateSteering(
   }
 
   // Find the fastest field that covers max(|current|, |target|) speed
-  // Use signed speed so the range check works for both forward and backward fields
-  // (backward fields have linear_min_ < linear_max_ < 0, so |min| > |max|
-  //  which inverts the abs-based comparison)
   double max_sw_speed = std::max(std::abs(current_sw_speed), std::abs(target_sw_speed));
-  double signed_max_sw = forward ? max_sw_speed : -max_sw_speed;
 
   // Find the valid field: start from fastest covering field, walk down
   const SubPolygonParameter * valid_field = nullptr;
   int start_idx = static_cast<int>(neighbour_fields.size()) - 1;
 
-  // Find the starting field (fastest that covers the speed)
+  // Find the starting field (fastest that covers max_sw_speed)
   for (int i = start_idx; i >= 0; i--) {
-    if (signed_max_sw >= neighbour_fields[i]->linear_min_ &&
-      signed_max_sw <= neighbour_fields[i]->linear_max_)
+    if (max_sw_speed >= std::abs(neighbour_fields[i]->linear_min_) &&
+      max_sw_speed <= std::abs(neighbour_fields[i]->linear_max_))
     {
       start_idx = i;
       break;
