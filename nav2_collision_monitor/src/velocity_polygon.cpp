@@ -296,14 +296,9 @@ bool VelocityPolygon::isInRange(
       return false;
     }
 
-    // Check steering angle range.
-    // When driving backward, negate the angle for field lookup: the swept area
-    // flips relative to the steering angle, so e.g. backward + far-left steering
-    // needs the far-right polygon shape (which covers where the rear actually heads).
-    double lookup_angle = (cmd_vel_in.x < 0) ?
-      -current_steering_angle_ : current_steering_angle_;
-    in_range &= lookup_angle <= sub_polygon.steering_angle_max_ &&
-                lookup_angle >= sub_polygon.steering_angle_min_;
+    // Check steering angle range
+    in_range &= current_steering_angle_ <= sub_polygon.steering_angle_max_ &&
+                current_steering_angle_ >= sub_polygon.steering_angle_min_;
 
     return in_range;
   }
@@ -550,21 +545,14 @@ bool VelocityPolygon::validateSteering(
     return false;
   }
 
-  // For field lookup, negate the steering angle when driving backward:
-  // the swept area flips, so backward + far-left needs the far-right polygon.
-  // Keep the physical angles for speed/tw calculations (cos, sin, tan).
-  bool driving_backward = odom_vel.x < 0;
-  double current_lookup_sa = driving_backward ? -current_sa : current_sa;
-  double target_lookup_sa = driving_backward ? -target_steering_angle : target_steering_angle;
-
-  const SubPolygonParameter * current_field = findField(current_sw_speed, current_lookup_sa);
+  const SubPolygonParameter * current_field = findField(current_sw_speed, current_sa);
   debug_msg.current_field_name = current_field ? current_field->velocity_polygon_name_ : "";
 
 
   // 2. Check if target angle is in same bucket (angle range) as current
   bool same_bucket = current_field != nullptr &&
-    target_lookup_sa >= current_field->steering_angle_min_ &&
-    target_lookup_sa <= current_field->steering_angle_max_;
+    target_steering_angle >= current_field->steering_angle_min_ &&
+    target_steering_angle <= current_field->steering_angle_max_;
   debug_msg.same_bucket = same_bucket;
 
   if (same_bucket) {
@@ -588,7 +576,7 @@ bool VelocityPolygon::validateSteering(
     // This ensures progressive speed increase (one field per cycle) and
     // prevents exceeding defined field ranges into e-stop territory.
     bool forward = current_sw_speed >= 0;
-    auto fields_at_angle = findFieldsForAngle(current_lookup_sa, forward);
+    auto fields_at_angle = findFieldsForAngle(current_sa, forward);
     const SubPolygonParameter * limit_field = current_field;
 
     // Find the current field in the sorted list
@@ -658,14 +646,14 @@ bool VelocityPolygon::validateSteering(
   }
 
   double neighbour_angle;
-  if (target_lookup_sa > current_lookup_sa) {
+  if (target_steering_angle > current_sa) {
     neighbour_angle = current_field->steering_angle_max_;
   } else {
     neighbour_angle = current_field->steering_angle_min_;
   }
   // Step just past the boundary to land in the neighbouring bucket
   constexpr double kAngleEps = 0.01;
-  double lookup_angle = (target_lookup_sa > current_lookup_sa) ?
+  double lookup_angle = (target_steering_angle > current_sa) ?
     neighbour_angle + kAngleEps : neighbour_angle - kAngleEps;
 
   bool forward = target_sw_speed >= 0;
@@ -731,10 +719,8 @@ bool VelocityPolygon::validateSteering(
   // Forward: limit to linear_max; Backward: limit to linear_min
   double valid_limit_sw = (target_sw_speed >= 0) ?
     valid_field->linear_max_ : valid_field->linear_min_;
-  // Convert field boundary angle back to physical for speed calculation
-  double physical_neighbour_angle = driving_backward ? -neighbour_angle : neighbour_angle;
   double valid_max_baselink = steeringToBaselinkSpeed(
-    valid_limit_sw, physical_neighbour_angle);
+    valid_limit_sw, neighbour_angle);
   if (std::abs(result_vel.x) > std::abs(valid_max_baselink)) {
     debug_msg.speed_limit_applied = valid_max_baselink;
     result_vel.x = valid_max_baselink;
@@ -746,15 +732,13 @@ bool VelocityPolygon::validateSteering(
   double valid_max_baselink_abs = std::abs(valid_max_baselink);
   if (current_baselink_abs > valid_max_baselink_abs && current_field != nullptr) {
     double limited_sa;
-    if (target_lookup_sa > current_lookup_sa) {
+    if (target_steering_angle > current_sa) {
       limited_sa = current_field->steering_angle_max_;
     } else {
       limited_sa = current_field->steering_angle_min_;
     }
     debug_msg.steering_angle_limit = limited_sa;
-    // Convert field boundary back to physical angle for tw calculation
-    double physical_limited_sa = driving_backward ? -limited_sa : limited_sa;
-    result_vel.tw = steeringAngleToTw(result_vel.x, physical_limited_sa);
+    result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
     modified = true;
   }
 
@@ -787,11 +771,8 @@ bool VelocityPolygon::clampToMaxField(
   double cmd_x = robot_action.req_vel.x;
   bool forward = cmd_x >= 0;
 
-  // Negate the angle for field lookup when driving backward
-  double clamp_lookup_sa = (odom_vel.x < 0) ? -physical_sa : physical_sa;
-
-  // Find all fields at the steering angle for the commanded direction
-  auto fields = findFieldsForAngle(clamp_lookup_sa, forward);
+  // Find all fields at the physical steering angle for the commanded direction
+  auto fields = findFieldsForAngle(physical_sa, forward);
 
   if (fields.empty()) {
     // No fields at this angle — if velocity is non-zero, zero it
