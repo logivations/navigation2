@@ -36,6 +36,7 @@
 #include "nav2_util/twist_publisher.hpp"
 #include "nav2_util/twist_subscriber.hpp"
 #include "nav2_msgs/msg/collision_monitor_state.hpp"
+#include "std_msgs/msg/float32.hpp"
 #include "nav2_msgs/srv/toggle.hpp"
 
 #include "nav2_collision_monitor/types.hpp"
@@ -271,6 +272,8 @@ protected:
   bool enable_steering_validation_;
   /// @brief Active polygons publisher
   rclcpp::Publisher<nav2_msgs::msg::ActiveVelocityPolygons>::SharedPtr active_polygons_pub_;
+  /// @brief Processing time publisher (ms)
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr processing_time_pub_;
 };  // class CollisionMonitor
 
 }  // namespace nav2_collision_monitor

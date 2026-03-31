@@ -14,6 +14,7 @@
 
 #include "nav2_collision_monitor/collision_monitor_node.hpp"
 
+#include <chrono>
 #include <exception>
 #include <utility>
 #include <functional>
@@ -81,6 +82,8 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & state)
   cmd_vel_out_pub_ = std::make_unique<nav2_util::TwistPublisher>(node, cmd_vel_out_topic);
   active_polygons_pub_ = this->create_publisher<nav2_msgs::msg::ActiveVelocityPolygons>(
     "~/active_velocity_polygons");
+  processing_time_pub_ = this->create_publisher<std_msgs::msg::Float32>(
+    "~/processing_time_ms", rclcpp::QoS(1));
 
   if (!state_topic.empty()) {
     state_pub_ = this->create_publisher<nav2_msgs::msg::CollisionMonitorState>(
@@ -429,6 +432,7 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
 {
   // Current timestamp for all inner routines prolongation
   rclcpp::Time curr_time = this->now();
+  const auto process_start = std::chrono::steady_clock::now();
 
   // Do nothing if main worker in non-active state
   if (!process_active_) {
@@ -622,6 +626,12 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
   active_polygons_pub_->publish(std::move(msg));
 
   robot_action_prev_ = robot_action;
+
+  // Publish processing time
+  std_msgs::msg::Float32 time_msg;
+  time_msg.data = std::chrono::duration<float, std::milli>(
+    std::chrono::steady_clock::now() - process_start).count();
+  processing_time_pub_->publish(time_msg);
 }
 
 bool CollisionMonitor::processStopSlowdownLimit(

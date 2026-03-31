@@ -514,7 +514,7 @@ bool VelocityPolygon::validateSteering(
   nav2_msgs::msg::SteeringValidationDebug debug_msg;
   debug_msg.header.stamp = clock_->now();
   debug_msg.polygon_name = polygon_name_;
-  debug_msg.steering_angle_limit = std::numeric_limits<double>::quiet_NaN();
+  debug_msg.steering_angle_limit = std::numeric_limits<float>::quiet_NaN();
   debug_msg.speed_limit_applied = 0.0;
   debug_msg.next_field_collision_pts = -1;
   debug_msg.neighbour_collision_pts = -1;
@@ -530,76 +530,6 @@ bool VelocityPolygon::validateSteering(
   debug_msg.step1_req_vel_x = robot_action.req_vel.x;
   debug_msg.step1_req_vel_y = robot_action.req_vel.y;
   debug_msg.step1_req_vel_tw = robot_action.req_vel.tw;
-
-  // Source filtering diagnostics
-  debug_msg.step1_configured_sources = getSourcesNames();
-  debug_msg.step1_polygon_vertex_count = static_cast<int32_t>(poly_.size());
-  int configured_pts = 0;
-  for (const auto & src_name : debug_msg.step1_configured_sources) {
-    auto it = collision_points_map.find(src_name);
-    if (it != collision_points_map.end()) {
-      configured_pts += static_cast<int>(it->second.size());
-    }
-  }
-  debug_msg.step1_configured_source_pts = configured_pts;
-  int all_pts = 0;
-  for (const auto & kv : collision_points_map) {
-    all_pts += static_cast<int>(kv.second.size());
-  }
-  debug_msg.step1_all_source_pts = all_pts;
-
-  // Bounding box of polygon vertices
-  double poly_min_x = std::numeric_limits<double>::max();
-  double poly_max_x = std::numeric_limits<double>::lowest();
-  double poly_min_y = std::numeric_limits<double>::max();
-  double poly_max_y = std::numeric_limits<double>::lowest();
-  for (const auto & v : poly_) {
-    poly_min_x = std::min(poly_min_x, v.x);
-    poly_max_x = std::max(poly_max_x, v.x);
-    poly_min_y = std::min(poly_min_y, v.y);
-    poly_max_y = std::max(poly_max_y, v.y);
-  }
-  debug_msg.step1_poly_min_x = poly_min_x;
-  debug_msg.step1_poly_max_x = poly_max_x;
-  debug_msg.step1_poly_min_y = poly_min_y;
-  debug_msg.step1_poly_max_y = poly_max_y;
-
-  // Bounding box of collision points from configured sources
-  double pts_min_x = std::numeric_limits<double>::max();
-  double pts_max_x = std::numeric_limits<double>::lowest();
-  double pts_min_y = std::numeric_limits<double>::max();
-  double pts_max_y = std::numeric_limits<double>::lowest();
-  for (const auto & src_name : debug_msg.step1_configured_sources) {
-    auto it = collision_points_map.find(src_name);
-    if (it != collision_points_map.end()) {
-      for (const auto & pt : it->second) {
-        pts_min_x = std::min(pts_min_x, pt.x);
-        pts_max_x = std::max(pts_max_x, pt.x);
-        pts_min_y = std::min(pts_min_y, pt.y);
-        pts_max_y = std::max(pts_max_y, pt.y);
-      }
-    }
-  }
-  debug_msg.step1_pts_min_x = pts_min_x;
-  debug_msg.step1_pts_max_x = pts_max_x;
-  debug_msg.step1_pts_min_y = pts_min_y;
-  debug_msg.step1_pts_max_y = pts_max_y;
-
-  // Count points within the polygon's bounding box
-  int pts_in_bbox = 0;
-  for (const auto & src_name : debug_msg.step1_configured_sources) {
-    auto it = collision_points_map.find(src_name);
-    if (it != collision_points_map.end()) {
-      for (const auto & pt : it->second) {
-        if (pt.x >= poly_min_x && pt.x <= poly_max_x &&
-          pt.y >= poly_min_y && pt.y <= poly_max_y)
-        {
-          pts_in_bbox++;
-        }
-      }
-    }
-  }
-  debug_msg.step1_pts_in_bbox = pts_in_bbox;
 
   const double target_speed = cmd_vel_in.x;
   const double current_speed = odom_vel.x;
