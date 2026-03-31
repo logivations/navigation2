@@ -140,26 +140,31 @@ If the obstacle e.g. moves with us or is on the side, we can keep that speed.
 
 ### Step 2: Steering validation
 
+All speed comparisons against the low threshold use **steering wheel speed** (which accounts for the steering angle), except for the direction reversal check which uses baselink speed.
+
+We always assume that a matching field exists for the current velocity. If no field matches (e.g. the robot is outside all configured speed ranges), a warning is logged and steering validation is skipped for that cycle.
+
 If speed goes through zero (so sign(target speed) <> sign(current speed)):
 
-* if abs(current speed) > low threshold → keep steering angle (we must anyway just slow down asap)
-* if abs(current speed) < low threshold → allow steering
+* if abs(current baselink speed) > low threshold → keep steering angle (we must anyway just slow down asap)
+* if abs(current baselink speed) < low threshold → allow steering
 
 else:
 
-1. check if both abs(target) and abs(current speed) are < low threshold. If yes → done
+1. check if both abs(target steering wheel speed) and abs(current steering wheel speed) are < low threshold. If yes → done
 2. check if target angle is in same bucket as current angle. If yes →
-   1. if the result velocity falls into the some faster field (same bucket), check the subsequent field for collision. Only the one-step faster field needs to be checked, even if target speed  is in a much faster field. if in collision, limit speed to current field → then done
-   2. if target angle is in a different bucket → determine the direction of steering and find the neighbouring bucket from current angle in that direction. Only one bucket step at a time, even if the target angle is several buckets away.
-3. in the neighbouring bucket, determine max speed / valid field
+   1. if abs(current steering wheel speed) < low threshold → done (robot is at standstill and must be free to start moving, the current field is not meaningful for speed limiting)
+   2. check the one-step faster field in the same bucket for collision. Only the one-step faster field needs to be checked, even if target speed is in a much faster field. If the next field is collision-free → limit speed to next field's max. If the next field has obstacles or no faster field exists → limit speed to current field's max. → then done
+3. if target angle is in a different bucket → determine the direction of steering and find the neighbouring bucket from current angle in that direction. Only one bucket step at a time, even if the target angle is several buckets away.
+4. in the neighbouring bucket, determine max speed / valid field
    1. start at fastest possible field (field for max(current speed, target speed)). If that is in collision, go down until a collision-free one is found. That one we call “valid” field. If all fields are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
-4. now adapt speed and steering angle
+5. now adapt speed and steering angle
    1. limit target speed to max speed of valid field
    2. if current speed is larger than max valid speed: limit steering angle to boundary of current bucket
 
 → done
 
-After some iterations, the current speed will be in the valid field → AMR will be allowed to steer, as in 4b, the current speed will not be above max valid speed
+After some iterations, the current speed will be in the valid field → AMR will be allowed to steer, as in 5b, the current speed will not be above max valid speed
 
 ### Field exceedance prevention
 
@@ -170,6 +175,8 @@ A fundamental safety invariant: **the commanded speed must never exceed the fast
 For any given steering angle, the lidar has a finite set of configured fields (each covering a speed range). The collision monitor must clamp the commanded speed so that it never exceeds the maximum speed of the fastest field defined for that bucket. If a bucket only has fields up to 0.5 m/s, the robot must not be commanded above 0.5 m/s while in that bucket — regardless of what the planner requests.
 
 This applies at all times, not only when obstacles are detected. Even in free space, sending a speed that has no corresponding field for the current angle would be unsafe.
+
+If no fields exist at all for the current physical steering angle, the velocity is set to zero.
 
 #### Rule 2: High speed only after entering the corresponding bucket
 
