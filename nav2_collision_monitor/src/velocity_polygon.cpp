@@ -726,6 +726,10 @@ bool VelocityPolygon::validateSteering(
   if (std::abs(result_vel.x) > std::abs(valid_max_baselink)) {
     debug_msg.speed_limit_applied = valid_max_baselink;
     result_vel.x = valid_max_baselink;
+    // Also adjust tw to preserve the target steering angle, otherwise
+    // reducing x while keeping tw creates an absurd steering angle
+    // that falls outside all configured field buckets.
+    result_vel.tw = steeringAngleToTw(result_vel.x, target_steering_angle);
     modified = true;
   }
 
