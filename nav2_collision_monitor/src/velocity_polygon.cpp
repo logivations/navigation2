@@ -220,6 +220,9 @@ bool VelocityPolygon::getParameters(
   steering_debug_pub_ = node->create_publisher<nav2_msgs::msg::SteeringValidationDebug>(
     "~/steering_validation_debug", rclcpp::QoS(1));
 
+  next_field_poly_pub_ = node->create_publisher<geometry_msgs::msg::PolygonStamped>(
+    "~/next_field_polygon", rclcpp::QoS(1));
+
   return true;
 }
 
@@ -459,6 +462,9 @@ bool VelocityPolygon::validateSteering(
     return false;
   }
 
+  // Track the field being checked for obstacles (published for visualization)
+  const SubPolygonParameter * checked_field = nullptr;
+
   nav2_msgs::msg::SteeringValidationDebug debug_msg;
   debug_msg.header.stamp = clock_->now();
   debug_msg.polygon_name = polygon_name_;
@@ -589,6 +595,7 @@ bool VelocityPolygon::validateSteering(
 
       if (i + 1 < fields_at_angle.size()) {
         const SubPolygonParameter * next_field = fields_at_angle[i + 1];
+        checked_field = next_field;
         debug_msg.next_field_name = next_field->velocity_polygon_name_;
         int pts = getPointsInsideSubPolygon(*next_field, collision_points_map);
         debug_msg.next_field_collision_pts = pts;
@@ -625,6 +632,21 @@ bool VelocityPolygon::validateSteering(
     debug_msg.result_vel_y = result_vel.y;
     debug_msg.result_vel_tw = result_vel.tw;
     steering_debug_pub_->publish(debug_msg);
+
+    // Publish the next field polygon for 3D visualization
+    if (checked_field != nullptr && next_field_poly_pub_->get_subscription_count() > 0) {
+      geometry_msgs::msg::PolygonStamped poly_msg;
+      poly_msg.header.frame_id = base_frame_id_;
+      poly_msg.header.stamp = clock_->now();
+      for (const auto & p : checked_field->poly_) {
+        geometry_msgs::msg::Point32 pt;
+        pt.x = p.x;
+        pt.y = p.y;
+        poly_msg.polygon.points.push_back(pt);
+      }
+      next_field_poly_pub_->publish(poly_msg);
+    }
+
     return modified;
   }
 
@@ -713,6 +735,7 @@ bool VelocityPolygon::validateSteering(
       // (allowed even if in collision)
       valid_field = neighbour_fields[0];  // sorted ascending, index 0 is slowest
     }
+    checked_field = valid_field;
   }
   debug_msg.valid_field_name = valid_field->velocity_polygon_name_;
 
@@ -761,6 +784,21 @@ bool VelocityPolygon::validateSteering(
   debug_msg.result_vel_y = result_vel.y;
   debug_msg.result_vel_tw = result_vel.tw;
   steering_debug_pub_->publish(debug_msg);
+
+  // Publish the next/valid field polygon for 3D visualization
+  if (checked_field != nullptr && next_field_poly_pub_->get_subscription_count() > 0) {
+    geometry_msgs::msg::PolygonStamped poly_msg;
+    poly_msg.header.frame_id = base_frame_id_;
+    poly_msg.header.stamp = clock_->now();
+    for (const auto & p : checked_field->poly_) {
+      geometry_msgs::msg::Point32 pt;
+      pt.x = p.x;
+      pt.y = p.y;
+      poly_msg.polygon.points.push_back(pt);
+    }
+    next_field_poly_pub_->publish(poly_msg);
+  }
+
   return modified;
 }
 

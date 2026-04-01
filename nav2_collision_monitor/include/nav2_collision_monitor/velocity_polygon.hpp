@@ -219,6 +219,8 @@ protected:
   rclcpp::Clock::SharedPtr clock_;
   // Debug publisher for steering validation
   rclcpp::Publisher<nav2_msgs::msg::SteeringValidationDebug>::SharedPtr steering_debug_pub_;
+  // Publisher for the next/valid field polygon being checked for obstacles
+  rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr next_field_poly_pub_;
   // Current subpolygon name
   std::string current_subpolygon_name_;
   // Variables
