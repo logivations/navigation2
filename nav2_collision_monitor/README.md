@@ -152,19 +152,20 @@ If speed goes through zero (so sign(target speed) <> sign(current speed)):
 else:
 
 1. check if both abs(target steering wheel speed) and abs(current steering wheel speed) are < low threshold. If yes → done
-2. check if target angle is in same bucket as current angle. If yes →
+2. check the one-step faster field in the **current** bucket for collision (same-bucket speed limit). Only the one-step faster field needs to be checked, even if target speed is in a much faster field. If the next field is collision-free → current bucket allows up to next field's max. If the next field has obstacles or no faster field exists → current bucket allows up to current field's max. This limit is always enforced — including when the target angle is in a different bucket — because the robot is still physically in the current bucket during any steering transition.
+3. check if target angle is in same bucket as current angle. If yes →
    1. if abs(current steering wheel speed) < low threshold → done (robot is at standstill and must be free to start moving, the current field is not meaningful for speed limiting)
-   2. check the one-step faster field in the same bucket for collision. Only the one-step faster field needs to be checked, even if target speed is in a much faster field. If the next field is collision-free → limit speed to next field's max. If the next field has obstacles or no faster field exists → limit speed to current field's max. → then done
-3. if target angle is in a different bucket → determine the direction of steering and find the neighbouring bucket from current angle in that direction. Only one bucket step at a time, even if the target angle is several buckets away.
-4. in the neighbouring bucket, determine max speed / valid field
+   2. limit speed to the current bucket's speed limit from step 2. → done
+4. if target angle is in a different bucket → determine the direction of steering and find the neighbouring bucket from current angle in that direction. Only one bucket step at a time, even if the target angle is several buckets away.
+5. in the neighbouring bucket, determine max speed / valid field
    1. start at fastest possible field (field for max(current speed, target speed)). If that is in collision, go down until a collision-free one is found. That one we call “valid” field. If all fields are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
-5. now adapt speed and steering angle
-   1. limit target speed to max speed of valid field
+6. now adapt speed and steering angle
+   1. limit target speed to the **minimum** of: max speed of valid field (from 5) and current bucket's speed limit (from 2)
    2. if current speed is larger than max valid speed: limit steering angle to boundary of current bucket
 
 → done
 
-After some iterations, the current speed will be in the valid field → AMR will be allowed to steer, as in 5b, the current speed will not be above max valid speed
+After some iterations, the current speed will be in the valid field → AMR will be allowed to steer, as in 6b, the current speed will not be above max valid speed
 
 ### Field exceedance prevention
 

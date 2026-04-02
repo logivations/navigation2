@@ -1524,6 +1524,178 @@ TEST_F(Tester, testValidateSteeringSameBucket90DegLimitsTw)
   EXPECT_LE(std::abs(result_sw), 0.3 + 1e-6);
 }
 
+// ==================== Step 2 current-bucket limit enforced across buckets ====================
+
+TEST_F(Tester, testValidateSteeringDifferentBucketCurrentBucketLimitEnforced)
+{
+  // Setup: straight has slow[0,0.5]+fast[0.5,1.0]; left has slow[0,0.5]+fast[0.5,1.0]
+  // Robot is in straight_slow at 0.3. Next field (straight_fast) is collision-free →
+  // current bucket allows up to 1.0. Neighbour (left) valid field allows up to 1.0.
+  // min(1.0, 1.0) = 1.0 → no speed clamping needed.
+  //
+  // Now place collision in straight_fast → current bucket allows only 0.5.
+  // Neighbour left_fast is collision-free → valid field allows 1.0.
+  // min(0.5, 1.0) = 0.5 → speed must be clamped to 0.5 even though left allows more.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "left_slow", "left_fast"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("left_fast", 0.5, 1.0, 0.1, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight at 0.3 (slow field), Target: left at 0.7
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.7 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.7, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Collision points inside straight_fast polygon (the larger polygon)
+  collision_map["source"] = {
+    {1.2, 0.0},
+    {1.3, 0.1},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Current bucket limit is straight_slow max = 0.5 (because straight_fast has collision).
+  // Neighbour valid field (left_fast) allows 1.0. min(0.5, 1.0) = 0.5.
+  // At neighbour_angle = 0.1, baselink = 0.5 * cos(0.1)
+  double neighbour_angle = 0.1;
+  double expected_max = 0.5 * std::cos(neighbour_angle);
+  EXPECT_LE(std::abs(action.req_vel.x), expected_max + 1e-3);
+}
+
+TEST_F(Tester, testValidateSteeringDifferentBucketCurrentBucketNoCollisionAllowsMore)
+{
+  // Same setup but no collision in straight_fast → current bucket allows up to 1.0.
+  // Neighbour left has only slow[0,0.5] → valid field allows 0.5.
+  // min(1.0, 0.5) = 0.5 → speed clamped by neighbour, not current bucket.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "left_slow"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight at 0.3 (slow field), Target: left at 0.7
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.7 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.7, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};  // no collision
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Current bucket limit = 1.0 (next field collision-free). Neighbour valid = 0.5.
+  // min(1.0, 0.5) = 0.5 at neighbour_angle = 0.1
+  double neighbour_angle = 0.1;
+  double expected_max = 0.5 * std::cos(neighbour_angle);
+  EXPECT_LE(std::abs(action.req_vel.x), expected_max + 1e-3);
+}
+
+TEST_F(Tester, testValidateSteeringDifferentBucketBothLimitsApply)
+{
+  // Current bucket has collision in next field → bucket limit = 0.5
+  // Neighbour bucket valid field also has max 0.5 (only slow field, collision-free)
+  // min(0.5, 0.5) = 0.5 → both limits agree, speed clamped
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "left_slow"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.7 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.7, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Collision in straight_fast
+  collision_map["source"] = {
+    {1.2, 0.0},
+    {1.3, 0.1},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  double neighbour_angle = 0.1;
+  double expected_max = 0.5 * std::cos(neighbour_angle);
+  EXPECT_LE(std::abs(action.req_vel.x), expected_max + 1e-3);
+}
+
+TEST_F(Tester, testValidateSteeringBackwardDifferentBucketCurrentBucketLimitEnforced)
+{
+  // Backward driving: straight has backward_slow[-0.5,0]+backward_fast[-1.0,-0.5]
+  // Left has backward_slow[-0.5,0] only.
+  // Robot at backward_slow. Collision in backward_fast → current bucket limit = -0.5.
+  // Neighbour left backward_slow allows -0.5. min(0.5, 0.5) = 0.5.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_bw_slow", "straight_bw_fast", "left_bw_slow"});
+  addSteeringAngleSubPolygon(
+    "straight_bw_slow", -0.5, 0.0, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon(
+    "straight_bw_fast", -1.0, -0.5, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon(
+    "left_bw_slow", -0.5, 0.0, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{-0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight backward at -0.3, Target: left backward at -0.7
+  nav2_collision_monitor::Velocity odom_vel{-0.3, 0.0, 0.0};
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * std::abs(-0.7) / WHEELBASE;
+  // For backward driving, tw sign is inverted
+  target_tw = -target_tw;
+  nav2_collision_monitor::Velocity cmd_vel{-0.7, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Collision in backward_fast polygon
+  collision_map["source"] = {
+    {-0.6, 0.0},
+    {-0.7, 0.1},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Speed should be limited: current bucket limit is -0.5 (backward_fast has collision).
+  // At neighbour angle boundary, baselink = -0.5 * cos(0.1)
+  double neighbour_angle = 0.1;
+  double expected_min = -0.5 * std::cos(neighbour_angle);
+  EXPECT_GE(action.req_vel.x, expected_min - 1e-3);  // not more negative
+}
+
 int main(int argc, char ** argv)
 {
   // Initialize the system
