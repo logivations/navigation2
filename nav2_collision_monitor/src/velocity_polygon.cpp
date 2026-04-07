@@ -762,11 +762,11 @@ bool VelocityPolygon::validateSteering(
     modified = true;
   }
 
-  // 6b. Only limit steering angle if current speed is larger than max valid speed
-  double valid_max_baselink = steeringToBaselinkSpeed(valid_limit_sw, neighbour_angle);
-  double current_baselink_abs = std::abs(current_speed);
-  double valid_max_baselink_abs = std::abs(valid_max_baselink);
-  if (current_baselink_abs > valid_max_baselink_abs) {
+  // 6b. Only limit steering angle if current speed is larger than max valid speed.
+  //     Compare in steering-wheel-speed domain (not baselink-x), because baselink-x
+  //     ignores the angular-velocity component and uses a different cos(angle) projection
+  //     for the current vs neighbour angle.
+  if (std::abs(current_sw_speed) > std::abs(valid_limit_sw)) {
     double limited_sa;
     if (target_steering_angle > current_sa) {
       limited_sa = current_field->steering_angle_max_;

@@ -161,7 +161,7 @@ else:
    1. start at fastest possible field (field for max(current speed, target speed)). If that is in collision, go down until a collision-free one is found. That one we call “valid” field. If all fields are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
 6. now adapt speed and steering angle
    1. limit target speed to the **minimum** of: max speed of valid field (from 5) and current bucket's speed limit (from 2)
-   2. if current speed is larger than max valid speed: limit steering angle to boundary of current bucket
+   2. if current speed is larger than max valid speed: limit steering angle to boundary of current bucket, **do not proceed into the next bucket if speed is not valid in next bucket**
 
 → done
 
