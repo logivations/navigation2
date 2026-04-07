@@ -185,15 +185,15 @@ LifecycleManager::CreateDiagnostic(diagnostic_updater::DiagnosticStatusWrapper &
       message = "Managed nodes are active";
       break;
     case NodeState::INACTIVE:
-      error_level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+      error_level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
       message = "Managed nodes are inactive";
       break;
     case NodeState::UNCONFIGURED:
-      error_level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+      error_level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
       message = "Managed nodes are unconfigured";
       break;
     case NodeState::FINALIZED:
-      error_level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+      error_level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
       message = "Managed nodes have been shut down";
       break;
     default:  // NodeState::UNKNOWN
