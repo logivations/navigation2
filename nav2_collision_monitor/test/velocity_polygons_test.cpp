@@ -1698,12 +1698,12 @@ TEST_F(Tester, testValidateSteeringBackwardDifferentBucketCurrentBucketLimitEnfo
 
 // ==================== Step 6b: do not proceed into next bucket if speed not valid ====================
 
-TEST_F(Tester, testValidateSteeringDifferentBucketSteeringClampedWhenCurrentSpeedExceedsNeighbour)
+TEST_F(Tester, testValidateSteeringDifferentBucketHoldsCurrentAngleWhenTooFast)
 {
-  // This test verifies step 6b independently of 6a:
-  // The result speed is already within the effective limit (6a does NOT trigger),
-  // but the robot's current physical speed exceeds the neighbour bucket's valid
-  // field max, so steering must be clamped to the current bucket boundary (6b triggers).
+  // Step 6b: when current_sw exceeds the neighbour's valid field max, the robot
+  // must hold its current steering angle (not steer toward the boundary) and
+  // decelerate first. Only after current_sw drops below the limit will 6b stop
+  // firing and allow steering toward the next bucket.
   //
   // Setup: straight has slow[0,0.5]+fast[0.5,1.0], left has only slow[0,0.3]
   // The left bucket's max is 0.3 — lower than the robot's current speed (0.4).
@@ -1717,8 +1717,8 @@ TEST_F(Tester, testValidateSteeringDifferentBucketSteeringClampedWhenCurrentSpee
   nav2_collision_monitor::Velocity vel{0.4, 0.0, 0.0};
   velocity_polygon_->updatePolygon(vel);
 
-  // Current: straight at 0.4, Target: left at 0.4
-  nav2_collision_monitor::Velocity odom_vel{0.4, 0.0, 0.0};
+  // Current: straight at 0.4 (sa=0), Target: left at 0.4
+  nav2_collision_monitor::Velocity odom_vel{0.4, 0.0, 0.0};  // current_sa = 0
   double target_sa = 0.3;
   double target_tw = std::tan(target_sa) * 0.4 / WHEELBASE;
   nav2_collision_monitor::Velocity cmd_vel{0.4, 0.0, target_tw};
@@ -1726,9 +1726,7 @@ TEST_F(Tester, testValidateSteeringDifferentBucketSteeringClampedWhenCurrentSpee
   std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
   collision_map["source"] = {};  // no collisions
 
-  // Simulate prior processing (e.g. SLOWDOWN) that already reduced speed
-  // to 0.2, which is below the effective limit (~0.3*cos(0.1)≈0.2985).
-  // This ensures step 6a does NOT trigger.
+  // Pre-limited action velocity below the effective limit so 6a does NOT trigger.
   double pre_limited_sa = 0.3;
   double pre_limited_tw = std::tan(pre_limited_sa) * 0.2 / WHEELBASE;
   nav2_collision_monitor::Velocity action_vel{0.2, 0.0, pre_limited_tw};
@@ -1742,12 +1740,10 @@ TEST_F(Tester, testValidateSteeringDifferentBucketSteeringClampedWhenCurrentSpee
   // Speed should NOT have been further reduced (6a didn't trigger)
   EXPECT_NEAR(action.req_vel.x, 0.2, 1e-6);
 
-  // Steering angle should be clamped to current bucket boundary (0.1),
-  // not the target angle (0.3) — robot must not enter the left bucket
-  // while physically going 0.4, which exceeds left's max of 0.3.
+  // Steering angle should be held at current_sa (0.0), NOT steered to the
+  // bucket boundary (0.1). The robot must decelerate before steering.
   double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
-  double bucket_boundary = 0.1;
-  EXPECT_NEAR(result_sa, bucket_boundary, 0.02);
+  EXPECT_NEAR(result_sa, 0.0, 0.02);  // held at current_sa=0, not boundary=0.1
 }
 
 TEST_F(Tester, testValidateSteeringStep6bUsesSteeringWheelSpeedNotBaselinkX)

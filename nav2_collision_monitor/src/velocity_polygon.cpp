@@ -762,19 +762,16 @@ bool VelocityPolygon::validateSteering(
     modified = true;
   }
 
-  // 6b. Only limit steering angle if current speed is larger than max valid speed.
+  // 6b. If current speed exceeds the valid field's max in the neighbour bucket,
+  //     hold the current steering angle — do not steer toward the boundary.
+  //     The robot must decelerate first; only when current_sw drops below
+  //     valid_limit will 6b stop firing and 6a's boundary angle take effect.
   //     Compare in steering-wheel-speed domain (not baselink-x), because baselink-x
   //     ignores the angular-velocity component and uses a different cos(angle) projection
   //     for the current vs neighbour angle.
   if (std::abs(current_sw_speed) > std::abs(valid_limit_sw)) {
-    double limited_sa;
-    if (target_steering_angle > current_sa) {
-      limited_sa = current_field->steering_angle_max_;
-    } else {
-      limited_sa = current_field->steering_angle_min_;
-    }
-    debug_msg.steering_angle_limit = limited_sa;
-    result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
+    debug_msg.steering_angle_limit = current_sa;
+    result_vel.tw = steeringAngleToTw(result_vel.x, current_sa);
     modified = true;
   }
 
