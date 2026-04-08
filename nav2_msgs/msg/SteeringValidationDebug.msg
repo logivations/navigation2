@@ -52,6 +52,8 @@ float32 result_vel_tw           # final output velocity tw
 # Limits applied
 float32 speed_limit_applied     # baselink speed limit applied (0 if none)
 float32 steering_angle_limit    # steering angle limit applied (NaN if none)
+float32 final_sw                # final steering wheel speed used for result_vel (0 if unmodified)
+float32 limited_sa              # final steering angle used for result_vel (NaN if unmodified)
 
 # Polygon name
 string polygon_name

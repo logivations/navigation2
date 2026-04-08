@@ -470,6 +470,8 @@ bool VelocityPolygon::validateSteering(
   debug_msg.polygon_name = polygon_name_;
   debug_msg.steering_angle_limit = std::numeric_limits<float>::quiet_NaN();
   debug_msg.speed_limit_applied = 0.0;
+  debug_msg.final_sw = 0.0;
+  debug_msg.limited_sa = std::numeric_limits<float>::quiet_NaN();
   debug_msg.next_field_collision_pts = -1;
   debug_msg.neighbour_collision_pts = -1;
 
@@ -712,6 +714,8 @@ bool VelocityPolygon::validateSteering(
 
   if (modified) {
     double final_sw = speed_needs_limit ? effective_limit_sw : result_sw;
+    debug_msg.final_sw = final_sw;
+    debug_msg.limited_sa = limited_sa;
     debug_msg.speed_limit_applied = steeringToBaselinkSpeed(final_sw, limited_sa);
     result_vel.x = steeringToBaselinkSpeed(final_sw, limited_sa);
     result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
