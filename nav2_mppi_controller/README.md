@@ -46,9 +46,10 @@ This process is then repeated a number of times and returns a converged solution
  | batch_size                 | int    | Default 1000. Count of randomly sampled candidate trajectories                                            |
  | time_steps                 | int    | Default 56. Number of time steps (points) in each sampled trajectory                                     |
  | model_dt                   | double | Default: 0.05. Time interval (s) between two sampled points in trajectories.                              |
- | vx_std                     | double | Default 0.2. Sampling standard deviation for VX                                                          |
- | vy_std                     | double | Default 0.2. Sampling standard deviation for VY                                                          |
- | wz_std                     | double | Default 0.4. Sampling standard deviation for Wz                                                          |
+| vx_std                     | double | Default 0.2. Sampling standard deviation for VX                                                          |
+| vy_std                     | double | Default 0.2. Sampling standard deviation for VY                                                          |
+| wz_std                     | double | Default 0.4. Sampling standard deviation for Wz. Used by `DiffDrive` and `Omni`, and by `Ackermann` when steering-state parameters are not set. |
+| delta_std                  | double | Default 0.0. Sampling standard deviation for steering angle in radians. Used by `Ackermann` when `wheelbase`, `delta_max`, and `delta_dot_max` are set. |
  | vx_max                     | double | Default 0.5. Max VX (m/s)                                                                                |
  | vy_max                     | double | Default 0.5. Max VY in either direction, if holonomic. (m/s)                                             |
  | vx_min                     | double | Default -0.35. Min VX (m/s)                                                                              |
@@ -69,9 +70,19 @@ This process is then repeated a number of times and returns a converged solution
  | time_step             | int    | Default: 3. The step between points on trajectories to visualize to downsample trajectory density.          |
 
 #### Ackermann Motion Model
+When `motion_model` is `Ackermann`, the controller supports two equivalent kinematic parameterizations:
+
+- Angular-velocity parameterization using `min_turning_r`
+- Steering-angle parameterization using `wheelbase`, `delta_max`, and `delta_dot_max`
+
+If the steering-angle parameters are set to positive values, MPPI samples steering angle directly, applies steering angle and steering rate limits across the control horizon, and derives yaw rate from the bicycle model.
+
  | Parameter            | Type   | Definition                                                                                                  |
  | -------------------- | ------ | ----------------------------------------------------------------------------------------------------------- |
- | min_turning_r        | double | minimum turning radius for ackermann motion model                                                           |
+ | min_turning_r        | double | Default 0.2. Minimum turning radius for the Ackermann motion model when using angular-velocity parameterization. |
+ | wheelbase            | double | Default 1.0. Wheelbase of the vehicle in meters for steering-angle parameterization.                       |
+ | delta_max            | double | Default 0.0. Maximum steering angle magnitude in radians. Positive values enable steering-angle parameterization when combined with `wheelbase` and `delta_dot_max`. |
+ | delta_dot_max        | double | Default 0.0. Maximum steering angle rate in radians per second. Positive values enable steering-angle parameterization when combined with `wheelbase` and `delta_max`. |
 
 #### Constraint Critic
  | Parameter             | Type   | Definition                                                                                                  |
@@ -191,6 +202,7 @@ controller_server:
       vx_std: 0.2
       vy_std: 0.2
       wz_std: 0.4
+      delta_std: 0.2
       vx_max: 0.5
       vx_min: -0.35
       vy_max: 0.5
@@ -198,13 +210,16 @@ controller_server:
       iteration_count: 1
       temperature: 0.3
       gamma: 0.015
-      motion_model: "DiffDrive"
+      motion_model: "Ackermann"
       visualize: false
       TrajectoryVisualizer:
         trajectory_step: 5
         time_step: 3
       AckermannConstraints:
         min_turning_r: 0.2
+        wheelbase: 1.2
+        delta_max: 0.45
+        delta_dot_max: 1.2
       critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
       ConstraintCritic:
         enabled: true
