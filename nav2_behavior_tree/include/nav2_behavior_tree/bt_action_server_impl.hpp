@@ -272,7 +272,9 @@ bool BtActionServer<ActionT, NodeT>::loadBehaviorTree(const std::string & bt_xml
   bt_->resetGrootMonitor();
 
   bool is_bt_id = false;
-  if (!file_or_id.ends_with(".xml")) {
+  if ((file_or_id.length() < 4) ||
+    file_or_id.substr(file_or_id.length() - 4) != ".xml")
+  {
     is_bt_id = true;
   }
 

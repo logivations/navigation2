@@ -167,7 +167,7 @@ public:
    * @param NodeHybrid right hand side node reference
    * @return If cell indices are equal
    */
-  bool operator==(const NodeHybrid & rhs) const
+  bool operator==(const NodeHybrid & rhs)
   {
     return this->_index == rhs._index;
   }
