@@ -513,7 +513,7 @@ bool VelocityPolygon::validateSteering(
   if (crosses_zero) {
     if (std::abs(current_speed) > low_speed_threshold_) {
       // Must decelerate first — clamp tw to maintain current steering angle
-      result_vel.tw = steeringAngleToTw(result_vel.x, current_sa);
+      result_vel.tw = steeringAngleToTw(current_speed, current_sa);
       modified = true;
       debug_msg.steering_angle_limit = current_sa;
     }
@@ -774,7 +774,7 @@ bool VelocityPolygon::validateSteering(
       limited_sa = current_field->steering_angle_min_;
     }
     debug_msg.steering_angle_limit = limited_sa;
-    result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
+    result_vel.tw = steeringAngleToTw(current_speed, limited_sa);
     modified = true;
   }
 
