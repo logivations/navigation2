@@ -1696,6 +1696,103 @@ TEST_F(Tester, testValidateSteeringBackwardDifferentBucketCurrentBucketLimitEnfo
   EXPECT_GE(action.req_vel.x, expected_min - 1e-3);  // not more negative
 }
 
+// ==================== Step 6b: do not proceed into next bucket if speed not valid ====================
+
+TEST_F(Tester, testValidateSteeringDifferentBucketHoldsCurrentAngleWhenTooFast)
+{
+  // Step 6b: when current_sw exceeds the neighbour's valid field max, the robot
+  // must hold its current steering angle (not steer toward the boundary) and
+  // decelerate first. Only after current_sw drops below the limit will 6b stop
+  // firing and allow steering toward the next bucket.
+  //
+  // Setup: straight has slow[0,0.5]+fast[0.5,1.0], left has only slow[0,0.3]
+  // The left bucket's max is 0.3 — lower than the robot's current speed (0.4).
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "left_slow"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.3, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.4, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight at 0.4 (sa=0), Target: left at 0.4
+  nav2_collision_monitor::Velocity odom_vel{0.4, 0.0, 0.0};  // current_sa = 0
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.4 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.4, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};  // no collisions
+
+  // Pre-limited action velocity below the effective limit so 6a does NOT trigger.
+  double pre_limited_sa = 0.3;
+  double pre_limited_tw = std::tan(pre_limited_sa) * 0.2 / WHEELBASE;
+  nav2_collision_monitor::Velocity action_vel{0.2, 0.0, pre_limited_tw};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, action_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+
+  // Speed should NOT have been further reduced (6a didn't trigger)
+  EXPECT_NEAR(action.req_vel.x, 0.2, 1e-6);
+
+  // Steering angle should be held at current_sa (0.0), NOT steered to the
+  // bucket boundary (0.1). The robot must decelerate before steering.
+  double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
+  EXPECT_NEAR(result_sa, 0.0, 0.02);  // held at current_sa=0, not boundary=0.1
+}
+
+TEST_F(Tester, testValidateSteeringStep6bUsesSteeringWheelSpeedNotBaselinkX)
+{
+  // Regression test: the old code compared baselink-x against
+  // valid_limit_sw * cos(neighbour_angle), which made the threshold lower than
+  // valid_limit_sw. This caused false-positive steering clamping when the robot's
+  // steering wheel speed was actually within the neighbour's valid field max.
+  //
+  // Setup: straight has slow[0,1.0] sa[-0.5,0.5]
+  //        left has slow[0,0.5] sa[0.5,1.0]
+  // Robot at sa=0, odom x=0.45, tw=0 → sw_speed=0.45.
+  // valid_limit_sw = 0.5 (left_slow max). 0.45 < 0.5 → robot CAN enter left.
+  // OLD code: 0.45 > 0.5*cos(0.5)=0.439 → wrongly clamped steering.
+  // NEW code: 0.45 > 0.5 → false → correctly allows steering.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "left_slow"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 1.0, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.5, 1.0, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.45, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Current: straight at 0.45 (sw_speed=0.45, sa=0)
+  nav2_collision_monitor::Velocity odom_vel{0.45, 0.0, 0.0};
+  // Target: left
+  double target_sa = 0.7;
+  double target_tw = std::tan(target_sa) * 0.45 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.45, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};  // no collisions
+
+  // Pre-limited action velocity below the effective limit to avoid 6a triggering.
+  // effective_limit = min(current_bucket_limit=1.0, valid_limit=0.5) = 0.5
+  // effective_max_baselink = 0.5 * cos(0.5) ≈ 0.439
+  // Set result to 0.3 (well below 0.439) so 6a does NOT fire.
+  double action_tw = std::tan(target_sa) * 0.3 / WHEELBASE;
+  nav2_collision_monitor::Velocity action_vel{0.3, 0.0, action_tw};
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, action_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  // The robot's sw_speed (0.45) is within left_slow's max (0.5), so 6b should NOT
+  // trigger. The old baselink-x comparison would have incorrectly clamped steering.
+  EXPECT_FALSE(modified);
+}
+
 int main(int argc, char ** argv)
 {
   // Initialize the system
