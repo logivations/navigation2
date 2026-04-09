@@ -535,8 +535,9 @@ bool VelocityPolygon::validateSteering(
 
   if (crosses_zero) {
     if (std::abs(current_speed) > low_speed_threshold_) {
-      // Must decelerate first — clamp tw to maintain current steering angle
-      result_vel.tw = steeringAngleToTw(result_vel.x, current_sa);
+      // Must decelerate first — clamp tw to maintain current steering angle.
+      // Use odom speed (current_speed) since we want to hold the physical angle.
+      result_vel.tw = steeringAngleToTw(current_speed, current_sa);
       debug_msg.steering_angle_limit = current_sa;
       robot_action.req_vel = result_vel;
       robot_action.polygon_name = polygon_name_;
@@ -694,8 +695,11 @@ bool VelocityPolygon::validateSteering(
       (std::abs(current_bucket_limit_sw) < std::abs(valid_limit_sw)) ?
       current_bucket_limit_sw : valid_limit_sw;
 
-    // 6b. Limit steering angle if current sw speed exceeds valid field's max
-    limited_sa = target_sa;
+    // 6b. Limit steering angle if current sw speed exceeds valid field's max.
+    // Default to neighbour_angle (bucket boundary) — not target_sa — so that
+    // speed-only limiting (6a without 6b) keeps the velocity pointing at the
+    // boundary rather than overshooting into the neighbour bucket.
+    limited_sa = neighbour_angle;
     if (std::abs(current_sw) > std::abs(valid_limit_sw)) {
       if (target_sa > current_sa) {
         limited_sa = current_field->steering_angle_max_;
