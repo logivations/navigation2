@@ -696,10 +696,10 @@ bool VelocityPolygon::validateSteering(
       current_bucket_limit_sw : valid_limit_sw;
 
     // 6b. Limit steering angle if current sw speed exceeds valid field's max.
-    // Default to neighbour_angle (bucket boundary) — not target_sa — so that
-    // speed-only limiting (6a without 6b) keeps the velocity pointing at the
-    // boundary rather than overshooting into the neighbour bucket.
-    limited_sa = neighbour_angle;
+    // Default to target_sa — always prioritise reaching the desired steering
+    // angle. Speed is adapted (6a) to make this safe. Only restrict the angle
+    // when 6b determines the current speed is too high for the neighbour bucket.
+    limited_sa = target_sa;
     if (std::abs(current_sw) > std::abs(valid_limit_sw)) {
       if (target_sa > current_sa) {
         limited_sa = current_field->steering_angle_max_;
