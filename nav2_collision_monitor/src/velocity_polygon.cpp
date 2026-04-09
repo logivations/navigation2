@@ -306,16 +306,9 @@ bool VelocityPolygon::isInRange(
     return in_range;
   }
 
-  // Non-steering-angle mode: use baselink speed directly
-  bool in_range = cmd_vel_in.x <= sub_polygon.linear_max_ &&
-                  cmd_vel_in.x >= sub_polygon.linear_min_;
-
-  if (!in_range) {
-    return false;
-  }
-
-  in_range &= cmd_vel_in.tw <= sub_polygon.theta_max_ &&
-              cmd_vel_in.tw >= sub_polygon.theta_min_;
+  // Non-steering-angle mode: check angular range first
+  bool in_range = cmd_vel_in.tw <= sub_polygon.theta_max_ &&
+                  cmd_vel_in.tw >= sub_polygon.theta_min_;
 
   if (holonomic_) {
     // 2. For holonomic robots: use speed magnitude + direction
@@ -504,10 +497,36 @@ bool VelocityPolygon::validateSteering(
   debug_msg.odom_vel_y = odom_vel.y;
   debug_msg.odom_vel_tw = odom_vel.tw;
 
-  Velocity result_vel = robot_action.req_vel;
+  // --- Work in steering wheel domain ---
+  // Convert the step-1 result to steering wheel speed + steering angle.
+  // All limits below modify these two variables; conversion back to
+  // baselink happens only at the very end via swToBaselink().
+  double result_sw = baselinkToSteeringSpeed(robot_action.req_vel.x, robot_action.req_vel.tw);
+  double result_sa = target_sa;
 
-  // Helper: publish debug + optional polygon visualization and return
-  auto publish_and_return = [&](bool mod) -> bool {
+  // Utility: convert steering wheel (speed, angle) back to baselink Velocity
+  auto swToBaselink = [&](double sw, double sa) -> Velocity {
+    Velocity v;
+    v.x = steeringToBaselinkSpeed(sw, sa);
+    v.y = robot_action.req_vel.y;
+    v.tw = steeringAngleToTw(v.x, sa);
+    return v;
+  };
+
+  // Helper: convert result_sw/result_sa to baselink, publish debug + polygon, return
+  auto apply_and_return = [&](bool mod) -> bool {
+    Velocity result_vel;
+    if (mod) {
+      result_vel = swToBaselink(result_sw, result_sa);
+      debug_msg.final_sw = result_sw;
+      debug_msg.limited_sa = result_sa;
+      debug_msg.speed_limit_applied = result_vel.x;
+      robot_action.req_vel = result_vel;
+      robot_action.polygon_name = polygon_name_;
+      robot_action.action_type = LIMIT;
+    } else {
+      result_vel = robot_action.req_vel;
+    }
     debug_msg.modified = mod;
     debug_msg.result_vel_x = result_vel.x;
     debug_msg.result_vel_y = result_vel.y;
@@ -535,17 +554,13 @@ bool VelocityPolygon::validateSteering(
 
   if (crosses_zero) {
     if (std::abs(current_speed) > low_speed_threshold_) {
-      // Must decelerate first — clamp tw to maintain current steering angle.
-      // Use odom speed (current_speed) since we want to hold the physical angle.
-      result_vel.tw = steeringAngleToTw(current_speed, current_sa);
+      // Must decelerate first — lock steering angle to current
+      result_sa = current_sa;
       debug_msg.steering_angle_limit = current_sa;
-      robot_action.req_vel = result_vel;
-      robot_action.polygon_name = polygon_name_;
-      robot_action.action_type = LIMIT;
-      return publish_and_return(true);
+      return apply_and_return(true);
     }
     // abs(current) < threshold → allow steering freely
-    return publish_and_return(false);
+    return apply_and_return(false);
   }
 
   // --- Steering wheel speeds ---
@@ -559,7 +574,7 @@ bool VelocityPolygon::validateSteering(
     std::abs(current_sw) < low_speed_threshold_;
   debug_msg.both_below_threshold = both_below;
   if (both_below) {
-    return publish_and_return(false);
+    return apply_and_return(false);
   }
 
   // --- Find current field ---
@@ -575,7 +590,7 @@ bool VelocityPolygon::validateSteering(
       polygon_name_.c_str(),
       odom_vel.x, odom_vel.y, odom_vel.tw, current_sw, current_sa,
       cmd_vel_in.x, cmd_vel_in.y, cmd_vel_in.tw, target_sw, target_sa);
-    return publish_and_return(false);
+    return apply_and_return(false);
   }
 
   // --- Step 2: Same-bucket speed limit (always enforced) ---
@@ -612,8 +627,8 @@ bool VelocityPolygon::validateSteering(
     target_sa <= current_field->steering_angle_max_;
   debug_msg.same_bucket = same_bucket;
 
-  // These two variables are refined through the algorithm and used at the end
-  // to produce the final result_vel in a single assignment.
+  // These two variables are refined through the algorithm and applied to
+  // result_sw / result_sa at the end, before the single baselink conversion.
   double effective_limit_sw;
   double limited_sa;
 
@@ -621,7 +636,7 @@ bool VelocityPolygon::validateSteering(
     // 3a. At standstill the current field is not meaningful for speed limiting —
     // the robot must be free to start moving.
     if (std::abs(current_sw) < low_speed_threshold_) {
-      return publish_and_return(false);
+      return apply_and_return(false);
     }
 
     // 3b. Limit speed to current bucket's speed limit from step 2
@@ -644,7 +659,7 @@ bool VelocityPolygon::validateSteering(
     bool forward = target_sw >= 0;
     auto neighbour_fields = findFieldsForAngle(lookup_angle, forward);
     if (neighbour_fields.empty()) {
-      return publish_and_return(false);
+      return apply_and_return(false);
     }
 
     // 5.1: Find starting field (fastest that covers max(|current|, |target|) speed)
@@ -695,40 +710,40 @@ bool VelocityPolygon::validateSteering(
       (std::abs(current_bucket_limit_sw) < std::abs(valid_limit_sw)) ?
       current_bucket_limit_sw : valid_limit_sw;
 
-    // 6b. Limit steering angle if current sw speed exceeds valid field's max.
-    // Default to target_sa — always prioritise reaching the desired steering
-    // angle. Speed is adapted (6a) to make this safe. Only restrict the angle
-    // when 6b determines the current speed is too high for the neighbour bucket.
-    limited_sa = target_sa;
+    // 6b. Limit steering angle — one bucket step at a time.
+    // Default: allow up to the end of the valid (neighbour) field's angle range.
+    // This enforces "one bucket step at a time" even when speed is OK.
+    // If current speed exceeds the neighbour's max: stay at current bucket boundary.
     if (std::abs(current_sw) > std::abs(valid_limit_sw)) {
-      if (target_sa > current_sa) {
-        limited_sa = current_field->steering_angle_max_;
-      } else {
-        limited_sa = current_field->steering_angle_min_;
-      }
+      // Too fast for neighbour — hold at current bucket boundary
+      limited_sa = (target_sa > current_sa) ?
+        current_field->steering_angle_max_ : current_field->steering_angle_min_;
+    } else {
+      // Speed OK for neighbour — allow up to the far edge of the neighbour bucket
+      limited_sa = (target_sa > current_sa) ?
+        valid_field->steering_angle_max_ : valid_field->steering_angle_min_;
+    }
+    // If target is within the allowed range, don't overshoot
+    if (target_sa > current_sa) {
+      limited_sa = std::min(limited_sa, target_sa);
+    } else {
+      limited_sa = std::max(limited_sa, target_sa);
+    }
+    if (std::abs(limited_sa - target_sa) > 1e-9) {
       debug_msg.steering_angle_limit = limited_sa;
     }
   }
 
-  // --- Apply limits: compute result_vel once from effective_limit_sw and limited_sa ---
-  double result_sw = baselinkToSteeringSpeed(result_vel.x, result_vel.tw);
+  // --- Apply all limits in steering wheel domain ---
   bool speed_needs_limit = std::abs(result_sw) > std::abs(effective_limit_sw);
   bool angle_needs_limit = std::abs(limited_sa - target_sa) > 1e-9;
-  bool modified = speed_needs_limit || angle_needs_limit;
-
-  if (modified) {
-    double final_sw = speed_needs_limit ? effective_limit_sw : result_sw;
-    debug_msg.final_sw = final_sw;
-    debug_msg.limited_sa = limited_sa;
-    debug_msg.speed_limit_applied = steeringToBaselinkSpeed(final_sw, limited_sa);
-    result_vel.x = steeringToBaselinkSpeed(final_sw, limited_sa);
-    result_vel.tw = steeringAngleToTw(result_vel.x, limited_sa);
-    robot_action.req_vel = result_vel;
-    robot_action.polygon_name = polygon_name_;
-    robot_action.action_type = LIMIT;
+  if (speed_needs_limit) {
+    result_sw = effective_limit_sw;
   }
+  result_sa = limited_sa;
 
-  return publish_and_return(modified);
+  // --- Convert to baselink only here, just before return ---
+  return apply_and_return(speed_needs_limit || angle_needs_limit);
 }
 
 bool VelocityPolygon::clampToMaxField(

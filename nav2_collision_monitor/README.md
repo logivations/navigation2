@@ -161,11 +161,14 @@ else:
    1. start at fastest possible field (field for max(current speed, target speed)). If that is in collision, go down until a collision-free one is found. That one we call “valid” field. If all fields are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
 6. now adapt speed and steering angle
    1. limit target speed to the **minimum** of: max speed of valid field (from 5) and current bucket's speed limit (from 2)
-   2. if current speed is larger than max valid speed: limit steering angle to boundary of current bucket, do not proceed into the next bucket if speed is not valid in next bucket
+   2. limit steering angle to one bucket step at a time:
+      * if current speed is larger than max valid speed: hold at boundary of **current** bucket (do not proceed into the next bucket until speed is valid)
+      * otherwise: allow up to the far edge of the **neighbour** bucket (but not beyond — buckets further away have not been checked)
+      * if the target angle is within the allowed range, use target angle (don't overshoot)
 
 → done
 
-After some iterations, the current speed will be in the valid field → AMR will be allowed to steer, as in 6b, the current speed will not be above max valid speed
+After some iterations, the current speed will be in the valid field → AMR will be allowed to steer one bucket at a time. On each cycle the neighbour becomes the current bucket and the next neighbour is checked.
 
 ### Field exceedance prevention
 

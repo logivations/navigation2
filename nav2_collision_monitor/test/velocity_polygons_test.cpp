@@ -775,6 +775,65 @@ TEST_F(Tester, testSteeringAngleToTw)
   EXPECT_NEAR(velocity_polygon_->callSteeringAngleToTw(-v, sa), expected_tw_reverse, 1e-6);
 }
 
+// Verify that swToBaselink (steeringToBaselinkSpeed + steeringAngleToTw) is the
+// exact inverse of tricycle_controller's twist_to_ackermann.
+// twist_to_ackermann (with wheel_radius=1):
+//   alpha = atan(theta_dot * wheelbase / Vx)
+//   Ws    = Vx / (wheel_radius * cos(alpha))   [== sw_speed when wheel_radius=1]
+// swToBaselink:
+//   Vx        = steeringToBaselinkSpeed(sw, sa) = sw * cos(sa)
+//   theta_dot = steeringAngleToTw(Vx, sa)       = tan(sa) * |Vx| / wheelbase
+TEST_F(Tester, testSwToBaselinkInverseOfTwistToAckermann)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow"});
+  addSteeringAngleSubPolygon("slow", 0.0, 1.0, -1.0, 1.0, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  // Inline twist_to_ackermann logic (from tricycle_controller) with wheel_radius=1.0
+  const double wheel_radius = 1.0;
+  auto twist_to_ackermann = [&](double Vx, double theta_dot)
+    -> std::pair<double, double> {
+      if (Vx == 0 && theta_dot != 0) {
+        double alpha = theta_dot > 0 ? M_PI_2 : -M_PI_2;
+        double Ws = std::abs(theta_dot) * WHEELBASE / wheel_radius;
+        return {alpha, Ws};
+      }
+      double alpha = (theta_dot == 0 || Vx == 0) ?
+        0.0 : std::atan(theta_dot * WHEELBASE / Vx);
+      double Ws = Vx / (wheel_radius * std::cos(alpha));
+      return {alpha, Ws};
+    };
+
+  // Test cases: (sw_speed, steering_angle) → swToBaselink → twist_to_ackermann → roundtrip
+  struct TestCase { double sw; double sa; };
+  std::vector<TestCase> cases = {
+    {1.0, 0.0},        // straight forward
+    {0.5, 0.3},        // moderate turn forward
+    {0.8, -0.4},       // moderate turn other direction
+    {-0.6, 0.2},       // reverse with steering
+    {-1.0, 0.0},       // straight reverse
+    {-0.5, -0.3},      // reverse other direction
+    {0.3, 0.8},        // sharp turn forward
+    {2.0, 0.1},        // high speed slight turn
+  };
+
+  for (const auto & tc : cases) {
+    // Step 1: swToBaselink
+    double vx = velocity_polygon_->callSteeringToBaselinkSpeed(tc.sw, tc.sa);
+    double tw = velocity_polygon_->callSteeringAngleToTw(vx, tc.sa);
+
+    // Step 2: twist_to_ackermann (inverse)
+    auto [alpha, Ws] = twist_to_ackermann(vx, tw);
+
+    EXPECT_NEAR(alpha, tc.sa, 1e-9)
+      << "Steering angle roundtrip failed for sw=" << tc.sw << " sa=" << tc.sa
+      << " (vx=" << vx << " tw=" << tw << ")";
+    EXPECT_NEAR(Ws, tc.sw, 1e-9)
+      << "Steering wheel speed roundtrip failed for sw=" << tc.sw << " sa=" << tc.sa
+      << " (vx=" << vx << " tw=" << tw << ")";
+  }
+}
+
 TEST_F(Tester, testIsInRangeWithSteeringWheelSpeed)
 {
   // Setup: 2 speed fields with steering angle params
@@ -1737,13 +1796,20 @@ TEST_F(Tester, testValidateSteeringDifferentBucketHoldsCurrentAngleWhenTooFast)
   EXPECT_TRUE(modified);
   EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
 
-  // Speed should NOT have been further reduced (6a didn't trigger)
-  EXPECT_NEAR(action.req_vel.x, 0.2, 1e-6);
-
-  // Steering angle should be held at current_sa (0.0), NOT steered to the
-  // bucket boundary (0.1). The robot must decelerate before steering.
+  // Per README step 6b: "limit steering angle to boundary of current bucket".
+  // The current bucket (straight_slow) has steering_angle_max = 0.1, so the
+  // steering angle is clamped to 0.1, not to current_sa (0.0).
+  double expected_boundary_sa = 0.1;
   double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
-  EXPECT_NEAR(result_sa, 0.0, 0.02);  // held at current_sa=0, not boundary=0.1
+  EXPECT_NEAR(result_sa, expected_boundary_sa, 0.02);
+
+  // Speed: result_sw was not clamped (6a didn't trigger), but the baselink
+  // speed changes slightly because it is recomputed from the limited steering
+  // angle via swToBaselink: v.x = sw * cos(limited_sa).
+  double pre_limited_sw = std::hypot(0.2, WHEELBASE * pre_limited_tw);
+  double expected_vx = velocity_polygon_->callSteeringToBaselinkSpeed(
+    pre_limited_sw, expected_boundary_sa);
+  EXPECT_NEAR(action.req_vel.x, expected_vx, 1e-6);
 }
 
 TEST_F(Tester, testValidateSteeringStep6bUsesSteeringWheelSpeedNotBaselinkX)
