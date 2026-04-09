@@ -275,14 +275,13 @@ LifecycleManager::createBondConnection(const std::string & node_name)
     std::chrono::duration_cast<std::chrono::nanoseconds>(bond_timeout_).count();
   const double timeout_s = timeout_ns / 1e9;
 
-  if (bond_map_.find(node_name) == bond_map_.end() && bond_timeout_.count() > 0.0) {
-    bond_map_[node_name] =
-      std::make_shared<bond::Bond>("bond", node_name, shared_from_this());
-    bond_map_[node_name]->setHeartbeatTimeout(timeout_s);
-    bond_map_[node_name]->setHeartbeatPeriod(bond_heartbeat_period_);
-    bond_map_[node_name]->start();
+  if (bond_timeout_.count() > 0.0) {
+    auto bond = std::make_shared<bond::Bond>("bond", node_name, shared_from_this());
+    bond->setHeartbeatTimeout(timeout_s);
+    bond->setHeartbeatPeriod(bond_heartbeat_period_);
+    bond->start();
     if (
-      !bond_map_[node_name]->waitUntilFormed(
+      !bond->waitUntilFormed(
         rclcpp::Duration(rclcpp::Duration::from_nanoseconds(timeout_ns / 2))))
     {
       RCLCPP_ERROR(
@@ -293,6 +292,10 @@ LifecycleManager::createBondConnection(const std::string & node_name)
       return false;
     }
     RCLCPP_INFO(get_logger(), "Server %s connected with bond.", node_name.c_str());
+    {
+      std::lock_guard<std::mutex> lock(bond_map_mutex_);
+      bond_map_[node_name] = bond;
+    }
   }
 
   return true;
@@ -315,6 +318,7 @@ LifecycleManager::changeStateForNode(const std::string & node_name, std::uint8_t
   if (transition == Transition::TRANSITION_ACTIVATE) {
     return createBondConnection(node_name);
   } else if (transition == Transition::TRANSITION_DEACTIVATE) {
+    std::lock_guard<std::mutex> lock(bond_map_mutex_);
     bond_map_.erase(node_name);
   }
 
@@ -570,7 +574,10 @@ LifecycleManager::onRclPreshutdown()
   service_thread_.reset();
   node_names_.clear();
   node_map_.clear();
-  bond_map_.clear();
+  {
+    std::lock_guard<std::mutex> lock(bond_map_mutex_);
+    bond_map_.clear();
+  }
 }
 
 void
@@ -586,40 +593,56 @@ LifecycleManager::registerRclPreshutdownCallback()
 void
 LifecycleManager::checkBondConnections()
 {
-  if (!isActive() || !rclcpp::ok() || bond_map_.empty()) {
+  if (!isActive() || !rclcpp::ok()) {
     return;
   }
 
-  for (auto & node_name : node_names_) {
-    if (!rclcpp::ok()) {
+  std::string broken_node;
+  {
+    std::lock_guard<std::mutex> lock(bond_map_mutex_);
+    if (bond_map_.empty()) {
       return;
     }
-
-    if (bond_map_[node_name]->isBroken()) {
-      message(
-        std::string(
-          "Have not received a heartbeat from " + node_name + "."));
-
-      // if one is down, bring them all down
-      RCLCPP_ERROR(
-        get_logger(),
-        "CRITICAL FAILURE: SERVER %s IS DOWN after not receiving a heartbeat for %i ms."
-        " Shutting down related nodes.",
-        node_name.c_str(), static_cast<int>(bond_timeout_.count()));
-      reset(true);  // hard reset to transition all still active down
-      // if a server crashed, it won't get cleared due to failed transition, clear manually
-      bond_map_.clear();
-
-      // Initialize the bond respawn timer to check if server comes back online
-      // after a failure, within a maximum timeout period.
-      if (attempt_respawn_reconnection_) {
-        bond_respawn_timer_ = this->create_wall_timer(
-          1s,
-          std::bind(&LifecycleManager::checkBondRespawnConnection, this),
-          callback_group_);
+    for (auto & node_name : node_names_) {
+      if (!rclcpp::ok()) {
+        return;
       }
-      return;
+      auto it = bond_map_.find(node_name);
+      if (it != bond_map_.end() && it->second->isBroken()) {
+        broken_node = node_name;
+        break;
+      }
     }
+  }
+
+  if (!broken_node.empty()) {
+    const auto & node_name = broken_node;
+    message(
+      std::string(
+        "Have not received a heartbeat from " + node_name + "."));
+
+    // if one is down, bring them all down
+    RCLCPP_ERROR(
+      get_logger(),
+      "CRITICAL FAILURE: SERVER %s IS DOWN after not receiving a heartbeat for %i ms."
+      " Shutting down related nodes.",
+      node_name.c_str(), static_cast<int>(bond_timeout_.count()));
+    reset(true);  // hard reset to transition all still active down
+    // if a server crashed, it won't get cleared due to failed transition, clear manually
+    {
+      std::lock_guard<std::mutex> lock(bond_map_mutex_);
+      bond_map_.clear();
+    }
+
+    // Initialize the bond respawn timer to check if server comes back online
+    // after a failure, within a maximum timeout period.
+    if (attempt_respawn_reconnection_) {
+      bond_respawn_timer_ = this->create_wall_timer(
+        1s,
+        std::bind(&LifecycleManager::checkBondRespawnConnection, this),
+        callback_group_);
+    }
+    return;
   }
 }
 
