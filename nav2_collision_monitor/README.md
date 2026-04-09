@@ -166,6 +166,8 @@ else:
       * otherwise: allow up to the far edge of the **neighbour** bucket (but not beyond — buckets further away have not been checked)
       * if the target angle is within the allowed range, use target angle (don't overshoot)
 
+All speed and angle limits are inset by a small safety margin (0.02 m/s for speed, 0.01 rad for angle) so that the resulting velocity lands clearly inside the target field, not on its boundary. This prevents the next cycle's field lookup from falling into a gap or fallback due to floating-point boundary issues.
+
 → done
 
 After some iterations, the current speed will be in the valid field → AMR will be allowed to steer one bucket at a time. On each cycle the neighbour becomes the current bucket and the next neighbour is checked.

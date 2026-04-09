@@ -232,6 +232,10 @@ protected:
   double wheelbase_;
   /// @brief Speed below which steering is freely allowed
   double low_speed_threshold_;
+  /// @brief Speed margin (m/s) to stay inside field boundaries
+  double speed_margin_;
+  /// @brief Angle margin (rad) to stay inside field boundaries
+  double angle_margin_;
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
 };  // class VelocityPolygon

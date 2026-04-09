@@ -1796,10 +1796,12 @@ TEST_F(Tester, testValidateSteeringDifferentBucketHoldsCurrentAngleWhenTooFast)
   EXPECT_TRUE(modified);
   EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
 
-  // Per README step 6b: "limit steering angle to boundary of current bucket".
+  // Per README step 6b: "limit steering angle to boundary of current bucket",
+  // inset by kAngleMargin (0.01 rad) to stay inside the field.
   // The current bucket (straight_slow) has steering_angle_max = 0.1, so the
-  // steering angle is clamped to 0.1, not to current_sa (0.0).
-  double expected_boundary_sa = 0.1;
+  // steering angle is clamped to 0.1 - 0.01 = 0.09.
+  double kAngleMargin = 0.01;
+  double expected_boundary_sa = 0.1 - kAngleMargin;
   double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
   EXPECT_NEAR(result_sa, expected_boundary_sa, 0.02);
 

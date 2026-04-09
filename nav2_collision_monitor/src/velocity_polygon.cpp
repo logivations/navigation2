@@ -76,6 +76,10 @@ bool VelocityPolygon::getParameters(
 
     low_speed_threshold_ = node->declare_or_get_parameter(
       polygon_name_ + ".low_speed_threshold", 0.1);
+    speed_margin_ = node->declare_or_get_parameter(
+      polygon_name_ + ".speed_margin", 0.02);
+    angle_margin_ = node->declare_or_get_parameter(
+      polygon_name_ + ".angle_margin", 0.01);
 
     for (std::string velocity_polygon_name : velocity_polygons) {
       // polygon points parameter
@@ -600,7 +604,8 @@ bool VelocityPolygon::validateSteering(
   bool forward_current = current_sw >= 0;
   auto fields_at_current_angle = findFieldsForAngle(current_sa, forward_current);
   double current_bucket_limit_sw = forward_current ?
-    current_field->linear_max_ : current_field->linear_min_;
+    current_field->linear_max_ - speed_margin_ :
+    current_field->linear_min_ + speed_margin_;
   debug_msg.next_field_name = "no field found above";
 
   for (size_t i = 0; i < fields_at_current_angle.size(); i++) {
@@ -615,7 +620,8 @@ bool VelocityPolygon::validateSteering(
       debug_msg.next_field_collision_pts = pts;
       if (pts < min_points_) {
         current_bucket_limit_sw = forward_current ?
-          next_field->linear_max_ : next_field->linear_min_;
+          next_field->linear_max_ - speed_margin_ :
+          next_field->linear_min_ + speed_margin_;
       }
     }
     break;
@@ -704,24 +710,30 @@ bool VelocityPolygon::validateSteering(
     debug_msg.valid_field_name = valid_field->velocity_polygon_name_;
 
     // 6a. effective_limit_sw = min(current_bucket_limit, valid_field_limit)
+    // Both sides have speed_margin_ applied: current_bucket_limit_sw from step 2,
+    // valid_limit_sw here.
     double valid_limit_sw = (target_sw >= 0) ?
       valid_field->linear_max_ : valid_field->linear_min_;
+    double valid_limit_sw_margined = (target_sw >= 0) ?
+      valid_limit_sw - speed_margin_ : valid_limit_sw + speed_margin_;
     effective_limit_sw =
-      (std::abs(current_bucket_limit_sw) < std::abs(valid_limit_sw)) ?
-      current_bucket_limit_sw : valid_limit_sw;
+      (std::abs(current_bucket_limit_sw) < std::abs(valid_limit_sw_margined)) ?
+      current_bucket_limit_sw : valid_limit_sw_margined;
 
     // 6b. Limit steering angle — one bucket step at a time.
-    // Default: allow up to the end of the valid (neighbour) field's angle range.
-    // This enforces "one bucket step at a time" even when speed is OK.
+    // Margins (angle_margin_) keep the result slightly inside the field boundary
+    // so the next cycle's findField lands in a real field.
     // If current speed exceeds the neighbour's max: stay at current bucket boundary.
     if (std::abs(current_sw) > std::abs(valid_limit_sw)) {
-      // Too fast for neighbour — hold at current bucket boundary
+      // Too fast for neighbour — hold at current bucket boundary (inset by margin)
       limited_sa = (target_sa > current_sa) ?
-        current_field->steering_angle_max_ : current_field->steering_angle_min_;
+        current_field->steering_angle_max_ - angle_margin_ :
+        current_field->steering_angle_min_ + angle_margin_;
     } else {
-      // Speed OK for neighbour — allow up to the far edge of the neighbour bucket
+      // Speed OK — allow up to far edge of neighbour bucket (inset by margin)
       limited_sa = (target_sa > current_sa) ?
-        valid_field->steering_angle_max_ : valid_field->steering_angle_min_;
+        valid_field->steering_angle_max_ - angle_margin_ :
+        valid_field->steering_angle_min_ + angle_margin_;
     }
     // If target is within the allowed range, don't overshoot
     if (target_sa > current_sa) {
@@ -784,8 +796,9 @@ bool VelocityPolygon::clampToMaxField(
   // Fastest field is the last one (sorted slowest first)
   const SubPolygonParameter * fastest = fields.back();
 
-  // Max steering wheel speed for this field
-  double max_sw = forward ? fastest->linear_max_ : fastest->linear_min_;
+  // Max steering wheel speed for this field (inset by margin to stay inside)
+  double max_sw = forward ?
+    fastest->linear_max_ - speed_margin_ : fastest->linear_min_ + speed_margin_;
 
   // Compute commanded steering angle and steering wheel speed
   double cmd_sa = computeSteeringAngle(robot_action.req_vel);
