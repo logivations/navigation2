@@ -730,16 +730,8 @@ bool VelocityPolygon::validateSteering(
         current_field->steering_angle_max_ - angle_margin_ :
         current_field->steering_angle_min_ + angle_margin_;
     } else {
-      // Speed OK — allow up to far edge of neighbour bucket (inset by margin)
-      limited_sa = (target_sa > current_sa) ?
-        valid_field->steering_angle_max_ - angle_margin_ :
-        valid_field->steering_angle_min_ + angle_margin_;
-    }
-    // If target is within the allowed range, don't overshoot
-    if (target_sa > current_sa) {
-      limited_sa = std::min(limited_sa, target_sa);
-    } else {
-      limited_sa = std::max(limited_sa, target_sa);
+      // Speed OK — use target angle
+      limited_sa = target_sa;
     }
     if (std::abs(limited_sa - target_sa) > 1e-9) {
       debug_msg.steering_angle_limit = limited_sa;

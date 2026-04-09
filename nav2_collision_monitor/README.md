@@ -163,8 +163,7 @@ else:
    1. limit target speed to the **minimum** of: max speed of valid field (from 5) and current bucket's speed limit (from 2)
    2. limit steering angle to one bucket step at a time:
       * if current speed is larger than max valid speed: hold at boundary of **current** bucket (do not proceed into the next bucket until speed is valid)
-      * otherwise: allow up to the far edge of the **neighbour** bucket (but not beyond — buckets further away have not been checked)
-      * if the target angle is within the allowed range, use target angle (don't overshoot)
+      * otherwise: use target angle
 
 All speed and angle limits are inset by a small safety margin (0.02 m/s for speed, 0.01 rad for angle) so that the resulting velocity lands clearly inside the target field, not on its boundary. This prevents the next cycle's field lookup from falling into a gap or fallback due to floating-point boundary issues.
 
