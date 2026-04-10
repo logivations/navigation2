@@ -242,11 +242,12 @@ public:
     typename nav2::SimpleActionServer<ActionT>::CompletionCallback compl_cb = nullptr,
     std::chrono::milliseconds server_timeout = std::chrono::milliseconds(500),
     bool spin_thread = false,
-    const bool realtime = false)
+    const bool realtime = false,
+    int cpu_core = -1)
   {
     return nav2::interfaces::create_action_server<ActionT>(
       shared_from_this(), action_name, execute_callback,
-      compl_cb, server_timeout, spin_thread, realtime);
+      compl_cb, server_timeout, spin_thread, realtime, cpu_core);
   }
 
   /**
