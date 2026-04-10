@@ -72,7 +72,8 @@ public:
     CompletionCallback completion_callback = nullptr,
     std::chrono::milliseconds server_timeout = std::chrono::milliseconds(500),
     bool spin_thread = false,
-    const bool realtime = false)
+    const bool realtime = false,
+    int cpu_core = -1)
   : SimpleActionServer(
       node->get_node_base_interface(),
       node->get_node_clock_interface(),
@@ -80,7 +81,7 @@ public:
       node->get_node_waitables_interface(),
       node->get_node_parameters_interface(),
       action_name, execute_callback, completion_callback,
-      server_timeout, spin_thread, realtime)
+      server_timeout, spin_thread, realtime, cpu_core)
   {}
 
   /**
@@ -104,7 +105,8 @@ public:
     CompletionCallback completion_callback = nullptr,
     std::chrono::milliseconds server_timeout = std::chrono::milliseconds(500),
     bool spin_thread = false,
-    const bool realtime = false)
+    const bool realtime = false,
+    int cpu_core = -1)
   : node_base_interface_(node_base_interface),
     node_clock_interface_(node_clock_interface),
     node_logging_interface_(node_logging_interface),
@@ -118,6 +120,7 @@ public:
   {
     using namespace std::placeholders;  // NOLINT
     use_realtime_prioritization_ = realtime;
+    cpu_core_ = cpu_core;
     if (spin_thread_) {
       callback_group_ = node_base_interface->create_callback_group(
         rclcpp::CallbackGroupType::MutuallyExclusive, false);
@@ -197,7 +200,7 @@ public:
   void setSoftRealTimePriority()
   {
     if (use_realtime_prioritization_) {
-      nav2::setSoftRealTimePriority();
+      nav2::setSoftRealTimePriority(cpu_core_);
       debug_msg("Soft realtime prioritization successfully set!");
     }
   }
@@ -547,6 +550,7 @@ protected:
   std::future<void> execution_future_;
   bool stop_execution_{false};
   bool use_realtime_prioritization_{false};
+  int cpu_core_{-1};
 
   mutable std::recursive_mutex update_mutex_;
   bool server_active_{false};

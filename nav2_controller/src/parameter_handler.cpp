@@ -43,6 +43,7 @@ ParameterHandler::ParameterHandler(
     std::string("speed_limit"));
   params_.failure_tolerance = node->declare_or_get_parameter("failure_tolerance", 0.0);
   params_.use_realtime_priority = node->declare_or_get_parameter("use_realtime_priority", false);
+  params_.realtime_cpu_core = node->declare_or_get_parameter("realtime_cpu_core", -1);
   params_.publish_zero_velocity = node->declare_or_get_parameter("publish_zero_velocity", true);
   double costmap_update_timeout_dbl = node->declare_or_get_parameter("costmap_update_timeout",
     0.30);
