@@ -211,13 +211,15 @@ protected:
     const double linear_min, const double linear_max,
     const double theta_min, const double theta_max,
     const double direction_end_angle, const double direction_start_angle,
-    const std::string & polygon_points, const bool is_holonomic);
+    const std::string & polygon_points, const bool is_holonomic,
+    const std::vector<std::string> & modes = {});
 
   void addSteeringAngleSubPolygon(
     const std::string & sub_polygon_name,
     const double linear_min, const double linear_max,
     const double steering_angle_min, const double steering_angle_max,
-    const std::string & polygon_points);
+    const std::string & polygon_points,
+    const std::vector<std::string> & modes = {});
   void setSteeringVelocityPolygonParameters(
     const double wheelbase, const double low_speed_threshold,
     const std::vector<std::string> & sub_polygon_names);
@@ -225,6 +227,7 @@ protected:
   // Creating routines
   void createVelocityPolygon(const std::string & action_type, const bool is_holonomic);
   void createSteeringVelocityPolygon(const std::string & action_type);
+  void createVelocityPolygonWithModes(const std::string & action_type);
 
   // Wait until polygon will be received
   bool waitPolygon(
@@ -366,7 +369,8 @@ void Tester::addPolygonVelocitySubPolygon(
   const double linear_min, const double linear_max,
   const double theta_min, const double theta_max,
   const double direction_start_angle, const double direction_end_angle,
-  const std::string & polygon_points, const bool is_holonomic)
+  const std::string & polygon_points, const bool is_holonomic,
+  const std::vector<std::string> & modes)
 {
   test_node_->declare_parameter(
     std::string(POLYGON_NAME) + "." + sub_polygon_name + ".points",
@@ -401,13 +405,20 @@ void Tester::addPolygonVelocitySubPolygon(
       "." + sub_polygon_name + ".direction_start_angle",
       rclcpp::ParameterValue(direction_start_angle));
   }
+
+  if (!modes.empty()) {
+    test_node_->declare_parameter(
+      std::string(POLYGON_NAME) + "." + sub_polygon_name + ".modes",
+      rclcpp::ParameterValue(modes));
+  }
 }
 
 void Tester::addSteeringAngleSubPolygon(
   const std::string & sub_polygon_name,
   const double linear_min, const double linear_max,
   const double steering_angle_min, const double steering_angle_max,
-  const std::string & polygon_points)
+  const std::string & polygon_points,
+  const std::vector<std::string> & modes)
 {
   const std::string prefix = std::string(POLYGON_NAME) + "." + sub_polygon_name;
 
@@ -435,6 +446,11 @@ void Tester::addSteeringAngleSubPolygon(
     prefix + ".steering_angle_max", rclcpp::ParameterValue(steering_angle_max));
   test_node_->set_parameter(
     rclcpp::Parameter(prefix + ".steering_angle_max", steering_angle_max));
+
+  if (!modes.empty()) {
+    test_node_->declare_parameter(prefix + ".modes", rclcpp::ParameterValue(modes));
+    test_node_->set_parameter(rclcpp::Parameter(prefix + ".modes", modes));
+  }
 }
 
 void Tester::setSteeringVelocityPolygonParameters(
@@ -480,6 +496,38 @@ void Tester::createVelocityPolygon(const std::string & action_type, const bool i
 {
   setCommonParameters(POLYGON_NAME, action_type);
   setVelocityPolygonParameters(is_holonomic);
+
+  velocity_polygon_ = std::make_shared<VelocityPolygonWrapper>(
+    test_node_->weak_from_this(), POLYGON_NAME,
+    tf_buffer_, BASE_FRAME_ID, TRANSFORM_TOLERANCE);
+  ASSERT_TRUE(velocity_polygon_->configure());
+  velocity_polygon_->activate();
+}
+
+void Tester::createVelocityPolygonWithModes(const std::string & action_type)
+{
+  setCommonParameters(POLYGON_NAME, action_type);
+
+  test_node_->declare_parameter(
+    std::string(POLYGON_NAME) + ".holonomic", rclcpp::ParameterValue(false));
+
+  static const char FWD_DEFAULT[]{"ForwardDefault"};
+  static const char FWD_FORKDOWN[]{"ForwardForkDown"};
+  static const char BWD[]{"Backward"};
+
+  std::vector<std::string> velocity_polygons = {FWD_DEFAULT, FWD_FORKDOWN, BWD};
+  test_node_->declare_parameter(
+    std::string(POLYGON_NAME) + ".velocity_polygons", rclcpp::ParameterValue(velocity_polygons));
+
+  addPolygonVelocitySubPolygon(
+    FWD_DEFAULT, 0.0, 1.0, -1.0, 1.0, 0.0, 0.0, FORWARD_POLYGON_STR,
+    false, {"default"});
+  addPolygonVelocitySubPolygon(
+    FWD_FORKDOWN, 0.0, 0.5, -1.0, 1.0, 0.0, 0.0, FORWARD_POLYGON_STR,
+    false, {"fork_down"});
+  addPolygonVelocitySubPolygon(
+    BWD, -1.0, 0.0, -1.0, 1.0, 0.0, 0.0, BACKWARD_POLYGON_STR,
+    false, {"default", "fork_down"});
 
   velocity_polygon_ = std::make_shared<VelocityPolygonWrapper>(
     test_node_->weak_from_this(), POLYGON_NAME,
@@ -1859,6 +1907,102 @@ TEST_F(Tester, testValidateSteeringStep6bUsesSteeringWheelSpeedNotBaselinkX)
   // The robot's sw_speed (0.45) is within left_slow's max (0.5), so 6b should NOT
   // trigger. The old baselink-x comparison would have incorrectly clamped steering.
   EXPECT_FALSE(modified);
+}
+
+TEST_F(Tester, testFieldsModeDefaultFiltering)
+{
+  createVelocityPolygonWithModes("stop");
+  ASSERT_EQ(velocity_polygon_->getFieldsMode(), "default");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardDefault");
+
+  vel = {0.8, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardDefault");
+
+  vel = {-0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "Backward");
+}
+
+TEST_F(Tester, testFieldsModeForkDownFiltering)
+{
+  createVelocityPolygonWithModes("stop");
+  velocity_polygon_->setFieldsMode("fork_down");
+  ASSERT_EQ(velocity_polygon_->getFieldsMode(), "fork_down");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardForkDown");
+
+  // 0.8 exceeds ForwardForkDown max (0.5), ForwardDefault not in fork_down mode
+  vel = {0.8, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "none");
+
+  vel = {-0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "Backward");
+}
+
+TEST_F(Tester, testFieldsModeUnknownModeFiltersAll)
+{
+  createVelocityPolygonWithModes("stop");
+  velocity_polygon_->setFieldsMode("nonexistent_mode");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "none");
+}
+
+TEST_F(Tester, testFieldsModeSwitching)
+{
+  createVelocityPolygonWithModes("stop");
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardDefault");
+
+  velocity_polygon_->setFieldsMode("fork_down");
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardForkDown");
+
+  velocity_polygon_->setFieldsMode("default");
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardDefault");
+}
+
+TEST_F(Tester, testFieldsModeSubPolygonModesStored)
+{
+  createVelocityPolygonWithModes("stop");
+  auto sub_polygons = velocity_polygon_->getSubPolygons();
+  ASSERT_EQ(sub_polygons.size(), 3u);
+
+  ASSERT_EQ(sub_polygons[0].modes_.size(), 1u);
+  EXPECT_EQ(sub_polygons[0].modes_[0], "default");
+
+  ASSERT_EQ(sub_polygons[1].modes_.size(), 1u);
+  EXPECT_EQ(sub_polygons[1].modes_[0], "fork_down");
+
+  ASSERT_EQ(sub_polygons[2].modes_.size(), 2u);
+  EXPECT_EQ(sub_polygons[2].modes_[0], "default");
+  EXPECT_EQ(sub_polygons[2].modes_[1], "fork_down");
+}
+
+TEST_F(Tester, testNoModesParameterDefaultsToAlwaysActive)
+{
+  createVelocityPolygon("stop", IS_NOT_HOLONOMIC);
+  auto sub_polygons = velocity_polygon_->getSubPolygons();
+  ASSERT_EQ(sub_polygons.size(), 2u);
+
+  ASSERT_EQ(sub_polygons[0].modes_.size(), 1u);
+  EXPECT_EQ(sub_polygons[0].modes_[0], "default");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "Forward");
 }
 
 int main(int argc, char ** argv)

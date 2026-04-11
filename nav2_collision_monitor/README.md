@@ -62,6 +62,18 @@ The following diagram is showing the high-level design of Collision Monitor modu
 `VelocityPolygon` can be configured with multiple sub polygons and can switch between them based on the velocity.
 ![dexory_velocity_polygon.gif](doc/dexory_velocity_polygon.gif)
 
+#### Fields Mode Filtering
+
+Each `VelocityPolygon` sub-polygon can be assigned a list of **modes** it is active in. The Collision Monitor subscribes to a `fields_mode` topic (`std_msgs/String`) and only considers sub-polygons whose `modes` list contains the current mode. This enables different safety field configurations for different operating conditions without changing the polygon parameters at runtime. The mode filtering applies to all field operations: `updatePolygon`, `findField`, `findFieldsForAngle`, and consequently to `validateSteering` and `clampToMaxField`.
+
+Example modes:
+- **"default"**: normal lifted-fork fields with full speed range
+- **"fork_down"**: lowered-fork fields with reduced max speed
+- **"narrow_fork_down"**: narrow lowered-fork fields for tight spaces
+- **"foil"**: blind foil fields
+
+General direction fields (forward straight, slight turns with pallet cutout) can be active in all modes since they work for both lifted and lowered forks. When `modes` is not specified for a sub-polygon, it defaults to `["default"]`.
+
 
 ### Configuration
 

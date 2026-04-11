@@ -38,6 +38,7 @@
 #include "nav2_msgs/msg/collision_monitor_state.hpp"
 #include "std_msgs/msg/float32.hpp"
 #include "nav2_msgs/srv/toggle.hpp"
+#include "std_msgs/msg/string.hpp"
 
 #include "nav2_collision_monitor/types.hpp"
 #include "nav2_collision_monitor/polygon.hpp"
@@ -114,6 +115,11 @@ protected:
    * @param msg Input odom message
    */
   void odomInCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg);
+  /**
+   * @brief Callback for fields_mode topic
+   * @param msg String message containing the current fields mode
+   */
+  void fieldsModeCallback(std_msgs::msg::String::ConstSharedPtr msg);
   /**
    * @brief Publishes output cmd_vel. If robot was stopped more than stop_pub_timeout_ seconds,
    * quit to publish 0-velocity.
@@ -274,6 +280,10 @@ protected:
   rclcpp::Publisher<nav2_msgs::msg::ActiveVelocityPolygons>::SharedPtr active_polygons_pub_;
   /// @brief Processing time publisher (ms)
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr processing_time_pub_;
+  /// @brief Fields mode subscriber
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr fields_mode_sub_;
+  /// @brief Current fields mode
+  std::string current_fields_mode_{"default"};
 };  // class CollisionMonitor
 
 }  // namespace nav2_collision_monitor
