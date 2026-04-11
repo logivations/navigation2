@@ -74,6 +74,18 @@ public:
    */
   void updatePolygon(const Velocity & cmd_vel_in) override;
 
+  /**
+   * @brief Set the current fields mode used for filtering sub-polygons
+   * @param mode Mode string (e.g. "default", "fork_down", "narrow_fork_down")
+   */
+  void setFieldsMode(const std::string & mode);
+
+  /**
+   * @brief Get the current fields mode
+   * @return Current mode string
+   */
+  std::string getFieldsMode() const;
+
 protected:
   /**
     * @brief Custom struct to store the parameters of the sub-polygon
@@ -91,6 +103,7 @@ protected:
     * @param linear_limit_ Robot linear limit
     * @param angular_limit_ Robot angular limit
     * @param time_before_collision_ Time before collision in seconds
+    * @param modes_ List of mode strings this sub-polygon is active in (e.g. "default", "fork_down")
     */
   struct SubPolygonParameter
   {
@@ -109,6 +122,7 @@ protected:
     double linear_limit_;
     double angular_limit_;
     double time_before_collision_;
+    std::vector<std::string> modes_;
   };
 
   /**
@@ -118,6 +132,13 @@ protected:
    * @return True if speed and direction is within the condition
    */
   bool isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon_param);
+
+  /**
+   * @brief Check if a sub-polygon is active in the current fields mode
+   * @param sub_polygon Sub-polygon to check
+   * @return True if the sub-polygon should be considered in the current mode
+   */
+  bool isSubPolygonActiveInCurrentMode(const SubPolygonParameter & sub_polygon) const;
 
   // Clock
   rclcpp::Clock::SharedPtr clock_;
@@ -130,6 +151,8 @@ protected:
   double current_steering_angle_;
   /// @brief Distance between front and rear axes
   double wheelbase_;
+  /// @brief Current fields mode for filtering sub-polygons
+  std::string current_fields_mode_{"default"};
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
 };  // class VelocityPolygon

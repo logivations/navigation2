@@ -14,6 +14,8 @@
 
 #include "nav2_collision_monitor/velocity_polygon.hpp"
 
+#include <algorithm>
+
 #include "nav2_ros_common/node_utils.hpp"
 
 namespace nav2_collision_monitor
@@ -184,11 +186,36 @@ bool VelocityPolygon::getParameters(
           polygon_name_ + "." + velocity_polygon_name + ".simulation_time_step", 0.1);
       }
 
+      // Parse modes list - defaults to ["default"] if not specified
+      std::vector<std::string> modes;
+      try {
+        modes = node->declare_or_get_parameter<std::vector<std::string>>(
+          polygon_name_ + "." + velocity_polygon_name + ".modes");
+      } catch (const rclcpp::exceptions::ParameterNotDeclaredException &) {
+        modes = {"default"};
+      } catch (const rclcpp::exceptions::ParameterUninitializedException &) {
+        modes = {"default"};
+      } catch (const rclcpp::exceptions::InvalidParameterValueException &) {
+        modes = {"default"};
+      }
+
+      if (!modes.empty()) {
+        std::string modes_str;
+        for (const auto & m : modes) {
+          if (!modes_str.empty()) {modes_str += ", ";}
+          modes_str += m;
+        }
+        RCLCPP_INFO(
+          logger_, "[%s]: Sub-polygon %s active in modes: [%s]",
+          polygon_name_.c_str(), velocity_polygon_name.c_str(), modes_str.c_str());
+      }
+
       SubPolygonParameter sub_polygon = {
         poly, velocity_polygon_name, linear_min, linear_max, theta_min,
         theta_max, steering_angle_min, steering_angle_max, use_steering_angle,
         direction_end_angle, direction_start_angle,
         slowdown_ratio, linear_limit, angular_limit, time_before_collision,
+        modes,
       };
 
       sub_polygons_.push_back(sub_polygon);
@@ -202,9 +229,40 @@ bool VelocityPolygon::getParameters(
   return true;
 }
 
+void VelocityPolygon::setFieldsMode(const std::string & mode)
+{
+  if (current_fields_mode_ != mode) {
+    RCLCPP_INFO(
+      logger_, "[%s]: Fields mode changed from '%s' to '%s'",
+      polygon_name_.c_str(), current_fields_mode_.c_str(), mode.c_str());
+    current_fields_mode_ = mode;
+  }
+}
+
+std::string VelocityPolygon::getFieldsMode() const
+{
+  return current_fields_mode_;
+}
+
+bool VelocityPolygon::isSubPolygonActiveInCurrentMode(
+  const SubPolygonParameter & sub_polygon) const
+{
+  // If the sub-polygon has no modes specified, it's always active
+  if (sub_polygon.modes_.empty()) {
+    return true;
+  }
+  // Check if the current mode is in the sub-polygon's modes list
+  return std::find(
+    sub_polygon.modes_.begin(), sub_polygon.modes_.end(),
+    current_fields_mode_) != sub_polygon.modes_.end();
+}
+
 void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
 {
   for (auto & sub_polygon : sub_polygons_) {
+    if (!isSubPolygonActiveInCurrentMode(sub_polygon)) {
+      continue;
+    }
     if (isInRange(cmd_vel_in, sub_polygon)) {
       // Set the polygon that is within the speed range
       poly_ = sub_polygon.poly_;

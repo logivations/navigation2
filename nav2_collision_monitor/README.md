@@ -62,6 +62,45 @@ The following diagram is showing the high-level design of Collision Monitor modu
 `VelocityPolygon` can be configured with multiple sub polygons and can switch between them based on the velocity.
 ![dexory_velocity_polygon.gif](doc/dexory_velocity_polygon.gif)
 
+#### Fields Mode Filtering
+
+Each `VelocityPolygon` sub-polygon can be assigned a list of **modes** it is active in. The Collision Monitor subscribes to a `fields_mode` topic (`std_msgs/String`) and only considers sub-polygons whose `modes` list contains the current mode. This enables different safety field configurations for different operating conditions without changing the polygon parameters at runtime.
+
+For example, a forklift robot might define:
+- **"default"** mode: normal lifted-fork fields with full speed range
+- **"fork_down"** mode: lowered-fork fields with reduced max speed
+- **"narrow_fork_down"** mode: narrow lowered-fork fields for tight spaces
+- **"foil"** mode: blind foil fields for specialized operation
+
+General direction fields (forward straight, slight turns) that have a pallet cutout can be active in all modes since they work for both lifted and lowered forks.
+
+Configuration example:
+```yaml
+collision_monitor:
+  ros__parameters:
+    fields_mode_topic: "fields_mode"  # Topic to receive mode string
+    VelocityPolygonLimit:
+      type: "velocity_polygon"
+      action_type: "limit"
+      velocity_polygons: ["forward_straight", "forward_straight_forkdown", "forward_left", ...]
+      forward_straight:
+        points: "[[...]]"
+        linear_min: 0.0
+        linear_max: 1.5
+        steering_angle_min: -0.2
+        steering_angle_max: 0.2
+        modes: ["default", "fork_down", "narrow", "narrow_fork_down"]  # general direction
+      forward_straight_forkdown:
+        points: "[[...]]"
+        linear_min: 0.0
+        linear_max: 0.7
+        steering_angle_min: -0.2
+        steering_angle_max: 0.2
+        modes: ["fork_down"]  # only active when forks lowered
+```
+
+When `modes` is not specified for a sub-polygon, it defaults to `["default"]`.
+
 
 ### Configuration
 

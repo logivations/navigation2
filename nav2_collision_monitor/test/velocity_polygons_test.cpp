@@ -151,10 +151,12 @@ protected:
     const double linear_min, const double linear_max,
     const double theta_min, const double theta_max,
     const double direction_end_angle, const double direction_start_angle,
-    const std::string & polygon_points, const bool is_holonomic);
+    const std::string & polygon_points, const bool is_holonomic,
+    const std::vector<std::string> & modes = {});
 
   // Creating routines
   void createVelocityPolygon(const std::string & action_type, const bool is_holonomic);
+  void createVelocityPolygonWithModes(const std::string & action_type);
 
   // Wait until polygon will be received
   bool waitPolygon(
@@ -296,7 +298,8 @@ void Tester::addPolygonVelocitySubPolygon(
   const double linear_min, const double linear_max,
   const double theta_min, const double theta_max,
   const double direction_start_angle, const double direction_end_angle,
-  const std::string & polygon_points, const bool is_holonomic)
+  const std::string & polygon_points, const bool is_holonomic,
+  const std::vector<std::string> & modes)
 {
   test_node_->declare_parameter(
     std::string(POLYGON_NAME) + "." + sub_polygon_name + ".points",
@@ -331,12 +334,55 @@ void Tester::addPolygonVelocitySubPolygon(
       "." + sub_polygon_name + ".direction_start_angle",
       rclcpp::ParameterValue(direction_start_angle));
   }
+
+  if (!modes.empty()) {
+    test_node_->declare_parameter(
+      std::string(POLYGON_NAME) + "." + sub_polygon_name + ".modes",
+      rclcpp::ParameterValue(modes));
+  }
 }
 
 void Tester::createVelocityPolygon(const std::string & action_type, const bool is_holonomic)
 {
   setCommonParameters(POLYGON_NAME, action_type);
   setVelocityPolygonParameters(is_holonomic);
+
+  velocity_polygon_ = std::make_shared<VelocityPolygonWrapper>(
+    test_node_->weak_from_this(), POLYGON_NAME,
+    tf_buffer_, BASE_FRAME_ID, TRANSFORM_TOLERANCE);
+  ASSERT_TRUE(velocity_polygon_->configure());
+  velocity_polygon_->activate();
+}
+
+void Tester::createVelocityPolygonWithModes(const std::string & action_type)
+{
+  setCommonParameters(POLYGON_NAME, action_type);
+
+  test_node_->declare_parameter(
+    std::string(POLYGON_NAME) + ".holonomic", rclcpp::ParameterValue(false));
+
+  // Create two forward sub-polygons: one for "default" mode, one for "fork_down" mode
+  // with different speed ranges. The fork_down polygon has lower max speed.
+  static const char FWD_DEFAULT[]{"ForwardDefault"};
+  static const char FWD_FORKDOWN[]{"ForwardForkDown"};
+  static const char BWD[]{"Backward"};
+
+  std::vector<std::string> velocity_polygons = {FWD_DEFAULT, FWD_FORKDOWN, BWD};
+  test_node_->declare_parameter(
+    std::string(POLYGON_NAME) + ".velocity_polygons", rclcpp::ParameterValue(velocity_polygons));
+
+  // Forward default: speed 0..1.0, active in "default" mode
+  addPolygonVelocitySubPolygon(
+    FWD_DEFAULT, 0.0, 1.0, -1.0, 1.0, 0.0, 0.0, FORWARD_POLYGON_STR,
+    false, {"default"});
+  // Forward fork_down: speed 0..0.5, active in "fork_down" mode
+  addPolygonVelocitySubPolygon(
+    FWD_FORKDOWN, 0.0, 0.5, -1.0, 1.0, 0.0, 0.0, FORWARD_POLYGON_STR,
+    false, {"fork_down"});
+  // Backward: active in both modes
+  addPolygonVelocitySubPolygon(
+    BWD, -1.0, 0.0, -1.0, 1.0, 0.0, 0.0, BACKWARD_POLYGON_STR,
+    false, {"default", "fork_down"});
 
   velocity_polygon_ = std::make_shared<VelocityPolygonWrapper>(
     test_node_->weak_from_this(), POLYGON_NAME,
@@ -546,6 +592,131 @@ TEST_F(Tester, testVelocityPolygonHolonomicVelocitySwitching)
   EXPECT_NEAR(poly[3].y, RIGHT_POLYGON[7], EPSILON);
 }
 
+
+TEST_F(Tester, testFieldsModeDefaultFiltering)
+{
+  createVelocityPolygonWithModes("stop");
+
+  // In default mode, ForwardDefault (0..1.0) should be active, ForwardForkDown should not
+  ASSERT_EQ(velocity_polygon_->getFieldsMode(), "default");
+
+  // Forward velocity at 0.3 should match ForwardDefault
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardDefault");
+
+  // Forward velocity at 0.8 should still match ForwardDefault (range is 0..1.0)
+  vel = {0.8, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardDefault");
+
+  // Backward should work
+  vel = {-0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "Backward");
+}
+
+TEST_F(Tester, testFieldsModeForkDownFiltering)
+{
+  createVelocityPolygonWithModes("stop");
+
+  // Switch to fork_down mode
+  velocity_polygon_->setFieldsMode("fork_down");
+  ASSERT_EQ(velocity_polygon_->getFieldsMode(), "fork_down");
+
+  // Forward velocity at 0.3 should match ForwardForkDown (0..0.5)
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardForkDown");
+
+  // Forward velocity at 0.8 should NOT match any forward polygon (ForwardForkDown max is 0.5)
+  // ForwardDefault is not active in fork_down mode
+  vel = {0.8, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "none");
+
+  // Backward should still work (active in both modes)
+  vel = {-0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "Backward");
+}
+
+TEST_F(Tester, testFieldsModeUnknownModeFiltersAll)
+{
+  createVelocityPolygonWithModes("stop");
+
+  // Switch to an unknown mode - no sub-polygons should match
+  velocity_polygon_->setFieldsMode("nonexistent_mode");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "none");
+
+  vel = {-0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "none");
+}
+
+TEST_F(Tester, testFieldsModeSwitching)
+{
+  createVelocityPolygonWithModes("stop");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+
+  // Start in default mode
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardDefault");
+
+  // Switch to fork_down
+  velocity_polygon_->setFieldsMode("fork_down");
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardForkDown");
+
+  // Switch back to default
+  velocity_polygon_->setFieldsMode("default");
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "ForwardDefault");
+}
+
+TEST_F(Tester, testFieldsModeSubPolygonModesStored)
+{
+  createVelocityPolygonWithModes("stop");
+
+  auto sub_polygons = velocity_polygon_->getSubPolygons();
+  ASSERT_EQ(sub_polygons.size(), 3u);
+
+  // ForwardDefault has modes: ["default"]
+  ASSERT_EQ(sub_polygons[0].modes_.size(), 1u);
+  EXPECT_EQ(sub_polygons[0].modes_[0], "default");
+
+  // ForwardForkDown has modes: ["fork_down"]
+  ASSERT_EQ(sub_polygons[1].modes_.size(), 1u);
+  EXPECT_EQ(sub_polygons[1].modes_[0], "fork_down");
+
+  // Backward has modes: ["default", "fork_down"]
+  ASSERT_EQ(sub_polygons[2].modes_.size(), 2u);
+  EXPECT_EQ(sub_polygons[2].modes_[0], "default");
+  EXPECT_EQ(sub_polygons[2].modes_[1], "fork_down");
+}
+
+TEST_F(Tester, testNoModesParameterDefaultsToAlwaysActive)
+{
+  // When no modes parameter is specified, sub-polygons should default to
+  // having modes: ["default"] and be active in "default" mode
+  createVelocityPolygon("stop", IS_NOT_HOLONOMIC);
+
+  auto sub_polygons = velocity_polygon_->getSubPolygons();
+  ASSERT_EQ(sub_polygons.size(), 2u);
+
+  // Sub-polygons without explicit modes get ["default"]
+  ASSERT_EQ(sub_polygons[0].modes_.size(), 1u);
+  EXPECT_EQ(sub_polygons[0].modes_[0], "default");
+
+  // They should work normally in default mode
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+  EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "Forward");
+}
 
 int main(int argc, char ** argv)
 {
