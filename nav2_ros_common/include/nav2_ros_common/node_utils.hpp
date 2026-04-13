@@ -346,8 +346,9 @@ inline std::string get_plugin_type_param(
  * @brief Sets the caller thread to have a soft-realtime prioritization by
  * increasing the priority level of the host thread.
  * May throw exception if unable to set prioritization successfully
+ * @param cpu_core If >= 0, pin the thread to this CPU core
  */
-inline void setSoftRealTimePriority()
+inline void setSoftRealTimePriority(int cpu_core = -1)
 {
 #ifdef __APPLE__
   // macOS: Use Mach thread API to approximate real-time scheduling
@@ -383,6 +384,17 @@ inline void setSoftRealTimePriority()
       "<username> soft rtprio 99 in /etc/security/limits.conf to enable "
       "realtime prioritization! Error: ");
     throw std::runtime_error(errmsg + std::strerror(errno));
+  }
+
+  if (cpu_core >= 0) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(cpu_core, &cpuset);
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) == -1) {
+      std::string errmsg(
+        "Cannot set CPU affinity to core " + std::to_string(cpu_core) + ". Error: ");
+      throw std::runtime_error(errmsg + std::strerror(errno));
+    }
   }
 #endif
 }
