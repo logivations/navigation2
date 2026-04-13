@@ -32,6 +32,8 @@ BehaviorServer::BehaviorServer(const rclcpp::NodeOptions & options)
     "nav2_behaviors::Wait"}
 {
   declare_parameter("cycle_frequency", rclcpp::ParameterValue(10.0));
+  declare_parameter("use_realtime_priority", rclcpp::ParameterValue(false));
+  declare_parameter("realtime_cpu_core", rclcpp::ParameterValue(-1));
   behavior_ids_ = declare_or_get_parameter("behavior_plugins", default_ids_);
   if (behavior_ids_ == default_ids_) {
     for (size_t i = 0; i < default_ids_.size(); ++i) {
