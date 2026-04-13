@@ -79,6 +79,14 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & state)
     rclcpp::QoS(1));
 
   auto node = shared_from_this();
+
+  std::string fields_mode_topic = node->declare_or_get_parameter(
+    "fields_mode_topic", std::string("fields_mode"));
+  fields_mode_sub_ = this->create_subscription<std_msgs::msg::String>(
+    fields_mode_topic,
+    std::bind(&CollisionMonitor::fieldsModeCallback, this, std::placeholders::_1),
+    rclcpp::QoS(1).transient_local());
+
   cmd_vel_out_pub_ = std::make_unique<nav2_util::TwistPublisher>(node, cmd_vel_out_topic);
   active_polygons_pub_ = this->create_publisher<nav2_msgs::msg::ActiveVelocityPolygons>(
     "~/active_velocity_polygons");
@@ -189,6 +197,7 @@ CollisionMonitor::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   cmd_vel_out_pub_.reset();
   state_pub_.reset();
   collision_points_marker_pub_.reset();
+  fields_mode_sub_.reset();
 
   polygons_.clear();
   sources_.clear();
@@ -225,6 +234,24 @@ void CollisionMonitor::cmdVelInCallbackUnstamped(
   auto twist_stamped = std::make_shared<geometry_msgs::msg::TwistStamped>();
   twist_stamped->twist = *msg;
   cmdVelInCallbackStamped(twist_stamped);
+}
+
+void CollisionMonitor::fieldsModeCallback(std_msgs::msg::String::ConstSharedPtr msg)
+{
+  if (current_fields_mode_ != msg->data) {
+    RCLCPP_INFO(
+      get_logger(), "Fields mode changed from '%s' to '%s'",
+      current_fields_mode_.c_str(), msg->data.c_str());
+    current_fields_mode_ = msg->data;
+
+    // Propagate mode to all VelocityPolygon instances
+    for (auto & polygon : polygons_) {
+      auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+      if (vel_polygon) {
+        vel_polygon->setFieldsMode(current_fields_mode_);
+      }
+    }
+  }
 }
 
 void CollisionMonitor::odomInCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg)
