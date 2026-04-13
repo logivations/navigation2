@@ -109,7 +109,8 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & state)
   bool use_realtime_priority = node->declare_or_get_parameter("use_realtime_priority", false);
   if (use_realtime_priority) {
     try {
-      nav2::setSoftRealTimePriority();
+      int cpu_core = node->declare_or_get_parameter("realtime_cpu_core", -1);
+      nav2::setSoftRealTimePriority(cpu_core);
     } catch (const std::runtime_error & e) {
       RCLCPP_ERROR(get_logger(), "%s", e.what());
       on_cleanup(state);
