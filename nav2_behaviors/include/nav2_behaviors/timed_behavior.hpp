@@ -135,10 +135,15 @@ public:
     node->get_parameter("robot_base_frame", robot_base_frame_);
     node->get_parameter("transform_tolerance", transform_tolerance_);
 
+    bool use_realtime_priority = false;
+    int realtime_cpu_core = -1;
+    node->get_parameter("use_realtime_priority", use_realtime_priority);
+    node->get_parameter("realtime_cpu_core", realtime_cpu_core);
+
     action_server_ = node->create_action_server<ActionT>(
       behavior_name_,
       std::bind(&TimedBehavior::execute, this), nullptr, std::chrono::milliseconds(
-        500), false);
+        500), false /*spin thread*/, use_realtime_priority, realtime_cpu_core);
 
     local_collision_checker_ = local_collision_checker;
     global_collision_checker_ = global_collision_checker;
