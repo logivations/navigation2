@@ -2005,6 +2005,118 @@ TEST_F(Tester, testNoModesParameterDefaultsToAlwaysActive)
   EXPECT_EQ(velocity_polygon_->getCurrentSubPolygonName(), "Forward");
 }
 
+// ============ Fields mode filtering on steering (lidar e-stop prevention) ============
+
+// findField and findFieldsForAngle must ignore sub-polygons whose `modes` list
+// does not contain the current fields mode — even if speed/angle overlap.
+TEST_F(Tester, testFieldsModeFiltersSteeringFieldLookup)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"right_default_slow", "right_default_fast", "right_narrow_slow"});
+  // Default mode: right allows slow [0, 0.5] + fast [0.5, 1.0]
+  addSteeringAngleSubPolygon(
+    "right_default_slow", 0.0, 0.5, -0.5, -0.1, STEERING_POLYGON_SLOW_STR, {"default"});
+  addSteeringAngleSubPolygon(
+    "right_default_fast", 0.5, 1.0, -0.5, -0.1, STEERING_POLYGON_FAST_STR, {"default"});
+  // Narrow mode: right allows only a slow field [0, 0.3] covering the same angle bucket
+  addSteeringAngleSubPolygon(
+    "right_narrow_slow", 0.0, 0.3, -0.5, -0.1, STEERING_POLYGON_SLOW_STR,
+    {"narrow_fork_down"});
+  createSteeringVelocityPolygon("limit");
+
+  // --- findField: only the default sub-polygons are visible in default mode ---
+  auto field = velocity_polygon_->callFindField(0.2, -0.3);
+  ASSERT_NE(field, nullptr);
+  EXPECT_EQ(field->velocity_polygon_name_, "right_default_slow");
+  field = velocity_polygon_->callFindField(0.7, -0.3);
+  ASSERT_NE(field, nullptr);
+  EXPECT_EQ(field->velocity_polygon_name_, "right_default_fast");
+
+  // --- findFieldsForAngle: both default fields returned, sorted slowest first ---
+  auto fields = velocity_polygon_->callFindFieldsForAngle(-0.3, true);
+  ASSERT_EQ(fields.size(), 2u);
+  EXPECT_EQ(fields[0]->velocity_polygon_name_, "right_default_slow");
+  EXPECT_EQ(fields[1]->velocity_polygon_name_, "right_default_fast");
+
+  // --- Switch to narrow_fork_down: only narrow field visible ---
+  velocity_polygon_->setFieldsMode("narrow_fork_down");
+
+  // 0.2 still matches narrow slow field
+  field = velocity_polygon_->callFindField(0.2, -0.3);
+  ASSERT_NE(field, nullptr);
+  EXPECT_EQ(field->velocity_polygon_name_, "right_narrow_slow");
+  // 0.7 exceeds narrow's max (0.3) and the default fast field must NOT be picked up
+  field = velocity_polygon_->callFindField(0.7, -0.3);
+  EXPECT_EQ(field, nullptr);
+
+  fields = velocity_polygon_->callFindFieldsForAngle(-0.3, true);
+  ASSERT_EQ(fields.size(), 1u);
+  EXPECT_EQ(fields[0]->velocity_polygon_name_, "right_narrow_slow");
+
+  // --- Unknown mode: no fields match ---
+  velocity_polygon_->setFieldsMode("fork_down");
+  EXPECT_EQ(velocity_polygon_->callFindField(0.2, -0.3), nullptr);
+  EXPECT_EQ(velocity_polygon_->callFindFieldsForAngle(-0.3, true).size(), 0u);
+}
+
+// Headline case: when in narrow_fork_down mode, turning right is only allowed
+// slowly. clampToMaxField must clamp the commanded speed down to the narrow
+// field's max rather than picking up the default (higher) max that overlaps
+// the same angle bucket in default mode.
+TEST_F(Tester, testFieldsModeNarrowRightSpeedLimitClamped)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"right_default_slow", "right_default_fast", "right_narrow_slow"});
+  addSteeringAngleSubPolygon(
+    "right_default_slow", 0.0, 0.5, -0.5, -0.1, STEERING_POLYGON_SLOW_STR, {"default"});
+  addSteeringAngleSubPolygon(
+    "right_default_fast", 0.5, 1.0, -0.5, -0.1, STEERING_POLYGON_FAST_STR, {"default"});
+  addSteeringAngleSubPolygon(
+    "right_narrow_slow", 0.0, 0.3, -0.5, -0.1, STEERING_POLYGON_SLOW_STR,
+    {"narrow_fork_down"});
+  createSteeringVelocityPolygon("limit");
+
+  // Robot physically turned right at sa ≈ -0.3, low baselink speed
+  const double phys_sa = -0.3;
+  const double phys_speed = 0.1;
+  const double phys_tw = std::tan(phys_sa) * phys_speed / WHEELBASE;
+  nav2_collision_monitor::Velocity odom_vel{phys_speed, 0.0, phys_tw};
+
+  // Command 0.7 m/s at the same right-turn angle
+  const double cmd_speed = 0.7;
+  const double cmd_tw = std::tan(phys_sa) * cmd_speed / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{cmd_speed, 0.0, cmd_tw};
+
+  // Default mode: 0.7 m/s is within right_default_fast (max 1.0) → no clamping.
+  {
+    nav2_collision_monitor::Action action{
+      nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+    bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+    EXPECT_FALSE(modified);
+  }
+
+  // Narrow mode: only right_narrow_slow (max 0.3) is active at this angle.
+  // The commanded speed must be clamped to narrow's max, decomposed via cos(sa)
+  // and inset by the speed margin — NOT to default's 1.0.
+  {
+    velocity_polygon_->setFieldsMode("narrow_fork_down");
+    nav2_collision_monitor::Action action{
+      nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+    bool modified = velocity_polygon_->callClampToMaxField(odom_vel, action);
+    EXPECT_TRUE(modified);
+    EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+    // Upper bound: narrow max (0.3) * cos(phys_sa), plus tolerance for margin.
+    const double expected_upper_baselink = 0.3 * std::cos(phys_sa);
+    EXPECT_LE(std::abs(action.req_vel.x), expected_upper_baselink + 1e-3);
+    // Must actually be reduced below default's 1.0 * cos(phys_sa).
+    EXPECT_LT(std::abs(action.req_vel.x), 1.0 * std::cos(phys_sa));
+    // Clamped steering wheel speed lands just below the narrow max (0.3).
+    const double result_sw = velocity_polygon_->callBaselinkToSteeringSpeed(
+      action.req_vel.x, action.req_vel.tw);
+    EXPECT_LE(std::abs(result_sw), 0.3 + 1e-6);
+  }
+}
+
 int main(int argc, char ** argv)
 {
   // Initialize the system
