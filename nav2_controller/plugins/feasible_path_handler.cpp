@@ -134,6 +134,7 @@ void FeasiblePathHandler::setPlan(const nav_msgs::msg::Path & path)
     constraint_locale_ = nav2_util::removePosesAfterFirstConstraint(global_plan_up_to_constraint_,
       enforce_path_inversion_, minimum_rotation_angle_);
   }
+  ++plan_version_;
 }
 
 geometry_msgs::msg::PoseStamped FeasiblePathHandler::transformToGlobalPlanFrame(
@@ -195,6 +196,11 @@ nav2_core::PathSegment FeasiblePathHandler::findPlanSegment(
     nav2_util::geometry_utils::first_after_integrated_distance(
     closest_point, global_plan_up_to_constraint_.poses.end(), prune_distance_);
 
+  // Snapshot the plan version so transformLocalPlan can detect if setPlan
+  // replaced global_plan_up_to_constraint_ before we reacquire the mutex
+  // (which would leave the iterators we're returning dangling).
+  cached_plan_version_ = plan_version_;
+
   return {closest_point, pruned_plan_end};
 }
 
@@ -208,10 +214,24 @@ nav_msgs::msg::Path FeasiblePathHandler::transformLocalPlan(
   transformed_plan.header.frame_id = costmap_ros_->getGlobalFrameID();
   transformed_plan.header.stamp = global_pose_.header.stamp;
   unsigned int mx, my;
+
+  // The iterators we were handed may be dangling: setPlan can have replaced
+  // global_plan_up_to_constraint_.poses between findPlanSegment releasing the
+  // mutex and us reacquiring it. If the plan has changed in the meantime the
+  // segment findPlanSegment chose is no longer meaningful for the current
+  // plan — reject and let the controller retry with a fresh findPlanSegment
+  // call on its next tick.
+  if (cached_plan_version_ != plan_version_) {
+    throw nav2_core::InvalidPath(
+            "Global plan was replaced before transformLocalPlan could use it");
+  }
+  const nav2_core::PathIterator & plan_begin = closest_point;
+  const nav2_core::PathIterator & plan_end = pruned_plan_end;
+
   // Find the furthest relevant pose on the path to consider within costmap
   // bounds
   // Transforming it to the costmap frame in the same loop
-  for (auto global_plan_pose = closest_point; global_plan_pose != pruned_plan_end;
+  for (auto global_plan_pose = plan_begin; global_plan_pose != plan_end;
     ++global_plan_pose)
   {
     // Transform from global plan frame to costmap frame
@@ -234,7 +254,7 @@ nav_msgs::msg::Path FeasiblePathHandler::transformLocalPlan(
 
   // Remove the portion of the global plan that we've already passed so we don't
   // process it on the next iteration (this is called path pruning)
-  prunePlan(global_plan_up_to_constraint_, closest_point);
+  prunePlan(global_plan_up_to_constraint_, plan_begin);
 
   if ((enforce_path_inversion_ || enforce_path_rotation_) && constraint_locale_ != 0u) {
     if (isWithinInversionTolerances(global_pose_)) {

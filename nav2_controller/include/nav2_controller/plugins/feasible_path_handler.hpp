@@ -147,6 +147,11 @@ protected:
   bool reject_unit_path_, enforce_path_inversion_, enforce_path_rotation_;
   double max_robot_pose_search_dist_, transform_tolerance_, prune_distance_;
   float inversion_xy_tolerance_, inversion_yaw_tolerance_, minimum_rotation_angle_;
+  // Bumped by setPlan; findPlanSegment snapshots it; transformLocalPlan rejects
+  // the call if the snapshot no longer matches, so we never dereference iterators
+  // into a plan vector that was replaced on another thread.
+  uint64_t plan_version_{0u};
+  uint64_t cached_plan_version_{0u};
 
   /**
    * @brief Validate incoming parameter updates before applying them.
