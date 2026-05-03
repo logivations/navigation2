@@ -132,6 +132,8 @@ protected:
   double _max_planning_time;
   double _lookup_table_size;
   double _minimum_turning_radius_global_coords;
+  // Optional asymmetric right-turn radius. 0.0 = symmetric (use _minimum_turning_radius_global_coords).
+  double _minimum_turning_radius_right_global_coords;
   bool _debug_visualizations;
   std::string _motion_model_for_search;
   MotionModel _motion_model;

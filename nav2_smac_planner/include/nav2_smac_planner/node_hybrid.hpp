@@ -107,7 +107,12 @@ struct HybridMotionTable
   unsigned int size_x;
   unsigned int num_angle_quantization;
   float num_angle_quantization_float;
+  // min_turning_radius is the conservative max of left/right (used for OMPL state space,
+  // analytic-expansion distance gates, heuristic refinement). The per-side radii drive the
+  // motion-primitive deltas. When asymmetric mode is disabled, all three are equal.
   float min_turning_radius;
+  float min_turning_radius_left;
+  float min_turning_radius_right;
   float bin_size;
   float change_penalty;
   float non_straight_penalty;
