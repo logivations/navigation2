@@ -86,6 +86,9 @@ void SmacPlannerHybrid::configure(
 
   _minimum_turning_radius_global_coords =
     node->declare_or_get_parameter(name + ".minimum_turning_radius", 0.4);
+  // Optional asymmetric right-turn radius (0.0 = symmetric)
+  _minimum_turning_radius_right_global_coords =
+    node->declare_or_get_parameter(name + ".minimum_turning_radius_right", 0.0);
   _search_info.allow_primitive_interpolation =
     node->declare_or_get_parameter(name + ".allow_primitive_interpolation", false);
   _search_info.cache_obstacle_heuristic =
@@ -182,12 +185,26 @@ void SmacPlannerHybrid::configure(
     _minimum_turning_radius_global_coords = _costmap->getResolution() * _downsampling_factor;
   }
 
+  if (_minimum_turning_radius_right_global_coords > 0.0 &&
+    _minimum_turning_radius_right_global_coords <
+    _costmap->getResolution() * _downsampling_factor)
+  {
+    RCLCPP_WARN(
+      _logger, "Min right-turn radius cannot be less than the search grid cell resolution! "
+      "Disabling asymmetric turning radius.");
+    _minimum_turning_radius_right_global_coords = 0.0;
+  }
+
   // convert to grid coordinates
   if (!_downsample_costmap) {
     _downsampling_factor = 1;
   }
   _search_info.minimum_turning_radius =
     _minimum_turning_radius_global_coords / (_costmap->getResolution() * _downsampling_factor);
+  _search_info.minimum_turning_radius_right = _minimum_turning_radius_right_global_coords > 0.0 ?
+    _minimum_turning_radius_right_global_coords /
+    (_costmap->getResolution() * _downsampling_factor) :
+    0.0f;
   _lookup_table_dim =
     static_cast<float>(_lookup_table_size) /
     static_cast<float>(_costmap->getResolution() * _downsampling_factor);
@@ -223,11 +240,15 @@ void SmacPlannerHybrid::configure(
     _angle_quantizations);
 
   // Initialize path smoother
+  // Smoother uses a single curvature constraint, so use the larger of left/right radii
+  // to stay conservative (won't tighten paths beyond the looser side's limit).
   SmootherParams params;
   params.get(node, name);
   if (smooth_path) {
+    const double smoother_radius = std::max(
+      _minimum_turning_radius_global_coords, _minimum_turning_radius_right_global_coords);
     _smoother = std::make_unique<Smoother>(params);
-    _smoother->initialize(_minimum_turning_radius_global_coords);
+    _smoother->initialize(smoother_radius);
   }
 
   // Initialize costmap downsampler
@@ -601,6 +622,17 @@ rcl_interfaces::msg::SetParametersResult SmacPlannerHybrid::validateParameterUpd
           parameter.as_double(),
           _costmap->getResolution() * _downsampling_factor);
         result.successful = false;
+      } else if (param_name == _name + ".minimum_turning_radius_right" && // NOLINT
+        parameter.as_double() > 0.0 &&
+        parameter.as_double() < _costmap->getResolution() * _downsampling_factor)
+      {
+        RCLCPP_WARN(
+          _logger, "The value of parameter minimum_turning_radius_right is incorrectly set to %f, "
+          "it should be >= costmap resolution * downsampling factor (%f) or 0.0 to disable. "
+          "Ignoring parameter update.",
+          parameter.as_double(),
+          _costmap->getResolution() * _downsampling_factor);
+        result.successful = false;
       }
     } else if (param_type == ParameterType::PARAMETER_INTEGER) {
       if (parameter.as_int() <= 0 && (param_name != _name + ".max_on_approach_iterations" && // NOLINT
@@ -697,6 +729,14 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
           reinit_smoother = true;
         }
         _minimum_turning_radius_global_coords = static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".minimum_turning_radius_right") {
+        reinit_a_star = true;
+        reinit_lookup_table = true;
+        if (_smoother) {
+          reinit_smoother = true;
+        }
+        _minimum_turning_radius_right_global_coords =
+          static_cast<float>(parameter.as_double());
       } else if (param_name == _name + ".reverse_penalty") {
         reinit_a_star = true;
         _search_info.reverse_penalty = static_cast<float>(parameter.as_double());
@@ -814,6 +854,11 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
     }
     _search_info.minimum_turning_radius =
       _minimum_turning_radius_global_coords / (_costmap->getResolution() * _downsampling_factor);
+    _search_info.minimum_turning_radius_right =
+      _minimum_turning_radius_right_global_coords > 0.0 ?
+      _minimum_turning_radius_right_global_coords /
+      (_costmap->getResolution() * _downsampling_factor) :
+      0.0f;
     _lookup_table_dim =
       static_cast<float>(_lookup_table_size) /
       static_cast<float>(_costmap->getResolution() * _downsampling_factor);
@@ -871,10 +916,12 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
 
     // Re-Initialize smoother
     if (reinit_smoother) {
+      const double smoother_radius = std::max(
+        _minimum_turning_radius_global_coords, _minimum_turning_radius_right_global_coords);
       SmootherParams params;
       params.get(node, _name);
       _smoother = std::make_unique<Smoother>(params);
-      _smoother->initialize(_minimum_turning_radius_global_coords);
+      _smoother->initialize(smoother_radius);
     }
   }
 }

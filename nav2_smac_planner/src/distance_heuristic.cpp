@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License. Reserved.
 
+#include <algorithm>
 #include "ompl/base/ScopedState.h"
 #include "ompl/base/spaces/DubinsStateSpace.h"
 #include "ompl/base/spaces/ReedsSheppStateSpace.h"
@@ -32,13 +33,17 @@ void DistanceHeuristic<NodeHybrid>::precomputeDistanceHeuristic(
   const SearchInfo & search_info,
   MotionTableT & motion_table)
 {
-  // Dubin or Reeds-Shepp shortest distances
+  // Dubin or Reeds-Shepp shortest distances. For asymmetric turning radii, use the
+  // smaller of left/right so the heuristic stays admissible (a path under the looser
+  // constraint is always >= the path under the tighter one).
+  const float heuristic_radius = search_info.minimum_turning_radius_right > 0.0f ?
+    std::min(search_info.minimum_turning_radius, search_info.minimum_turning_radius_right) :
+    search_info.minimum_turning_radius;
   if (motion_model == MotionModel::DUBIN) {
-    motion_table.state_space = std::make_shared<ompl::base::DubinsStateSpace>(
-      search_info.minimum_turning_radius);
+    motion_table.state_space = std::make_shared<ompl::base::DubinsStateSpace>(heuristic_radius);
   } else if (motion_model == MotionModel::REEDS_SHEPP) {
-    motion_table.state_space = std::make_shared<ompl::base::ReedsSheppStateSpace>(
-      search_info.minimum_turning_radius);
+    motion_table.state_space =
+      std::make_shared<ompl::base::ReedsSheppStateSpace>(heuristic_radius);
   } else {
     throw std::runtime_error(
             "Node attempted to precompute distance heuristics "

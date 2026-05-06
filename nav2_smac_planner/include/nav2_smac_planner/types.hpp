@@ -37,6 +37,9 @@ typedef std::pair<double, double> TrigValues;
 struct SearchInfo
 {
   float minimum_turning_radius{8.0};
+  // Optional asymmetric right-turn radius. 0.0 = symmetric (use minimum_turning_radius for both).
+  // When > 0, left turns use minimum_turning_radius and right turns use this value.
+  float minimum_turning_radius_right{0.0};
   float non_straight_penalty{1.05};
   float change_penalty{0.0};
   float reverse_penalty{2.0};
