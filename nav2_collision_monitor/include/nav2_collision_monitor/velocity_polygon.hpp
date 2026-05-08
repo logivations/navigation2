@@ -29,6 +29,7 @@
 #include "nav2_msgs/msg/steering_validation_debug.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 namespace nav2_collision_monitor
 {
@@ -230,11 +231,16 @@ protected:
    * @brief Get number of collision points inside a specific sub-polygon
    * @param sub_polygon Sub-polygon to check against
    * @param collision_points_map Map of source name to collision points
+   * @param points_per_source_out Optional output: collision points inside the
+   *        sub-polygon, grouped by source name. Each inside-polygon point is
+   *        appended to (*points_per_source_out)[source_name]. Pass nullptr
+   *        to skip collection (default).
    * @return Number of collision points inside the sub-polygon
    */
   int getPointsInsideSubPolygon(
     const SubPolygonParameter & sub_polygon,
-    const std::unordered_map<std::string, std::vector<Point>> & collision_points_map) const;
+    const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
+    std::unordered_map<std::string, std::vector<Point>> * points_per_source_out = nullptr) const;
 
   // Clock
   rclcpp::Clock::SharedPtr clock_;
@@ -242,6 +248,10 @@ protected:
   rclcpp::Publisher<nav2_msgs::msg::SteeringValidationDebug>::SharedPtr steering_debug_pub_;
   // Publisher for the next/valid field polygon being checked for obstacles
   rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr next_field_poly_pub_;
+  // Publisher for the collision points found inside the next-field sub-polygon,
+  // grouped by source via marker namespace (one Marker per source).
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+    next_field_collision_points_pub_;
   // Current subpolygon name
   std::string current_subpolygon_name_;
   // Variables

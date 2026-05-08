@@ -252,6 +252,10 @@ bool VelocityPolygon::getParameters(
   next_field_poly_pub_ = node->create_publisher<geometry_msgs::msg::PolygonStamped>(
     "~/next_field_polygon", rclcpp::QoS(1));
 
+  next_field_collision_points_pub_ =
+    node->create_publisher<visualization_msgs::msg::MarkerArray>(
+    "~/next_field_collision_points_marker", rclcpp::QoS(1));
+
   return true;
 }
 
@@ -489,7 +493,8 @@ bool VelocityPolygon::isPointInsidePoly(
 
 int VelocityPolygon::getPointsInsideSubPolygon(
   const SubPolygonParameter & sub_polygon,
-  const std::unordered_map<std::string, std::vector<Point>> & collision_points_map) const
+  const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
+  std::unordered_map<std::string, std::vector<Point>> * points_per_source_out) const
 {
   int num = 0;
   std::vector<std::string> polygon_sources_names = getSourcesNames();
@@ -500,6 +505,9 @@ int VelocityPolygon::getPointsInsideSubPolygon(
       for (const auto & point : iter->second) {
         if (isPointInsidePoly(point, sub_polygon.poly_)) {
           num++;
+          if (points_per_source_out != nullptr) {
+            (*points_per_source_out)[source_name].push_back(point);
+          }
         }
       }
     }
@@ -521,6 +529,11 @@ bool VelocityPolygon::validateSteering(
 
   // Track the field being checked for obstacles (published for visualization)
   const SubPolygonParameter * checked_field = nullptr;
+  // Collision points inside the next_field, grouped by source — populated only
+  // when the marker topic has subscribers (cheap when nobody listens).
+  std::unordered_map<std::string, std::vector<Point>> next_field_points_by_source;
+  const bool publish_next_field_points =
+    next_field_collision_points_pub_->get_subscription_count() > 0;
 
   nav2_msgs::msg::SteeringValidationDebug debug_msg;
   debug_msg.header.stamp = clock_->now();
@@ -608,6 +621,39 @@ bool VelocityPolygon::validateSteering(
       }
       next_field_poly_pub_->publish(poly_msg);
     }
+    if (publish_next_field_points &&
+      next_field_collision_points_pub_->get_subscription_count() > 0)
+    {
+      visualization_msgs::msg::MarkerArray marker_array;
+      int marker_id = 0;
+      for (const auto & kv : next_field_points_by_source) {
+        const std::string & source_name = kv.first;
+        const std::vector<Point> & pts_vec = kv.second;
+        visualization_msgs::msg::Marker m;
+        m.header.frame_id = base_frame_id_;
+        m.header.stamp = clock_->now();
+        m.ns = "next_field_collision_points_" + source_name;
+        m.id = marker_id++;
+        m.type = visualization_msgs::msg::Marker::POINTS;
+        m.action = visualization_msgs::msg::Marker::ADD;
+        m.scale.x = 0.04;
+        m.scale.y = 0.04;
+        m.color.r = 1.0;
+        m.color.g = 1.0;
+        m.color.a = 1.0;
+        m.lifetime = rclcpp::Duration(0, 0);
+        m.frame_locked = true;
+        for (const auto & p : pts_vec) {
+          geometry_msgs::msg::Point gp;
+          gp.x = p.x;
+          gp.y = p.y;
+          gp.z = 0.0;
+          m.points.push_back(gp);
+        }
+        marker_array.markers.push_back(m);
+      }
+      next_field_collision_points_pub_->publish(std::move(marker_array));
+    }
     return mod;
   };
 
@@ -676,7 +722,9 @@ bool VelocityPolygon::validateSteering(
       const SubPolygonParameter * next_field = fields_at_current_angle[i + 1];
       checked_field = next_field;
       debug_msg.next_field_name = next_field->velocity_polygon_name_;
-      int pts = getPointsInsideSubPolygon(*next_field, collision_points_map);
+      int pts = getPointsInsideSubPolygon(
+        *next_field, collision_points_map,
+        publish_next_field_points ? &next_field_points_by_source : nullptr);
       debug_msg.next_field_collision_pts = pts;
       if (pts < min_points_) {
         current_bucket_limit_sw = forward_current ?
