@@ -96,11 +96,11 @@ struct HybridMotionTable
   float getAngleFromBin(const unsigned int & bin_idx);
 
   /**
-   * @brief Get the angle scaled across bins from a raw orientation
-   * @param theta Angle in radians
-   * @return angle scaled across bins
+   * @brief Get the angle bin index for an orientation in [0, 2*PI)
+   * @param theta Angle in radians; caller must ensure theta >= 0
+   * @return bin index in [0, num_angle_quantization)
    */
-  double getAngle(const double & theta);
+  unsigned int getAngle(const double & theta);
 
   MotionModel motion_model = MotionModel::UNKNOWN;
   MotionPoses projections;
