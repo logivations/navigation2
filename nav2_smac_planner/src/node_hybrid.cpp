@@ -392,9 +392,13 @@ float HybridMotionTable::getAngleFromBin(const unsigned int & bin_idx)
   return bin_idx * bin_size;
 }
 
-double HybridMotionTable::getAngle(const double & theta)
+unsigned int HybridMotionTable::getAngle(const double & theta)
 {
-  return theta / bin_size;
+  // Return an integer bin and wrap the upper boundary — returning a double
+  // here let callers' float storage round a sub-N value up to N, which then
+  // indexed one past oriented_footprints_ (see #5501 for the Lattice analogue).
+  const auto bin = static_cast<unsigned int>(theta / bin_size);
+  return bin < num_angle_quantization ? bin : 0u;
 }
 
 NodeHybrid::NodeHybrid(const uint64_t index, NodeContext * ctx)
