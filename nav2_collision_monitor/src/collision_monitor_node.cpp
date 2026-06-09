@@ -562,15 +562,28 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
                                  cmd_vel_in.y * cmd_vel_in.y +
                                  cmd_vel_in.tw * cmd_vel_in.tw);
 
-    Velocity scaled_cmd_vel_in = cmd_vel_in;
+      Velocity scaled_cmd_vel_in = cmd_vel_in;
 
-    if (magnitude > 0.2) {
-      double scale_factor = 0.2 / magnitude;
-      scaled_cmd_vel_in.x *= scale_factor;
-      scaled_cmd_vel_in.y *= scale_factor;
-      scaled_cmd_vel_in.tw *= scale_factor;
-    }
-    polygon->updatePolygon(scaled_cmd_vel_in);
+      // Cap the probe magnitude so it lands inside a field that exists in the
+      // current fields mode. A fixed cap overshoots modes whose fields top out
+      // lower (e.g. narrow_fork_down caps at 0.15 m/s): updatePolygon() would
+      // then find no match, emitting a spurious "velocity not covered" warning
+      // and leaving a stale obstacle polygon for that cycle.
+      double probe_cap = 0.2;
+      if (auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon)) {
+        double mode_cap = vel_polygon->getMaxProbeSpeedForMode(cmd_vel_in.x >= 0.0);
+        if (mode_cap > 0.0) {
+          probe_cap = std::min(probe_cap, mode_cap);
+        }
+      }
+
+      if (magnitude > probe_cap) {
+        double scale_factor = probe_cap / magnitude;
+        scaled_cmd_vel_in.x *= scale_factor;
+        scaled_cmd_vel_in.y *= scale_factor;
+        scaled_cmd_vel_in.tw *= scale_factor;
+      }
+      polygon->updatePolygon(scaled_cmd_vel_in);
     } else {
       polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
     }

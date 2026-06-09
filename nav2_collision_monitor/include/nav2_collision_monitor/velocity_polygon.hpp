@@ -115,6 +115,18 @@ public:
    */
   bool clampToMaxField(const Velocity & odom_vel, Action & robot_action);
 
+  /**
+   * @brief Largest probe speed that still lands inside an active field.
+   * Returns the fastest |linear| bound among sub-polygons active in the
+   * current fields mode that cover @p forward, inset by speed_margin_ so the
+   * scaled probe in updatePolygon() resolves to a real field instead of
+   * overshooting the mode's coverage. Returns 0.0 if no field covers the
+   * direction (caller should keep its own default cap).
+   * @param forward True for forward fields, false for backward fields
+   * @return Max safe probe speed (m/s), or 0.0 if no covering field
+   */
+  double getMaxProbeSpeedForMode(bool forward) const;
+
 protected:
   /**
     * @brief Custom struct to store the parameters of the sub-polygon

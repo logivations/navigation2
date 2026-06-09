@@ -485,6 +485,29 @@ VelocityPolygon::findFieldsForAngle(double steering_angle, bool forward) const
   return result;
 }
 
+double VelocityPolygon::getMaxProbeSpeedForMode(bool forward) const
+{
+  double max_abs = 0.0;
+  for (const auto & sp : sub_polygons_) {
+    if (!isSubPolygonActiveInCurrentMode(sp)) {
+      continue;
+    }
+    // Only consider fields that actually cover the requested driving direction.
+    const double bound = forward ? sp.linear_max_ : sp.linear_min_;
+    if (forward ? (bound <= 0.0) : (bound >= 0.0)) {
+      continue;
+    }
+    max_abs = std::max(max_abs, std::abs(bound));
+  }
+  if (max_abs <= 0.0) {
+    return 0.0;
+  }
+  // Inset by the speed margin: isInRange() converts the probe to steering
+  // wheel speed (hypot of linear and wheelbase*angular), which can land a hair
+  // outside the field boundary if we probed exactly at the bound.
+  return std::max(0.0, max_abs - speed_margin_);
+}
+
 bool VelocityPolygon::isPointInsidePoly(
   const Point & point, const std::vector<Point> & vertices)
 {
