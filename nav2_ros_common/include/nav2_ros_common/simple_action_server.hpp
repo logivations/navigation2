@@ -202,6 +202,9 @@ public:
     if (use_realtime_prioritization_) {
       nav2::setSoftRealTimePriority(cpu_core_);
       debug_msg("Soft realtime prioritization successfully set!");
+    } else if (cpu_core_ >= 0) {
+      nav2::setCPUAffinity(cpu_core_);
+      debug_msg("CPU affinity set without realtime prioritization (CFS scheduler).");
     }
   }
 

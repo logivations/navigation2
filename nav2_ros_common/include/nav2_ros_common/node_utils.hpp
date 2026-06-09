@@ -343,10 +343,38 @@ inline std::string get_plugin_type_param(
 }
 
 /**
+ * @brief Pins the calling thread to a specific CPU core WITHOUT changing its
+ * scheduling policy. The thread remains on the default (CFS) scheduler.
+ * This is independent of realtime prioritization, so a thread can be pinned to
+ * a core while still being scheduled as a normal best-effort task.
+ * May throw exception if unable to set the affinity successfully.
+ * @param cpu_core CPU core to pin the calling thread to. If < 0, this is a no-op.
+ */
+inline void setCPUAffinity(int cpu_core)
+{
+  if (cpu_core < 0) {
+    return;
+  }
+#ifdef __APPLE__
+  // macOS does not expose sched_setaffinity; explicit CPU pinning is unsupported.
+  (void)cpu_core;
+#else
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(cpu_core, &cpuset);
+  if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) == -1) {
+    std::string errmsg(
+      "Cannot set CPU affinity to core " + std::to_string(cpu_core) + ". Error: ");
+    throw std::runtime_error(errmsg + std::strerror(errno));
+  }
+#endif
+}
+
+/**
  * @brief Sets the caller thread to have a soft-realtime prioritization by
  * increasing the priority level of the host thread.
  * May throw exception if unable to set prioritization successfully
- * @param cpu_core If >= 0, pin the thread to this CPU core
+ * @param cpu_core If >= 0, pin the thread to this CPU core (see setCPUAffinity)
  */
 inline void setSoftRealTimePriority(int cpu_core = -1)
 {
@@ -385,18 +413,26 @@ inline void setSoftRealTimePriority(int cpu_core = -1)
       "realtime prioritization! Error: ");
     throw std::runtime_error(errmsg + std::strerror(errno));
   }
-
-  if (cpu_core >= 0) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(cpu_core, &cpuset);
-    if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) == -1) {
-      std::string errmsg(
-        "Cannot set CPU affinity to core " + std::to_string(cpu_core) + ". Error: ");
-      throw std::runtime_error(errmsg + std::strerror(errno));
-    }
-  }
 #endif
+
+  setCPUAffinity(cpu_core);
+}
+
+/**
+ * @brief Applies thread scheduling from the given parameters: soft-realtime
+ * prioritization when use_realtime_priority is set, otherwise plain CPU pinning
+ * when cpu_core >= 0 (leaving the thread on the default CFS scheduler).
+ * May throw std::runtime_error if the requested scheduling cannot be applied.
+ * @param use_realtime_priority Whether to request soft-realtime prioritization.
+ * @param cpu_core CPU core to pin to; ignored when < 0.
+ */
+inline void applyThreadScheduling(bool use_realtime_priority, int cpu_core)
+{
+  if (use_realtime_priority) {
+    setSoftRealTimePriority(cpu_core);
+  } else if (cpu_core >= 0) {
+    setCPUAffinity(cpu_core);
+  }
 }
 
 template<typename InterfaceT>
