@@ -39,6 +39,7 @@ struct Parameters
   double failure_tolerance;
   bool use_realtime_priority;
   int realtime_cpu_core;
+  int niceness;
   bool publish_zero_velocity;
   rclcpp::Duration costmap_update_timeout{0, 0};
   std::string odom_topic;

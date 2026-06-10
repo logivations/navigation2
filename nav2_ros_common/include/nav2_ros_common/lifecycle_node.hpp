@@ -232,6 +232,7 @@ public:
    * @param server_timeout Timeout for the action server (default is 500ms)
    * @param spin_thread Whether to spin with a dedicated thread internally (default is false)
    * @param realtime Whether the action server's worker thread should have elevated
+   * @param niceness Nice value for the worker thread when realtime is not used
    * @return A shared pointer to the created nav2::SimpleActionServer
    */
   template<typename ActionT>
@@ -243,11 +244,12 @@ public:
     std::chrono::milliseconds server_timeout = std::chrono::milliseconds(500),
     bool spin_thread = false,
     const bool realtime = false,
-    int cpu_core = -1)
+    int cpu_core = -1,
+    int niceness = 0)
   {
     return nav2::interfaces::create_action_server<ActionT>(
       shared_from_this(), action_name, execute_callback,
-      compl_cb, server_timeout, spin_thread, realtime, cpu_core);
+      compl_cb, server_timeout, spin_thread, realtime, cpu_core, niceness);
   }
 
   /**

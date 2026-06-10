@@ -137,13 +137,15 @@ public:
 
     bool use_realtime_priority = false;
     int realtime_cpu_core = -1;
+    int niceness = 0;
     node->get_parameter("use_realtime_priority", use_realtime_priority);
     node->get_parameter("realtime_cpu_core", realtime_cpu_core);
+    node->get_parameter("niceness", niceness);
 
     action_server_ = node->create_action_server<ActionT>(
       behavior_name_,
       std::bind(&TimedBehavior::execute, this), nullptr, std::chrono::milliseconds(
-        500), false /*spin thread*/, use_realtime_priority, realtime_cpu_core);
+        500), false /*spin thread*/, use_realtime_priority, realtime_cpu_core, niceness);
 
     local_collision_checker_ = local_collision_checker;
     global_collision_checker_ = global_collision_checker;
