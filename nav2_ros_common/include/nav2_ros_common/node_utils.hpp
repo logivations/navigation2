@@ -34,6 +34,7 @@
 #else
   #include <sched.h>
   #include <errno.h>
+  #include <sys/resource.h>
 #endif
 
 using std::chrono::high_resolution_clock;
@@ -343,10 +344,68 @@ inline std::string get_plugin_type_param(
 }
 
 /**
+ * @brief Pins the calling thread to a specific CPU core WITHOUT changing its
+ * scheduling policy. The thread remains on the default (CFS) scheduler.
+ * This is independent of realtime prioritization, so a thread can be pinned to
+ * a core while still being scheduled as a normal best-effort task.
+ * May throw exception if unable to set the affinity successfully.
+ * @param cpu_core CPU core to pin the calling thread to. If < 0, this is a no-op.
+ */
+inline void setCPUAffinity(int cpu_core)
+{
+  if (cpu_core < 0) {
+    return;
+  }
+#ifdef __APPLE__
+  // macOS does not expose sched_setaffinity; explicit CPU pinning is unsupported.
+  (void)cpu_core;
+#else
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(cpu_core, &cpuset);
+  if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) == -1) {
+    std::string errmsg(
+      "Cannot set CPU affinity to core " + std::to_string(cpu_core) + ". Error: ");
+    throw std::runtime_error(errmsg + std::strerror(errno));
+  }
+#endif
+}
+
+/**
+ * @brief Sets the niceness of the calling thread WITHOUT changing its
+ * scheduling policy. The thread remains on the default (CFS) scheduler but
+ * receives a larger (negative niceness) or smaller (positive niceness) share
+ * of CPU time relative to other best-effort tasks.
+ * Negative niceness requires CAP_SYS_NICE or a matching RLIMIT_NICE, e.g.
+ * "<username> - nice -10" in /etc/security/limits.conf.
+ * May throw exception if unable to set the niceness successfully.
+ * @param niceness Nice value in [-20, 19]. If 0, this is a no-op.
+ */
+inline void setNiceness(int niceness)
+{
+  if (niceness == 0) {
+    return;
+  }
+#ifdef __APPLE__
+  // macOS has no per-thread niceness; setpriority would affect the whole process.
+  (void)niceness;
+#else
+  // On Linux, setpriority with PRIO_PROCESS and pid 0 applies to the calling thread only.
+  if (setpriority(PRIO_PROCESS, 0, niceness) == -1) {
+    std::string errmsg(
+      "Cannot set niceness to " + std::to_string(niceness) +
+      ". For negative values, users must set: <username> - nice " + std::to_string(niceness) +
+      " in /etc/security/limits.conf or grant the process CAP_SYS_NICE! Error: ");
+    throw std::runtime_error(errmsg + std::strerror(errno));
+  }
+#endif
+}
+
+/**
  * @brief Sets the caller thread to have a soft-realtime prioritization by
  * increasing the priority level of the host thread.
  * May throw exception if unable to set prioritization successfully
- * @param cpu_core If >= 0, pin the thread to this CPU core
+ * @param cpu_core If >= 0, pin the thread to this CPU core (see setCPUAffinity)
  */
 inline void setSoftRealTimePriority(int cpu_core = -1)
 {
@@ -385,18 +444,32 @@ inline void setSoftRealTimePriority(int cpu_core = -1)
       "realtime prioritization! Error: ");
     throw std::runtime_error(errmsg + std::strerror(errno));
   }
-
-  if (cpu_core >= 0) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(cpu_core, &cpuset);
-    if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) == -1) {
-      std::string errmsg(
-        "Cannot set CPU affinity to core " + std::to_string(cpu_core) + ". Error: ");
-      throw std::runtime_error(errmsg + std::strerror(errno));
-    }
-  }
 #endif
+
+  setCPUAffinity(cpu_core);
+}
+
+/**
+ * @brief Applies thread scheduling from the given parameters: soft-realtime
+ * prioritization when use_realtime_priority is set, otherwise the thread stays
+ * on the default CFS scheduler with the requested niceness (when niceness != 0)
+ * and CPU pinning (when cpu_core >= 0).
+ * Niceness is ignored under realtime prioritization since SCHED_FIFO does not
+ * use nice values.
+ * May throw std::runtime_error if the requested scheduling cannot be applied.
+ * @param use_realtime_priority Whether to request soft-realtime prioritization.
+ * @param cpu_core CPU core to pin to; ignored when < 0.
+ * @param niceness Nice value for the CFS scheduler; ignored when 0 or when
+ * use_realtime_priority is set.
+ */
+inline void applyThreadScheduling(bool use_realtime_priority, int cpu_core, int niceness = 0)
+{
+  if (use_realtime_priority) {
+    setSoftRealTimePriority(cpu_core);
+  } else {
+    setNiceness(niceness);
+    setCPUAffinity(cpu_core);
+  }
 }
 
 template<typename InterfaceT>
