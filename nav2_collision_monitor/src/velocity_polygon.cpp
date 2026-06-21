@@ -315,6 +315,12 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
       } else {
         linear_limit_ = sub_polygon.linear_limit_;
       }
+      // Keep the raw steering-wheel-frame limit so the LIMIT action can cap the
+      // wheel speed directly (the base_link-converted linear_limit_ above
+      // collapses to ~0 at large steering angles and is unusable when turning
+      // in place).
+      current_field_uses_steering_ = sub_polygon.use_steering_angle_;
+      current_sw_linear_limit_ = sub_polygon.linear_limit_;
       angular_limit_ = sub_polygon.angular_limit_;
       time_before_collision_ = sub_polygon.time_before_collision_;
 
@@ -323,6 +329,7 @@ void VelocityPolygon::updatePolygon(const Velocity & cmd_vel_in)
   }
 
   current_subpolygon_name_ = "none";
+  current_field_uses_steering_ = false;
 
   // Log for uncovered velocity
   RCLCPP_WARN_THROTTLE(

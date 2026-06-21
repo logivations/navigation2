@@ -700,17 +700,37 @@ bool CollisionMonitor::processStopSlowdownLimit(
         return true;
       }
     } else {  // Limit
-      // Compute linear velocity
-      const double linear_vel = std::hypot(velocity.x, velocity.y);  // absolute
       Velocity safe_vel;
       double ratio = 1.0;
 
-      // Calculate the most restrictive ratio to preserve curvature
-      if (linear_vel != 0.0) {
-        ratio = std::min(ratio, polygon->getLinearLimit() / linear_vel);
-      }
-      if (velocity.tw != 0.0) {
-        ratio = std::min(ratio, polygon->getAngularLimit() / std::abs(velocity.tw));
+      auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+      if (vel_polygon && vel_polygon->isCurrentFieldSteeringBased()) {
+        // Steering-angle velocity polygons express linear_limit as a
+        // steering-wheel speed, so limit in the steering-wheel frame. This keeps
+        // the cap effective when the base_link linear velocity is ~0 (e.g.
+        // turning in place), which the base_link path below skips via its
+        // `!= 0.0` guard. The active field is only selected for a matching
+        // driving direction, so sw_speed and sw_limit carry the same sign and
+        // the ratio stays non-negative without taking absolute values.
+        const double sw_speed = vel_polygon->getSteeringWheelSpeed(velocity);
+        const double sw_limit = vel_polygon->getSteeringWheelLinearLimit();
+        if (sw_speed != 0.0) {
+          ratio = std::min(ratio, sw_limit / sw_speed);
+        }
+        if (velocity.tw != 0.0) {
+          ratio = std::min(ratio, polygon->getAngularLimit() / std::abs(velocity.tw));
+        }
+      } else {
+        // Compute linear velocity
+        const double linear_vel = std::hypot(velocity.x, velocity.y);  // absolute
+
+        // Calculate the most restrictive ratio to preserve curvature
+        if (linear_vel != 0.0) {
+          ratio = std::min(ratio, polygon->getLinearLimit() / linear_vel);
+        }
+        if (velocity.tw != 0.0) {
+          ratio = std::min(ratio, polygon->getAngularLimit() / std::abs(velocity.tw));
+        }
       }
       ratio = std::clamp(ratio, 0.0, 1.0);
       // Apply the same ratio to all components to preserve curvature

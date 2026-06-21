@@ -73,6 +73,32 @@ public:
   std::string getCurrentSubPolygonName() const { return current_subpolygon_name_; }
 
   /**
+   * @brief Whether the currently selected sub-polygon expresses its velocity
+   * limit as a steering-wheel speed (steering-angle based field).
+   */
+  bool isCurrentFieldSteeringBased() const { return current_field_uses_steering_; }
+
+  /**
+   * @brief Steering-wheel-frame linear limit (m/s) of the currently selected
+   * sub-polygon. Unlike getLinearLimit() (which is converted to base_link and
+   * therefore collapses to ~0 at large steering angles), this is the raw
+   * steering-wheel-speed limit and stays meaningful when the base_link linear
+   * velocity is ~0 (e.g. turning in place).
+   */
+  double getSteeringWheelLinearLimit() const { return current_sw_linear_limit_; }
+
+  /**
+   * @brief Steering-wheel speed (m/s) corresponding to a base_link velocity.
+   * Signed by driving direction (negative when reversing).
+   * @param vel Base_link velocity command
+   * @return Steering-wheel speed
+   */
+  double getSteeringWheelSpeed(const Velocity & vel) const
+  {
+    return baselinkToSteeringSpeed(vel.x, vel.tw);
+  }
+
+  /**
    * @brief Overridden updatePolygon function for VelocityPolygon
    * @param cmd_vel_in Robot twist command input
    */
@@ -271,6 +297,10 @@ protected:
   bool holonomic_;
   /// @brief Current steering angle
   double current_steering_angle_;
+  /// @brief Whether the active sub-polygon uses steering-wheel-speed semantics
+  bool current_field_uses_steering_{false};
+  /// @brief Raw steering-wheel-frame linear limit of the active sub-polygon
+  double current_sw_linear_limit_{0.0};
   /// @brief Distance between front and rear axes
   double wheelbase_;
   /// @brief Speed below which steering is freely allowed
