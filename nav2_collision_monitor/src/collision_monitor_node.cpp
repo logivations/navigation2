@@ -22,6 +22,7 @@
 #include "tf2_ros/create_timer_ros.hpp"
 
 #include "nav2_ros_common/node_utils.hpp"
+#include "nav2_ros_common/qos_profiles.hpp"
 #include "nav2_util/robot_utils.hpp"
 
 #include "nav2_collision_monitor/kinematics.hpp"
@@ -94,8 +95,13 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & state)
     "~/processing_time_ms", rclcpp::QoS(1));
 
   if (!state_topic.empty()) {
+    // Latched (transient_local) so a late-joining subscriber immediately learns the
+    // current action. The state is only published on transitions (see
+    // notifyActionState), not periodically, so without latching a subscriber that
+    // connects while the robot is already in a limit/stop state would not learn
+    // about it until the next transition.
     state_pub_ = this->create_publisher<nav2_msgs::msg::CollisionMonitorState>(
-      state_topic);
+      state_topic, nav2::qos::LatchedPublisherQoS());
   }
 
   collision_points_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
@@ -704,7 +710,9 @@ bool CollisionMonitor::processStopSlowdownLimit(
       double ratio = 1.0;
 
       auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
-      if (vel_polygon && vel_polygon->isCurrentFieldSteeringBased()) {
+      if (enable_steering_validation_ && vel_polygon &&
+        vel_polygon->isCurrentFieldSteeringBased())
+      {
         // Steering-angle velocity polygons express linear_limit as a
         // steering-wheel speed, so limit in the steering-wheel frame. This keeps
         // the cap effective when the base_link linear velocity is ~0 (e.g.
@@ -712,6 +720,10 @@ bool CollisionMonitor::processStopSlowdownLimit(
         // `!= 0.0` guard. The active field is only selected for a matching
         // driving direction, so sw_speed and sw_limit carry the same sign and
         // the ratio stays non-negative without taking absolute values.
+        // Gated on enable_steering_validation_ so legacy configs (flag off, and
+        // which tune linear_limit/angular_limit for the base_link path) keep the
+        // original limiting behavior unchanged; the steering-wheel-speed limiting
+        // applies only to the new steering-validation configs.
         const double sw_speed = vel_polygon->getSteeringWheelSpeed(velocity);
         const double sw_limit = vel_polygon->getSteeringWheelLinearLimit();
         if (sw_speed != 0.0) {
