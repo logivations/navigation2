@@ -14,6 +14,7 @@
 
 #include "nav2_collision_monitor/collision_monitor_node.hpp"
 
+#include <chrono>
 #include <exception>
 #include <utility>
 #include <functional>
@@ -21,6 +22,7 @@
 #include "tf2_ros/create_timer_ros.hpp"
 
 #include "nav2_ros_common/node_utils.hpp"
+#include "nav2_ros_common/qos_profiles.hpp"
 #include "nav2_util/robot_utils.hpp"
 
 #include "nav2_collision_monitor/kinematics.hpp"
@@ -78,13 +80,28 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & state)
     rclcpp::QoS(1));
 
   auto node = shared_from_this();
+
+  std::string fields_mode_topic = node->declare_or_get_parameter(
+    "fields_mode_topic", std::string("fields_mode"));
+  fields_mode_sub_ = this->create_subscription<std_msgs::msg::String>(
+    fields_mode_topic,
+    std::bind(&CollisionMonitor::fieldsModeCallback, this, std::placeholders::_1),
+    rclcpp::QoS(1).transient_local());
+
   cmd_vel_out_pub_ = std::make_unique<nav2_util::TwistPublisher>(node, cmd_vel_out_topic);
   active_polygons_pub_ = this->create_publisher<nav2_msgs::msg::ActiveVelocityPolygons>(
     "~/active_velocity_polygons");
+  processing_time_pub_ = this->create_publisher<std_msgs::msg::Float32>(
+    "~/processing_time_ms", rclcpp::QoS(1));
 
   if (!state_topic.empty()) {
+    // Latched (transient_local) so a late-joining subscriber immediately learns the
+    // current action. The state is only published on transitions (see
+    // notifyActionState), not periodically, so without latching a subscriber that
+    // connects while the robot is already in a limit/stop state would not learn
+    // about it until the next transition.
     state_pub_ = this->create_publisher<nav2_msgs::msg::CollisionMonitorState>(
-      state_topic);
+      state_topic, nav2::qos::LatchedPublisherQoS());
   }
 
   collision_points_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
@@ -96,14 +113,14 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & state)
     std::bind(&CollisionMonitor::toggleCMServiceCallback, this, _1, _2, _3));
 
   bool use_realtime_priority = node->declare_or_get_parameter("use_realtime_priority", false);
-  if (use_realtime_priority) {
-    try {
-      nav2::setSoftRealTimePriority();
-    } catch (const std::runtime_error & e) {
-      RCLCPP_ERROR(get_logger(), "%s", e.what());
-      on_cleanup(state);
-      return nav2::CallbackReturn::FAILURE;
-    }
+  int cpu_core = node->declare_or_get_parameter("realtime_cpu_core", -1);
+  int niceness = node->declare_or_get_parameter("niceness", 0);
+  try {
+    nav2::applyThreadScheduling(use_realtime_priority, cpu_core, niceness);
+  } catch (const std::runtime_error & e) {
+    RCLCPP_ERROR(get_logger(), "%s", e.what());
+    on_cleanup(state);
+    return nav2::CallbackReturn::FAILURE;
   }
 
   enabled_ = node->declare_or_get_parameter("enabled", true);
@@ -185,6 +202,7 @@ CollisionMonitor::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   cmd_vel_out_pub_.reset();
   state_pub_.reset();
   collision_points_marker_pub_.reset();
+  fields_mode_sub_.reset();
 
   polygons_.clear();
   sources_.clear();
@@ -221,6 +239,24 @@ void CollisionMonitor::cmdVelInCallbackUnstamped(
   auto twist_stamped = std::make_shared<geometry_msgs::msg::TwistStamped>();
   twist_stamped->twist = *msg;
   cmdVelInCallbackStamped(twist_stamped);
+}
+
+void CollisionMonitor::fieldsModeCallback(std_msgs::msg::String::ConstSharedPtr msg)
+{
+  if (current_fields_mode_ != msg->data) {
+    RCLCPP_INFO(
+      get_logger(), "Fields mode changed from '%s' to '%s'",
+      current_fields_mode_.c_str(), msg->data.c_str());
+    current_fields_mode_ = msg->data;
+
+    // Propagate mode to all VelocityPolygon instances
+    for (auto & polygon : polygons_) {
+      auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+      if (vel_polygon) {
+        vel_polygon->setFieldsMode(current_fields_mode_);
+      }
+    }
+  }
 }
 
 void CollisionMonitor::odomInCallback(nav_msgs::msg::Odometry::ConstSharedPtr msg)
@@ -288,6 +324,8 @@ bool CollisionMonitor::getParameters(
 
   stop_pub_timeout_ = rclcpp::Duration::from_seconds(
     node->declare_or_get_parameter("stop_pub_timeout", 1.0));
+
+  enable_steering_validation_ = node->declare_or_get_parameter("enable_steering_validation", true);
 
   if (
     !configureSources(
@@ -427,6 +465,7 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
 {
   // Current timestamp for all inner routines prolongation
   rclcpp::Time curr_time = this->now();
+  const auto process_start = std::chrono::steady_clock::now();
 
   // Do nothing if main worker in non-active state
   if (!process_active_) {
@@ -451,6 +490,10 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
       if (!source->getData(curr_time, iter.first->second) &&
         source->getSourceTimeout().seconds() != 0.0)
       {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "[%s]: Source getData() failed (no data / stale / TF error) — triggering STOP",
+          source->getSourceName().c_str());
         action_polygon = nullptr;
         robot_action.polygon_name = "invalid source";
         robot_action.action_type = STOP;
@@ -458,6 +501,12 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
         robot_action.req_vel.y = 0.0;
         robot_action.req_vel.tw = 0.0;
         break;
+      }
+      if (iter.first->second.empty()) {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "[%s]: Source enabled and getData() succeeded but returned 0 points",
+          source->getSourceName().c_str());
       }
     }
 
@@ -499,6 +548,8 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
                        std::abs(last_odom_msg_.linear.y) < velocity_threshold &&
                        std::abs(last_odom_msg_.angular.z) < velocity_threshold;
 
+  std::shared_ptr<VelocityPolygon> active_limit_vel_polygon;
+
   for (std::shared_ptr<Polygon> polygon : polygons_) {
     if (!polygon->getEnabled() || !enabled_) {
       continue;
@@ -516,17 +567,38 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
                                  cmd_vel_in.y * cmd_vel_in.y +
                                  cmd_vel_in.tw * cmd_vel_in.tw);
 
-    Velocity scaled_cmd_vel_in = cmd_vel_in;
+      Velocity scaled_cmd_vel_in = cmd_vel_in;
 
-    if (magnitude > 0.2) {
-      double scale_factor = 0.2 / magnitude;
-      scaled_cmd_vel_in.x *= scale_factor;
-      scaled_cmd_vel_in.y *= scale_factor;
-      scaled_cmd_vel_in.tw *= scale_factor;
-    }
-    polygon->updatePolygon(scaled_cmd_vel_in);
+      // Cap the probe magnitude so it lands inside a field that exists in the
+      // current fields mode. A fixed cap overshoots modes whose fields top out
+      // lower (e.g. narrow_fork_down caps at 0.15 m/s): updatePolygon() would
+      // then find no match, emitting a spurious "velocity not covered" warning
+      // and leaving a stale obstacle polygon for that cycle.
+      double probe_cap = 0.2;
+      if (auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon)) {
+        double mode_cap = vel_polygon->getMaxProbeSpeedForMode(cmd_vel_in.x >= 0.0);
+        if (mode_cap > 0.0) {
+          probe_cap = std::min(probe_cap, mode_cap);
+        }
+      }
+
+      if (magnitude > probe_cap) {
+        double scale_factor = probe_cap / magnitude;
+        scaled_cmd_vel_in.x *= scale_factor;
+        scaled_cmd_vel_in.y *= scale_factor;
+        scaled_cmd_vel_in.tw *= scale_factor;
+      }
+      polygon->updatePolygon(scaled_cmd_vel_in);
     } else {
       polygon->updatePolygon({last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z});
+    }
+
+    // Track the active LIMIT VelocityPolygon (the one matching current speed/steering angle)
+    if (polygon->getActionType() == LIMIT) {
+      auto vp = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+      if (vp && vp->getCurrentSubPolygonName() != "none") {
+        active_limit_vel_polygon = vp;
+      }
     }
 
     const ActionType at = polygon->getActionType();
@@ -540,6 +612,32 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
     } else if (at == APPROACH) {
       // Process APPROACH for the selected polygon
       if (processApproach(polygon, sources_collision_points_map, cmd_vel_in, robot_action)) {
+        action_polygon = polygon;
+      }
+    }
+  }
+
+  // Step 2: Steering validation (only for the active LIMIT VelocityPolygon)
+  if (enable_steering_validation_ && active_limit_vel_polygon &&
+    robot_action.action_type != STOP)
+  {
+    Velocity odom_vel{last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z};
+    if (active_limit_vel_polygon->validateSteering(
+        cmd_vel_in, odom_vel, sources_collision_points_map, robot_action))
+    {
+      action_polygon = active_limit_vel_polygon;
+    }
+  }
+
+  // Step 3: Field exceedance prevention — clamp speed to max available field
+  if (enable_steering_validation_) {
+    for (auto polygon : polygons_) {
+      auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+      if (!vel_polygon || !polygon->getEnabled()) {
+        continue;
+      }
+      Velocity odom_vel{last_odom_msg_.linear.x, last_odom_msg_.linear.y, last_odom_msg_.angular.z};
+      if (vel_polygon->clampToMaxField(odom_vel, robot_action)) {
         action_polygon = polygon;
       }
     }
@@ -570,6 +668,12 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
   active_polygons_pub_->publish(std::move(msg));
 
   robot_action_prev_ = robot_action;
+
+  // Publish processing time
+  std_msgs::msg::Float32 time_msg;
+  time_msg.data = std::chrono::duration<float, std::milli>(
+    std::chrono::steady_clock::now() - process_start).count();
+  processing_time_pub_->publish(time_msg);
 }
 
 bool CollisionMonitor::processStopSlowdownLimit(
@@ -582,7 +686,7 @@ bool CollisionMonitor::processStopSlowdownLimit(
     return false;
   }
 
-  if (polygon->getPointsInside(sources_collision_points_map) >= polygon->getMinPoints()) {
+  if (polygon->isTriggered(sources_collision_points_map)) {
     if (polygon->getActionType() == STOP) {
       // Setting up zero velocity for STOP model
       robot_action.polygon_name = polygon->getName();
@@ -602,17 +706,47 @@ bool CollisionMonitor::processStopSlowdownLimit(
         return true;
       }
     } else {  // Limit
-      // Compute linear velocity
-      const double linear_vel = std::hypot(velocity.x, velocity.y);  // absolute
       Velocity safe_vel;
       double ratio = 1.0;
 
-      // Calculate the most restrictive ratio to preserve curvature
-      if (linear_vel != 0.0) {
-        ratio = std::min(ratio, polygon->getLinearLimit() / linear_vel);
-      }
-      if (velocity.tw != 0.0) {
-        ratio = std::min(ratio, polygon->getAngularLimit() / std::abs(velocity.tw));
+      auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon);
+      if (enable_steering_validation_ && vel_polygon &&
+        vel_polygon->isCurrentFieldSteeringBased())
+      {
+        // Steering-angle velocity polygons express linear_limit as a
+        // steering-wheel speed, so limit in the steering-wheel frame. This keeps
+        // the cap effective when the base_link linear velocity is ~0 (e.g.
+        // turning in place), which the base_link path below skips via its
+        // `!= 0.0` guard. linear_limit is stored as an unsigned magnitude while
+        // sw_speed is signed by driving direction, so compute the ratio from
+        // magnitudes (mirroring the base_link path's std::hypot below). The
+        // field is direction-matched, so applying the magnitude ratio to the
+        // signed velocity preserves direction; a signed ratio would otherwise go
+        // negative for backward driving and clamp to 0, zeroing the command
+        // instead of capping it.
+        // Gated on enable_steering_validation_ so legacy configs (flag off, and
+        // which tune linear_limit/angular_limit for the base_link path) keep the
+        // original limiting behavior unchanged; the steering-wheel-speed limiting
+        // applies only to the new steering-validation configs.
+        const double sw_speed = vel_polygon->getSteeringWheelSpeed(velocity);
+        const double sw_limit = vel_polygon->getSteeringWheelLinearLimit();
+        if (sw_speed != 0.0) {
+          ratio = std::min(ratio, std::abs(sw_limit) / std::abs(sw_speed));
+        }
+        if (velocity.tw != 0.0) {
+          ratio = std::min(ratio, polygon->getAngularLimit() / std::abs(velocity.tw));
+        }
+      } else {
+        // Compute linear velocity
+        const double linear_vel = std::hypot(velocity.x, velocity.y);  // absolute
+
+        // Calculate the most restrictive ratio to preserve curvature
+        if (linear_vel != 0.0) {
+          ratio = std::min(ratio, polygon->getLinearLimit() / linear_vel);
+        }
+        if (velocity.tw != 0.0) {
+          ratio = std::min(ratio, polygon->getAngularLimit() / std::abs(velocity.tw));
+        }
       }
       ratio = std::clamp(ratio, 0.0, 1.0);
       // Apply the same ratio to all components to preserve curvature

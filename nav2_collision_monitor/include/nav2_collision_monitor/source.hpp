@@ -158,6 +158,8 @@ protected:
   nav2::LifecycleNode::WeakPtr node_;
   /// @brief Collision monitor node logger stored for further usage
   rclcpp::Logger logger_{rclcpp::get_logger("collision_monitor")};
+  /// @brief Clock for throttled logging
+  rclcpp::Clock::SharedPtr clock_;
   /// @brief Dynamic parameters handler
   mutable std::mutex mutex_;
   rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr post_set_params_handler_;

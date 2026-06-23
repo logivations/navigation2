@@ -53,6 +53,11 @@ collision_monitor:
       min_points: 6
       visualize: false
       enabled: true
+    # Topic for receiving the current fields mode (std_msgs/String)
+    # The mode string filters which velocity sub-polygons are active.
+    # Each sub-polygon has a "modes" list; only sub-polygons whose modes
+    # contain the current mode are considered. Default mode is "default".
+    fields_mode_topic: "fields_mode"
     VelocityPolygonStop:
       type: "velocity_polygon"
       action_type: "stop"
@@ -60,7 +65,7 @@ collision_monitor:
       visualize: true
       enabled: true
       polygon_pub_topic: "velocity_polygon_stop"
-      velocity_polygons: ["rotation", "translation_forward", "translation_backward", "stopped"]
+      velocity_polygons: ["rotation", "translation_forward", "translation_forward_forkdown", "translation_backward", "stopped"]
       holonomic: false
       rotation:
         points: "[[0.3, 0.3], [0.3, -0.3], [-0.3, -0.3], [-0.3, 0.3]]"
@@ -68,18 +73,28 @@ collision_monitor:
         linear_max: 0.05
         theta_min: -1.0
         theta_max: 1.0
+        modes: ["default", "fork_down", "narrow", "narrow_fork_down", "foil"]
       translation_forward:
         points: "[[0.35, 0.3], [0.35, -0.3], [-0.2, -0.3], [-0.2, 0.3]]"
         linear_min: 0.0
         linear_max: 1.0
         theta_min: -1.0
         theta_max: 1.0
+        modes: ["default", "narrow"]
+      translation_forward_forkdown:
+        points: "[[0.35, 0.3], [0.35, -0.3], [-0.2, -0.3], [-0.2, 0.3]]"
+        linear_min: 0.0
+        linear_max: 0.5
+        theta_min: -1.0
+        theta_max: 1.0
+        modes: ["fork_down", "narrow_fork_down"]
       translation_backward:
         points: "[[0.2, 0.3], [0.2, -0.3], [-0.35, -0.3], [-0.35, 0.3]]"
         linear_min: -1.0
         linear_max: 0.0
         theta_min: -1.0
         theta_max: 1.0
+        modes: ["default", "fork_down", "narrow", "narrow_fork_down", "foil"]
       # This is the last polygon to be checked, it should cover the entire range of robot's velocities
       # It is used as the stopped polygon when the robot is not moving and as a fallback if the velocity
       # is not covered by any of the other sub-polygons
@@ -89,6 +104,7 @@ collision_monitor:
         linear_max: 1.0
         theta_min: -1.0
         theta_max: 1.0
+        modes: ["default", "fork_down", "narrow", "narrow_fork_down", "foil"]
     observation_sources: ["scan"]
     scan:
       type: "scan"

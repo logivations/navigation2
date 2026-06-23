@@ -70,6 +70,9 @@ bool CostmapSource::getData(
 {
   auto node = node_.lock();
   if (data_ == nullptr) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: No costmap data received yet (data_ is null)", source_name_.c_str());
     return false;
   }
 

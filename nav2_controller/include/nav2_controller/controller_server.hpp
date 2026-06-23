@@ -241,10 +241,8 @@ protected:
 
   // The controller needs a costmap node
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
-  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> narrow_costmap_ros_;
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> sensor_costmap_ros_;
   std::unique_ptr<nav2::NodeThread> costmap_thread_;
-  std::unique_ptr<nav2::NodeThread> narrow_costmap_thread_;
   std::unique_ptr<nav2::NodeThread> sensor_costmap_thread_;
 
   // Publishers and subscribers

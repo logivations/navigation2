@@ -109,6 +109,9 @@ bool PointCloud::getData(
   // Ignore data from the source if it is not being published yet or
   // not published for a long time
   if (data_ == nullptr) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: No pointcloud data received yet (data_ is null)", source_name_.c_str());
     return false;
   }
   if (!sourceValid(data_->header.stamp, curr_time)) {
@@ -117,6 +120,10 @@ bool PointCloud::getData(
 
   tf2::Transform tf_transform;
   if (!getTransform(curr_time, data_->header, tf_transform)) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: TF lookup failed for pointcloud (frame=%s)",
+      source_name_.c_str(), data_->header.frame_id.c_str());
     return false;
   }
 

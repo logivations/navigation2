@@ -58,9 +58,16 @@ void HybridMotionTable::initDubin(
   downsample_obstacle_heuristic = search_info.downsample_obstacle_heuristic;
   use_quadratic_cost_penalty = search_info.use_quadratic_cost_penalty;
 
+  // Resolve per-side radii. A right radius of 0 means "symmetric — use left for both".
+  const float radius_left = search_info.minimum_turning_radius;
+  const float radius_right = search_info.minimum_turning_radius_right > 0.0f ?
+    search_info.minimum_turning_radius_right : search_info.minimum_turning_radius;
+  const float conservative_radius = std::max(radius_left, radius_right);
+
   // if nothing changed, no need to re-compute primitives
   if (num_angle_quantization_in == num_angle_quantization &&
-    min_turning_radius == search_info.minimum_turning_radius &&
+    min_turning_radius_left == radius_left &&
+    min_turning_radius_right == radius_right &&
     allow_primitive_interpolation == search_info.allow_primitive_interpolation &&
     motion_model == MotionModel::DUBIN)
   {
@@ -69,7 +76,9 @@ void HybridMotionTable::initDubin(
 
   num_angle_quantization = num_angle_quantization_in;
   num_angle_quantization_float = static_cast<float>(num_angle_quantization);
-  min_turning_radius = search_info.minimum_turning_radius;
+  min_turning_radius_left = radius_left;
+  min_turning_radius_right = radius_right;
+  min_turning_radius = conservative_radius;
   allow_primitive_interpolation = search_info.allow_primitive_interpolation;
   motion_model = MotionModel::DUBIN;
 
@@ -77,61 +86,74 @@ void HybridMotionTable::initDubin(
   // 1) be increment of quantized bin size
   // 2) chord length must be greater than sqrt(2) to leave current cell
   // 3) maximum curvature must be respected, represented by minimum turning angle
-  // Thusly:
-  // On circle of radius minimum turning angle, we need select motion primitives
-  // with chord length > sqrt(2) and be an increment of our bin size
-  //
-  // chord >= sqrt(2) >= 2 * R * sin (angle / 2); where angle / N = quantized bin size
-  // Thusly: angle <= 2.0 * asin(sqrt(2) / (2 * R))
-  float angle = 2.0 * asin(sqrt(2.0) / (2 * min_turning_radius));
-  // Now make sure angle is an increment of the quantized bin size
-  // And since its based on the minimum chord, we need to make sure its always larger
+  // chord >= sqrt(2) >= 2 * R * sin (angle / 2); angle <= 2.0 * asin(sqrt(2) / (2 * R))
   bin_size =
     2.0f * static_cast<float>(M_PI) / static_cast<float>(num_angle_quantization);
-  float increments;
-  if (angle < bin_size) {
-    increments = 1.0f;
-  } else {
-    // Search dimensions are clean multiples of quantization - this prevents
-    // paths with loops in them
-    increments = ceil(angle / bin_size);
-  }
-  angle = increments * bin_size;
 
-  // find deflections
-  // If we make a right triangle out of the chord in circle of radius
-  // min turning angle, we can see that delta X = R * sin (angle)
-  const float delta_x = min_turning_radius * sin(angle);
-  // Using that same right triangle, we can see that the complement
-  // to delta Y is R * cos (angle). If we subtract R, we get the actual value
-  const float delta_y = min_turning_radius - (min_turning_radius * cos(angle));
-  const float delta_dist = hypotf(delta_x, delta_y);
+  // Per-side base angle / increments / deltas. Each side uses its own radius.
+  auto compute_side = [&](float radius, float & angle_out, float & increments_out,
+      float & dx_out, float & dy_out, float & chord_out)
+    {
+      float angle = 2.0f * asin(sqrt(2.0) / (2.0f * radius));
+      float increments;
+      if (angle < bin_size) {
+        increments = 1.0f;
+      } else {
+        // Search dimensions are clean multiples of quantization - prevents looping paths
+        increments = ceil(angle / bin_size);
+      }
+      angle = increments * bin_size;
+      angle_out = angle;
+      increments_out = increments;
+      dx_out = radius * sin(angle);
+      dy_out = radius - (radius * cos(angle));
+      chord_out = hypotf(dx_out, dy_out);
+    };
+
+  float angle_left, increments_left, delta_x_left, delta_y_left, chord_left;
+  float angle_right, increments_right, delta_x_right, delta_y_right, chord_right;
+  compute_side(radius_left, angle_left, increments_left, delta_x_left, delta_y_left, chord_left);
+  compute_side(
+    radius_right, angle_right, increments_right, delta_x_right, delta_y_right, chord_right);
+
+  // Forward step uses the smaller chord so the search granularity is matched to the tighter
+  // turn — keeps left/right/forward primitives at consistent scale.
+  const float forward_chord = std::min(chord_left, chord_right);
 
   projections.clear();
   projections.reserve(3);
-  projections.emplace_back(delta_dist, 0.0, 0.0, TurnDirection::FORWARD);  // Forward
-  projections.emplace_back(delta_x, delta_y, increments, TurnDirection::LEFT);  // Left
-  projections.emplace_back(delta_x, -delta_y, -increments, TurnDirection::RIGHT);  // Right
+  projections.emplace_back(forward_chord, 0.0, 0.0, TurnDirection::FORWARD);  // Forward
+  projections.emplace_back(
+    delta_x_left, delta_y_left, increments_left, TurnDirection::LEFT);  // Left
+  projections.emplace_back(
+    delta_x_right, -delta_y_right, -increments_right, TurnDirection::RIGHT);  // Right
 
-  if (search_info.allow_primitive_interpolation && increments > 1.0f) {
-    // Create primitives that are +/- N to fill in search space to use all set angular quantizations
-    // Allows us to create N many primitives so that each search iteration can expand into any angle
-    // bin possible with the minimum turning radius constraint, not just the most extreme turns.
-    projections.reserve(3 + (2 * (increments - 1)));
-    for (unsigned int i = 1; i < static_cast<unsigned int>(increments); i++) {
+  if (search_info.allow_primitive_interpolation &&
+    (increments_left > 1.0f || increments_right > 1.0f))
+  {
+    // Create primitives at intermediate angle bins so the search can expand into any
+    // reachable orientation, not just the most extreme turn for this side.
+    projections.reserve(
+      3 + static_cast<size_t>((increments_left - 1.0f) + (increments_right - 1.0f)));
+    for (unsigned int i = 1; i < static_cast<unsigned int>(increments_left); i++) {
       const float angle_n = static_cast<float>(i) * bin_size;
-      const float turning_rad_n = delta_dist / (2.0f * sin(angle_n / 2.0f));
-      const float delta_x_n = turning_rad_n * sin(angle_n);
-      const float delta_y_n = turning_rad_n - (turning_rad_n * cos(angle_n));
-      projections.emplace_back(
-        delta_x_n, delta_y_n, static_cast<float>(i), TurnDirection::LEFT);  // Left
-      projections.emplace_back(
-        delta_x_n, -delta_y_n, -static_cast<float>(i), TurnDirection::RIGHT);  // Right
+      const float turning_rad_n = chord_left / (2.0f * sin(angle_n / 2.0f));
+      const float dx_n = turning_rad_n * sin(angle_n);
+      const float dy_n = turning_rad_n - (turning_rad_n * cos(angle_n));
+      projections.emplace_back(dx_n, dy_n, static_cast<float>(i), TurnDirection::LEFT);
+    }
+    for (unsigned int i = 1; i < static_cast<unsigned int>(increments_right); i++) {
+      const float angle_n = static_cast<float>(i) * bin_size;
+      const float turning_rad_n = chord_right / (2.0f * sin(angle_n / 2.0f));
+      const float dx_n = turning_rad_n * sin(angle_n);
+      const float dy_n = turning_rad_n - (turning_rad_n * cos(angle_n));
+      projections.emplace_back(dx_n, -dy_n, -static_cast<float>(i), TurnDirection::RIGHT);
     }
   }
 
-  // Create the correct OMPL state space
-  state_space = std::make_shared<ompl::base::DubinsStateSpace>(min_turning_radius);
+  // Conservative OMPL state space: standard Dubins assumes symmetric radii, so use the
+  // looser of the two. Analytic-expansion paths will respect both turning constraints.
+  state_space = std::make_shared<ompl::base::DubinsStateSpace>(conservative_radius);
 
   // Precompute projection deltas
   delta_xs.resize(projections.size());
@@ -159,12 +181,14 @@ void HybridMotionTable::initDubin(
   for (unsigned int i = 0; i != projections.size(); i++) {
     const TurnDirection turn_dir = projections[i]._turn_dir;
     if (turn_dir != TurnDirection::FORWARD && turn_dir != TurnDirection::REVERSE) {
-      // Turning, so length is the arc length
-      const float arc_angle = projections[i]._theta * bin_size;
-      const float turning_rad = delta_dist / (2.0f * sin(arc_angle / 2.0f));
+      // Turning: arc length = turning_rad * arc_angle. Use the per-side chord to back out
+      // the actual radius (left and right may differ in asymmetric mode).
+      const float arc_angle = fabs(projections[i]._theta) * bin_size;
+      const float chord = (turn_dir == TurnDirection::LEFT) ? chord_left : chord_right;
+      const float turning_rad = chord / (2.0f * sin(arc_angle / 2.0f));
       travel_costs[i] = turning_rad * arc_angle;
     } else {
-      travel_costs[i] = delta_dist;
+      travel_costs[i] = forward_chord;
     }
   }
 }
@@ -187,9 +211,16 @@ void HybridMotionTable::initReedsShepp(
   downsample_obstacle_heuristic = search_info.downsample_obstacle_heuristic;
   use_quadratic_cost_penalty = search_info.use_quadratic_cost_penalty;
 
+  // Resolve per-side radii. A right radius of 0 means "symmetric — use left for both".
+  const float radius_left = search_info.minimum_turning_radius;
+  const float radius_right = search_info.minimum_turning_radius_right > 0.0f ?
+    search_info.minimum_turning_radius_right : search_info.minimum_turning_radius;
+  const float conservative_radius = std::max(radius_left, radius_right);
+
   // if nothing changed, no need to re-compute primitives
   if (num_angle_quantization_in == num_angle_quantization &&
-    min_turning_radius == search_info.minimum_turning_radius &&
+    min_turning_radius_left == radius_left &&
+    min_turning_radius_right == radius_right &&
     allow_primitive_interpolation == search_info.allow_primitive_interpolation &&
     motion_model == MotionModel::REEDS_SHEPP)
   {
@@ -198,63 +229,88 @@ void HybridMotionTable::initReedsShepp(
 
   num_angle_quantization = num_angle_quantization_in;
   num_angle_quantization_float = static_cast<float>(num_angle_quantization);
-  min_turning_radius = search_info.minimum_turning_radius;
+  min_turning_radius_left = radius_left;
+  min_turning_radius_right = radius_right;
+  min_turning_radius = conservative_radius;
   allow_primitive_interpolation = search_info.allow_primitive_interpolation;
   motion_model = MotionModel::REEDS_SHEPP;
 
-  float angle = 2.0 * asin(sqrt(2.0) / (2 * min_turning_radius));
   bin_size =
     2.0f * static_cast<float>(M_PI) / static_cast<float>(num_angle_quantization);
-  float increments;
-  if (angle < bin_size) {
-    increments = 1.0f;
-  } else {
-    increments = ceil(angle / bin_size);
-  }
-  angle = increments * bin_size;
 
-  const float delta_x = min_turning_radius * sin(angle);
-  const float delta_y = min_turning_radius - (min_turning_radius * cos(angle));
-  const float delta_dist = hypotf(delta_x, delta_y);
+  // Per-side base angle / increments / deltas. Each side uses its own radius.
+  auto compute_side = [&](float radius, float & angle_out, float & increments_out,
+      float & dx_out, float & dy_out, float & chord_out)
+    {
+      float angle = 2.0f * asin(sqrt(2.0) / (2.0f * radius));
+      float increments;
+      if (angle < bin_size) {
+        increments = 1.0f;
+      } else {
+        increments = ceil(angle / bin_size);
+      }
+      angle = increments * bin_size;
+      angle_out = angle;
+      increments_out = increments;
+      dx_out = radius * sin(angle);
+      dy_out = radius - (radius * cos(angle));
+      chord_out = hypotf(dx_out, dy_out);
+    };
+
+  float angle_left, increments_left, delta_x_left, delta_y_left, chord_left;
+  float angle_right, increments_right, delta_x_right, delta_y_right, chord_right;
+  compute_side(radius_left, angle_left, increments_left, delta_x_left, delta_y_left, chord_left);
+  compute_side(
+    radius_right, angle_right, increments_right, delta_x_right, delta_y_right, chord_right);
+
+  // Forward step uses the smaller chord so search granularity matches the tighter turn.
+  const float forward_chord = std::min(chord_left, chord_right);
 
   projections.clear();
   projections.reserve(6);
-  projections.emplace_back(delta_dist, 0.0, 0.0, TurnDirection::FORWARD);  // Forward
+  projections.emplace_back(forward_chord, 0.0, 0.0, TurnDirection::FORWARD);  // Forward
   projections.emplace_back(
-    delta_x, delta_y, increments, TurnDirection::LEFT);  // Forward + Left
+    delta_x_left, delta_y_left, increments_left, TurnDirection::LEFT);  // Forward + Left
   projections.emplace_back(
-    delta_x, -delta_y, -increments, TurnDirection::RIGHT);  // Forward + Right
-  projections.emplace_back(-delta_dist, 0.0, 0.0, TurnDirection::REVERSE);  // Backward
+    delta_x_right, -delta_y_right, -increments_right, TurnDirection::RIGHT);  // Forward + Right
+  projections.emplace_back(-forward_chord, 0.0, 0.0, TurnDirection::REVERSE);  // Backward
   projections.emplace_back(
-    -delta_x, delta_y, -increments, TurnDirection::REV_LEFT);  // Backward + Left
+    -delta_x_left, delta_y_left, -increments_left,
+    TurnDirection::REV_LEFT);  // Backward + Left
   projections.emplace_back(
-    -delta_x, -delta_y, increments, TurnDirection::REV_RIGHT);  // Backward + Right
+    -delta_x_right, -delta_y_right, increments_right,
+    TurnDirection::REV_RIGHT);  // Backward + Right
 
-  if (search_info.allow_primitive_interpolation && increments > 1.0f) {
-    // Create primitives that are +/- N to fill in search space to use all set angular quantizations
-    // Allows us to create N many primitives so that each search iteration can expand into any angle
-    // bin possible with the minimum turning radius constraint, not just the most extreme turns.
-    projections.reserve(6 + (4 * (increments - 1)));
-    for (unsigned int i = 1; i < static_cast<unsigned int>(increments); i++) {
+  if (search_info.allow_primitive_interpolation &&
+    (increments_left > 1.0f || increments_right > 1.0f))
+  {
+    // Create primitives at intermediate angle bins so the search can expand into any
+    // reachable orientation, not just the most extreme turn for this side.
+    projections.reserve(
+      6 + static_cast<size_t>(2 * ((increments_left - 1.0f) + (increments_right - 1.0f))));
+    for (unsigned int i = 1; i < static_cast<unsigned int>(increments_left); i++) {
       const float angle_n = static_cast<float>(i) * bin_size;
-      const float turning_rad_n = delta_dist / (2.0f * sin(angle_n / 2.0f));
-      const float delta_x_n = turning_rad_n * sin(angle_n);
-      const float delta_y_n = turning_rad_n - (turning_rad_n * cos(angle_n));
+      const float turning_rad_n = chord_left / (2.0f * sin(angle_n / 2.0f));
+      const float dx_n = turning_rad_n * sin(angle_n);
+      const float dy_n = turning_rad_n - (turning_rad_n * cos(angle_n));
+      projections.emplace_back(dx_n, dy_n, static_cast<float>(i), TurnDirection::LEFT);
       projections.emplace_back(
-        delta_x_n, delta_y_n, static_cast<float>(i), TurnDirection::LEFT);  // Forward + Left
+        -dx_n, dy_n, -static_cast<float>(i), TurnDirection::REV_LEFT);
+    }
+    for (unsigned int i = 1; i < static_cast<unsigned int>(increments_right); i++) {
+      const float angle_n = static_cast<float>(i) * bin_size;
+      const float turning_rad_n = chord_right / (2.0f * sin(angle_n / 2.0f));
+      const float dx_n = turning_rad_n * sin(angle_n);
+      const float dy_n = turning_rad_n - (turning_rad_n * cos(angle_n));
+      projections.emplace_back(dx_n, -dy_n, -static_cast<float>(i), TurnDirection::RIGHT);
       projections.emplace_back(
-        delta_x_n, -delta_y_n, -static_cast<float>(i), TurnDirection::RIGHT);  // Forward + Right
-      projections.emplace_back(
-        -delta_x_n, delta_y_n, -static_cast<float>(i),
-        TurnDirection::REV_LEFT);  // Backward + Left
-      projections.emplace_back(
-        -delta_x_n, -delta_y_n, static_cast<float>(i),
-        TurnDirection::REV_RIGHT);  // Backward + Right
+        -dx_n, -dy_n, static_cast<float>(i), TurnDirection::REV_RIGHT);
     }
   }
 
-  // Create the correct OMPL state space
-  state_space = std::make_shared<ompl::base::ReedsSheppStateSpace>(min_turning_radius);
+  // Conservative OMPL state space: standard Reeds-Shepp assumes symmetric radii, so use
+  // the looser of the two. Analytic-expansion paths will respect both turning constraints.
+  state_space = std::make_shared<ompl::base::ReedsSheppStateSpace>(conservative_radius);
 
   // Precompute projection deltas
   delta_xs.resize(projections.size());
@@ -282,12 +338,16 @@ void HybridMotionTable::initReedsShepp(
   for (unsigned int i = 0; i != projections.size(); i++) {
     const TurnDirection turn_dir = projections[i]._turn_dir;
     if (turn_dir != TurnDirection::FORWARD && turn_dir != TurnDirection::REVERSE) {
-      // Turning, so length is the arc length
-      const float arc_angle = projections[i]._theta * bin_size;
-      const float turning_rad = delta_dist / (2.0f * sin(arc_angle / 2.0f));
+      // Turning: arc length = turning_rad * arc_angle. Use the per-side chord to back out
+      // the actual radius (left and right may differ in asymmetric mode).
+      const float arc_angle = fabs(projections[i]._theta) * bin_size;
+      const bool is_left = (turn_dir == TurnDirection::LEFT) ||
+        (turn_dir == TurnDirection::REV_LEFT);
+      const float chord = is_left ? chord_left : chord_right;
+      const float turning_rad = chord / (2.0f * sin(arc_angle / 2.0f));
       travel_costs[i] = turning_rad * arc_angle;
     } else {
-      travel_costs[i] = delta_dist;
+      travel_costs[i] = forward_chord;
     }
   }
 }
@@ -332,9 +392,13 @@ float HybridMotionTable::getAngleFromBin(const unsigned int & bin_idx)
   return bin_idx * bin_size;
 }
 
-double HybridMotionTable::getAngle(const double & theta)
+unsigned int HybridMotionTable::getAngle(const double & theta)
 {
-  return theta / bin_size;
+  // Return an integer bin and wrap the upper boundary — returning a double
+  // here let callers' float storage round a sub-N value up to N, which then
+  // indexed one past oriented_footprints_ (see #5501 for the Lattice analogue).
+  const auto bin = static_cast<unsigned int>(theta / bin_size);
+  return bin < num_angle_quantization ? bin : 0u;
 }
 
 NodeHybrid::NodeHybrid(const uint64_t index, NodeContext * ctx)

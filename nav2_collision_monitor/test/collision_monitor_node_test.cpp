@@ -429,43 +429,6 @@ void Tester::addPolygonVelocitySubPolygon(
     polygon_name + "." + sub_polygon_name + ".theta_max", rclcpp::ParameterValue(theta_max));
 }
 
-void Tester::addPolygonVelocitySubPolygon(
-  const std::string & polygon_name, const std::string & sub_polygon_name,
-  const double linear_min, const double linear_max,
-  const double theta_min, const double theta_max,
-  const double size)
-{
-  const std::string points = "[[" +
-    std::to_string(size) + ", " + std::to_string(size) + "], [" +
-    std::to_string(size) + ", " + std::to_string(-size) + "], [" +
-    std::to_string(-size) + ", " + std::to_string(-size) + "], [" +
-    std::to_string(-size) + ", " + std::to_string(size) + "]]";
-  cm_->declare_parameter(
-    polygon_name + "." + sub_polygon_name + ".points", rclcpp::ParameterValue(points));
-  cm_->set_parameter(
-    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".points", points));
-
-  cm_->declare_parameter(
-    polygon_name + "." + sub_polygon_name + ".linear_min", rclcpp::ParameterValue(linear_min));
-  cm_->set_parameter(
-    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".linear_min", linear_min));
-
-  cm_->declare_parameter(
-    polygon_name + "." + sub_polygon_name + ".linear_max", rclcpp::ParameterValue(linear_max));
-  cm_->set_parameter(
-    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".linear_max", linear_max));
-
-  cm_->declare_parameter(
-    polygon_name + "." + sub_polygon_name + ".theta_min", rclcpp::ParameterValue(theta_min));
-  cm_->set_parameter(
-    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".theta_min", theta_min));
-
-  cm_->declare_parameter(
-    polygon_name + "." + sub_polygon_name + ".theta_max", rclcpp::ParameterValue(theta_max));
-  cm_->set_parameter(
-    rclcpp::Parameter(polygon_name + "." + sub_polygon_name + ".theta_max", theta_max));
-}
-
 void Tester::addSource(
   const std::string & source_name, const SourceType type)
 {
@@ -954,6 +917,108 @@ TEST_F(Tester, testProcessStopSlowdownLimit)
   ASSERT_TRUE(waitActionState(500ms));
   ASSERT_EQ(action_state_->action_type, DO_NOTHING);
   ASSERT_EQ(action_state_->polygon_name, "");
+
+  // Stop Collision Monitor node
+  cm_->stop();
+}
+
+// Shared setup for the steering-wheel LIMIT tests below: one velocity polygon
+// "VelocityLimit" with a single steering-angle field covering a hard left turn
+// (steering wheel ~90 deg), steering-wheel speed 0.0 - 0.6 m/s, capped to
+// 0.15 m/s when an obstacle is inside. wheelbase defaults to 1.0 m, so for a
+// pure in-place turn the steering-wheel speed equals |tw|. The angular_limit is
+// deliberately high (1.0) so it never binds and the difference between the two
+// tests isolates exactly the gated steering-wheel-speed limiting.
+static void addSteeringLimitPolygon(CollisionMonitorWrapper * cm)
+{
+  const std::string sub = "TurnLeft";
+  const std::string pfx = "VelocityLimit." + sub;
+  cm->declare_parameter(
+    pfx + ".points", rclcpp::ParameterValue("[[2.0, 2.0], [2.0, -2.0], [-2.0, -2.0], [-2.0, 2.0]]"));
+  cm->declare_parameter(pfx + ".linear_min", rclcpp::ParameterValue(0.0));
+  cm->declare_parameter(pfx + ".linear_max", rclcpp::ParameterValue(0.6));
+  cm->declare_parameter(pfx + ".steering_angle_min", rclcpp::ParameterValue(0.5));
+  cm->declare_parameter(pfx + ".steering_angle_max", rclcpp::ParameterValue(1.5708));
+  cm->declare_parameter(pfx + ".linear_limit", rclcpp::ParameterValue(0.15));
+  cm->declare_parameter(pfx + ".angular_limit", rclcpp::ParameterValue(1.0));
+}
+
+TEST_F(Tester, testVelocityPolygonLimitSteeringWheelPivot)
+{
+  // In-place-turn case with steering validation ENABLED (new configs): a
+  // steering-angle LIMIT field is triggered while the base_link linear velocity
+  // is ~0 (the robot is spinning). The field's linear_limit is a steering-wheel
+  // speed, so the LIMIT action scales in the steering-wheel frame. The old
+  // base_link path computed the ratio from hypot(vx, vy) and skipped it entirely
+  // when that was 0, leaving the spin (and steering-wheel speed) unlimited.
+  // Steps 2/3 are no-ops here: with the robot stopped, odom maps to no current
+  // field / a straight physical angle, so they neither find a field nor clamp.
+  rclcpp::Time curr_time = cm_->now();
+
+  setCommonParameters();
+  cm_->declare_parameter("enable_steering_validation", rclcpp::ParameterValue(true));
+
+  addPolygon("VelocityLimit", VELOCITY_POLYGON, 1.0, "limit");
+  addSteeringLimitPolygon(cm_.get());
+  setPolygonVelocityVectors("VelocityLimit", {"TurnLeft"});
+  addSource(POINTCLOUD_NAME, POINTCLOUD);
+  setVectors({"VelocityLimit"}, {POINTCLOUD_NAME});
+
+  // Start Collision Monitor node
+  cm_->start();
+  sendTransforms(curr_time);
+
+  // Obstacle inside the field while turning in place -> steering-wheel speed
+  // limited to 0.15 m/s.
+  //   ratio = sw_limit / sw_speed = 0.15 / hypot(0, 1.0 * 0.3) = 0.5,
+  //   applied to every component, so angular.z -> 0.3 * 0.5 = 0.15.
+  publishPointCloud(0.5, curr_time);
+  ASSERT_TRUE(waitData(std::hypot(0.5, 0.01), 500ms, curr_time));
+  publishCmdVel(0.0, 0.0, 0.3);
+  ASSERT_TRUE(waitCmdVel(500ms));
+  ASSERT_NEAR(cmd_vel_out_->linear.x, 0.0, EPSILON);
+  ASSERT_NEAR(cmd_vel_out_->linear.y, 0.0, EPSILON);
+  ASSERT_NEAR(cmd_vel_out_->angular.z, 0.15, EPSILON);
+  ASSERT_TRUE(waitActionState(500ms));
+  ASSERT_EQ(action_state_->action_type, LIMIT);
+  ASSERT_EQ(action_state_->polygon_name, "VelocityLimit");
+
+  // Stop Collision Monitor node
+  cm_->stop();
+}
+
+TEST_F(Tester, testVelocityPolygonLimitLegacyBaselinkUnchanged)
+{
+  // Same in-place-turn scenario but with steering validation DISABLED (legacy
+  // configs). The steering-wheel-speed limiting must NOT engage: the LIMIT falls
+  // back to the original base_link path, where linear_vel = hypot(vx, vy) = 0
+  // skips the linear clause and the (non-binding) angular_limit leaves the
+  // command untouched. This locks in that legacy AMRs see no behavior change.
+  rclcpp::Time curr_time = cm_->now();
+
+  setCommonParameters();
+  cm_->declare_parameter("enable_steering_validation", rclcpp::ParameterValue(false));
+
+  addPolygon("VelocityLimit", VELOCITY_POLYGON, 1.0, "limit");
+  addSteeringLimitPolygon(cm_.get());
+  setPolygonVelocityVectors("VelocityLimit", {"TurnLeft"});
+  addSource(POINTCLOUD_NAME, POINTCLOUD);
+  setVectors({"VelocityLimit"}, {POINTCLOUD_NAME});
+
+  // Start Collision Monitor node
+  cm_->start();
+  sendTransforms(curr_time);
+
+  // Obstacle inside the field while turning in place. Under the legacy base_link
+  // path this is a no-op (unchanged from before this feature existed): output
+  // equals the command, and no LIMIT action is reported.
+  publishPointCloud(0.5, curr_time);
+  ASSERT_TRUE(waitData(std::hypot(0.5, 0.01), 500ms, curr_time));
+  publishCmdVel(0.0, 0.0, 0.3);
+  ASSERT_TRUE(waitCmdVel(500ms));
+  ASSERT_NEAR(cmd_vel_out_->linear.x, 0.0, EPSILON);
+  ASSERT_NEAR(cmd_vel_out_->linear.y, 0.0, EPSILON);
+  ASSERT_NEAR(cmd_vel_out_->angular.z, 0.3, EPSILON);
 
   // Stop Collision Monitor node
   cm_->stop();

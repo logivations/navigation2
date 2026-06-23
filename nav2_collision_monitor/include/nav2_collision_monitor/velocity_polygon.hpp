@@ -15,8 +15,10 @@
 #ifndef NAV2_COLLISION_MONITOR__VELOCITY_POLYGON_HPP_
 #define NAV2_COLLISION_MONITOR__VELOCITY_POLYGON_HPP_
 
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "geometry_msgs/msg/polygon_stamped.hpp"
@@ -24,8 +26,10 @@
 #include "nav2_collision_monitor/types.hpp"
 #include "nav2_ros_common/lifecycle_node.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "nav2_msgs/msg/steering_validation_debug.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 namespace nav2_collision_monitor
 {
@@ -69,10 +73,85 @@ public:
   std::string getCurrentSubPolygonName() const { return current_subpolygon_name_; }
 
   /**
+   * @brief Whether the currently selected sub-polygon expresses its velocity
+   * limit as a steering-wheel speed (steering-angle based field).
+   */
+  bool isCurrentFieldSteeringBased() const { return current_field_uses_steering_; }
+
+  /**
+   * @brief Steering-wheel-frame linear limit (m/s) of the currently selected
+   * sub-polygon. Unlike getLinearLimit() (which is converted to base_link and
+   * therefore collapses to ~0 at large steering angles), this is the raw
+   * steering-wheel-speed limit and stays meaningful when the base_link linear
+   * velocity is ~0 (e.g. turning in place).
+   */
+  double getSteeringWheelLinearLimit() const { return current_sw_linear_limit_; }
+
+  /**
+   * @brief Steering-wheel speed (m/s) corresponding to a base_link velocity.
+   * Signed by driving direction (negative when reversing).
+   * @param vel Base_link velocity command
+   * @return Steering-wheel speed
+   */
+  double getSteeringWheelSpeed(const Velocity & vel) const
+  {
+    return baselinkToSteeringSpeed(vel.x, vel.tw);
+  }
+
+  /**
    * @brief Overridden updatePolygon function for VelocityPolygon
    * @param cmd_vel_in Robot twist command input
    */
   void updatePolygon(const Velocity & cmd_vel_in) override;
+
+  /**
+   * @brief Set the current fields mode used for filtering sub-polygons
+   * @param mode Mode string (e.g. "default", "fork_down", "narrow_fork_down")
+   */
+  void setFieldsMode(const std::string & mode);
+
+  /**
+   * @brief Get the current fields mode
+   * @return Current mode string
+   */
+  std::string getFieldsMode() const;
+
+  /**
+   * @brief Validates steering to prevent triggering lidar e-stop zones.
+   * Implements Step 2 of the lidar e-stop prevention algorithm.
+   * @param cmd_vel_in Desired robot velocity (target)
+   * @param odom_vel Current robot velocity from odometry
+   * @param collision_points_map Map of source name to collision points
+   * @param robot_action Output robot action to modify if steering is restricted
+   * @return True if velocity was modified by steering validation
+   */
+  bool validateSteering(
+    const Velocity & cmd_vel_in,
+    const Velocity & odom_vel,
+    const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
+    Action & robot_action);
+
+  /**
+   * @brief Clamp commanded speed to the max available field at the current physical angle.
+   * Final safety gate to prevent field exceedance within the current bucket and
+   * during turned→straight transitions.
+   * @param odom_vel Current robot velocity from odometry (physical state)
+   * @param robot_action Robot action to modify if speed exceeds max field
+   * @return True if velocity was clamped
+   */
+  bool clampToMaxField(const Velocity & odom_vel, Action & robot_action);
+
+  /**
+   * @brief Largest probe speed that still lands inside an active field.
+   * Returns the fastest |linear| bound among sub-polygons active in the
+   * current fields mode that cover @p forward, inset by speed_margin_ so the
+   * scaled probe in updatePolygon() resolves to a real field instead of
+   * overshooting the mode's coverage. Returns 0.0 if no field covers the
+   * direction (caller should keep its own default cap).
+   * @param forward True for forward fields, false for backward fields
+   * @return Max safe probe speed (m/s), or 0.0 if no covering field
+   */
+  double getMaxProbeSpeedForMode(bool forward) const;
 
 protected:
   /**
@@ -91,6 +170,7 @@ protected:
     * @param linear_limit_ Robot linear limit
     * @param angular_limit_ Robot angular limit
     * @param time_before_collision_ Time before collision in seconds
+    * @param modes_ List of mode strings this sub-polygon is active in (e.g. "default", "fork_down")
     */
   struct SubPolygonParameter
   {
@@ -109,6 +189,7 @@ protected:
     double linear_limit_;
     double angular_limit_;
     double time_before_collision_;
+    std::vector<std::string> modes_;
   };
 
   /**
@@ -119,8 +200,96 @@ protected:
    */
   bool isInRange(const Velocity & cmd_vel_in, const SubPolygonParameter & sub_polygon_param);
 
+  /**
+   * @brief Check if a sub-polygon is active in the current fields mode
+   * @param sub_polygon Sub-polygon to check
+   * @return True if the sub-polygon should be considered in the current mode
+   */
+  bool isSubPolygonActiveInCurrentMode(const SubPolygonParameter & sub_polygon) const;
+
+  /**
+   * @brief Compute steering angle from linear and angular velocity
+   * @param vel Velocity containing linear.x and angular.z
+   * @return Steering angle in radians
+   */
+  double computeSteeringAngle(const Velocity & vel) const;
+
+  /**
+   * @brief Convert baselink speed to steering wheel speed
+   * @param linear_vel Baselink linear velocity (twist.linear.x)
+   * @param angular_vel Baselink angular velocity (twist.angular.z)
+   * @return Steering wheel speed
+   */
+  double baselinkToSteeringSpeed(double linear_vel, double angular_vel) const;
+
+  /**
+   * @brief Convert steering wheel speed to baselink speed
+   * @param steering_speed Steering wheel speed
+   * @param steering_angle Steering angle in radians
+   * @return Baselink speed
+   */
+  double steeringToBaselinkSpeed(double steering_speed, double steering_angle) const;
+
+  /**
+   * @brief Convert steering angle back to angular velocity (twist.angular.z)
+   * @param baselink_speed Baselink linear speed
+   * @param steering_angle Steering angle in radians
+   * @return Angular velocity
+   */
+  double steeringAngleToTw(double baselink_speed, double steering_angle) const;
+
+  /**
+   * @brief Find the field (sub-polygon) matching a given steering wheel speed and steering angle
+   * @param steering_wheel_speed Speed in steering wheel frame
+   * @param steering_angle Steering angle in radians
+   * @return Pointer to matching sub-polygon, or nullptr if none found
+   */
+  const SubPolygonParameter * findField(
+    double steering_wheel_speed, double steering_angle) const;
+
+  /**
+   * @brief Find all fields (sub-polygons) matching a given steering angle and direction
+   * @param steering_angle Steering angle in radians
+   * @param forward If true, return only forward fields (linear_max >= 0);
+   *                if false, return only backward fields (linear_min <= 0)
+   * @return Vector of pointers to matching sub-polygons, sorted slowest (closest to zero) first
+   */
+  std::vector<const SubPolygonParameter *> findFieldsForAngle(
+    double steering_angle, bool forward) const;
+
+  /**
+   * @brief Check if a point is inside a given polygon (arbitrary vertices)
+   * @param point Point to check
+   * @param vertices Polygon vertices
+   * @return True if point is inside polygon
+   */
+  static bool isPointInsidePoly(const Point & point, const std::vector<Point> & vertices);
+
+  /**
+   * @brief Get number of collision points inside a specific sub-polygon
+   * @param sub_polygon Sub-polygon to check against
+   * @param collision_points_map Map of source name to collision points
+   * @param points_per_source_out Optional output: collision points inside the
+   *        sub-polygon, grouped by source name. Each inside-polygon point is
+   *        appended to (*points_per_source_out)[source_name]. Pass nullptr
+   *        to skip collection (default).
+   * @return Number of collision points inside the sub-polygon
+   */
+  int getPointsInsideSubPolygon(
+    const SubPolygonParameter & sub_polygon,
+    const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
+    std::unordered_map<std::string, std::vector<Point>> * points_per_source_out = nullptr) const;
+
   // Clock
   rclcpp::Clock::SharedPtr clock_;
+  // Debug publisher for steering validation
+  rclcpp::Publisher<nav2_msgs::msg::SteeringValidationDebug>::SharedPtr steering_debug_pub_;
+  // Publisher for the next/valid field polygon being checked for obstacles
+  rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr next_field_poly_pub_;
+  // Publisher for the collision points found inside the next-field sub-polygon,
+  // grouped by source via marker namespace (one Marker per source).
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+    next_field_collision_points_pub_;
   // Current subpolygon name
   std::string current_subpolygon_name_;
   // Variables
@@ -128,8 +297,20 @@ protected:
   bool holonomic_;
   /// @brief Current steering angle
   double current_steering_angle_;
+  /// @brief Whether the active sub-polygon uses steering-wheel-speed semantics
+  bool current_field_uses_steering_{false};
+  /// @brief Raw steering-wheel-frame linear limit of the active sub-polygon
+  double current_sw_linear_limit_{0.0};
   /// @brief Distance between front and rear axes
   double wheelbase_;
+  /// @brief Speed below which steering is freely allowed
+  double low_speed_threshold_;
+  /// @brief Speed margin (m/s) to stay inside field boundaries
+  double speed_margin_;
+  /// @brief Angle margin (rad) to stay inside field boundaries
+  double angle_margin_;
+  /// @brief Current fields mode for filtering sub-polygons
+  std::string current_fields_mode_{"default"};
   /// @brief Vector to store the parameters of the sub-polygon
   std::vector<SubPolygonParameter> sub_polygons_;
 };  // class VelocityPolygon

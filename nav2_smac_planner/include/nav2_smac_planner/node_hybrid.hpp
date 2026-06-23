@@ -96,18 +96,23 @@ struct HybridMotionTable
   float getAngleFromBin(const unsigned int & bin_idx);
 
   /**
-   * @brief Get the angle scaled across bins from a raw orientation
-   * @param theta Angle in radians
-   * @return angle scaled across bins
+   * @brief Get the angle bin index for an orientation in [0, 2*PI)
+   * @param theta Angle in radians; caller must ensure theta >= 0
+   * @return bin index in [0, num_angle_quantization)
    */
-  double getAngle(const double & theta);
+  unsigned int getAngle(const double & theta);
 
   MotionModel motion_model = MotionModel::UNKNOWN;
   MotionPoses projections;
   unsigned int size_x;
   unsigned int num_angle_quantization;
   float num_angle_quantization_float;
+  // min_turning_radius is the conservative max of left/right (used for OMPL state space,
+  // analytic-expansion distance gates, heuristic refinement). The per-side radii drive the
+  // motion-primitive deltas. When asymmetric mode is disabled, all three are equal.
   float min_turning_radius;
+  float min_turning_radius_left;
+  float min_turning_radius_right;
   float bin_size;
   float change_penalty;
   float non_straight_penalty;

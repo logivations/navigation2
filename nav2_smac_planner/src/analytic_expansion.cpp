@@ -217,7 +217,7 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
   NodePtr prev(node);
   uint64_t index = 0;
   NodePtr next(nullptr);
-  float angle = 0.0;
+  unsigned int angle = 0;
   Coordinates proposed_coordinates;
   bool failure = false;
   std::vector<float> node_costs;
@@ -227,22 +227,25 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
   for (float i = 1; i <= num_intervals; i++) {
     state_space->interpolate(from(), to(), i / num_intervals, s());
     reals = s.reals();
-    // Make sure in range [0, 2PI)
-    theta = (reals[2] < 0.0) ? (reals[2] + 2.0 * M_PI) : reals[2];
-    theta = (theta > 2.0 * M_PI) ? (theta - 2.0 * M_PI) : theta;
+    // Make sure in range [0, 2PI). Use fmod so that arbitrary inputs (and the
+    // exact 2*PI boundary, which previously fell through with strict >) wrap
+    // properly — otherwise downstream code can index oriented_footprints_ out
+    // of range and segfault. Same class of bug as #5501 (Lattice planner).
+    theta = std::fmod(std::fmod(reals[2], 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI);
     angle = _ctx->motion_table.getAngle(theta);
 
     // Turn the pose into a node, and check if it is valid
     index = NodeT::getIndex(
       static_cast<unsigned int>(reals[0]),
       static_cast<unsigned int>(reals[1]),
-      static_cast<unsigned int>(angle),
+      angle,
       _ctx->motion_table.size_x,
       _ctx->motion_table.num_angle_quantization);
     // Get the node from the graph
     if (node_getter(index, next)) {
       Coordinates initial_node_coords = next->pose;
-      proposed_coordinates = {static_cast<float>(reals[0]), static_cast<float>(reals[1]), angle};
+      proposed_coordinates = {
+        static_cast<float>(reals[0]), static_cast<float>(reals[1]), static_cast<float>(angle)};
       next->setPose(proposed_coordinates);
       if (next->isNodeValid(_traverse_unknown, _collision_checker) && next != prev) {
         // Save the node, and its previous coordinates in case we need to abort
@@ -375,6 +378,12 @@ float AnalyticExpansion<NodeT>::refineAnalyticPath(
   float score = std::numeric_limits<float>::max();
   float min_turn_rad = _ctx->motion_table.min_turning_radius;
   const float max_min_turn_rad = 4.0 * min_turn_rad;  // Up to 4x the turning radius
+
+  // SE2 produces straight-line paths independent of turning radius, skip refinement
+  if (_ctx->motion_table.motion_model == MotionModel::OMNI) {
+    return best_score;
+  }
+
   while (min_turn_rad < max_min_turn_rad) {
     min_turn_rad += 0.5;  // In Grid Coords, 1/2 cell steps
     ompl::base::StateSpacePtr state_space;

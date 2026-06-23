@@ -57,6 +57,8 @@ bool Source::configure()
 {
   auto node = node_.lock();
 
+  clock_ = node->get_clock();
+
   // Add callback for dynamic parameters
   post_set_params_handler_ = node->add_post_set_parameters_callback(
     std::bind(

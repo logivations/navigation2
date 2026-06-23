@@ -72,6 +72,9 @@ bool PolygonSource::getData(
   // Ignore data from the source if it is not being published yet or
   // not published for a long time
   if (data_.empty()) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: No polygon source data received yet (data_ is empty)", source_name_.c_str());
     return false;
   }
 

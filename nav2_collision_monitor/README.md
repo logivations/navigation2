@@ -62,10 +62,29 @@ The following diagram is showing the high-level design of Collision Monitor modu
 `VelocityPolygon` can be configured with multiple sub polygons and can switch between them based on the velocity.
 ![dexory_velocity_polygon.gif](doc/dexory_velocity_polygon.gif)
 
+#### Fields Mode Filtering
+
+Each `VelocityPolygon` sub-polygon can be assigned a list of **modes** it is active in. The Collision Monitor subscribes to a `fields_mode` topic (`std_msgs/String`) and only considers sub-polygons whose `modes` list contains the current mode. This enables different safety field configurations for different operating conditions without changing the polygon parameters at runtime. The mode filtering applies to all field operations: `updatePolygon`, `findField`, `findFieldsForAngle`, and consequently to `validateSteering` and `clampToMaxField`.
+
+Example modes:
+- **"default"**: normal lifted-fork fields with full speed range
+- **"fork_down"**: lowered-fork fields with reduced max speed
+- **"narrow_fork_down"**: narrow lowered-fork fields for tight spaces
+- **"foil"**: blind foil fields
+
+General direction fields (forward straight, slight turns with pallet cutout) can be active in all modes since they work for both lifted and lowered forks. When `modes` is not specified for a sub-polygon, it defaults to `["default"]`.
+
 
 ### Configuration
 
 Detailed configuration parameters, their description and how to setup a Collision Monitor could be found at its [Configuration Guide](https://docs.nav2.org/configuration/packages/configuring-collision-monitor.html) and [Using Collision Monitor tutorial](https://docs.nav2.org/tutorials/docs/using_collision_monitor.html) pages.
+
+
+For `stop`, `slowdown`, and `limit` polygons, temporal debounce can be tuned with:
+- `trigger_consecutive_points`: number of consecutive cycles required to trigger.
+- `release_consecutive_points`: number of consecutive cycles required to release.
+
+A value of `1/1` behaves like the historical behavior (single-cycle trigger/release). In practice, values larger than `1` are recommended to reduce sensor noise flicker while keeping response times reasonable.
 
 
 ### Metrics
@@ -103,3 +122,93 @@ The zones around the robot and the data sources are the same as for the Collisio
 Detailed configuration parameters, their description and how to setup a Collision Detector could be found at its [Configuration Guide](https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-detector-node.html).
 
 The `CollisionMonitor` node makes use of a [nav2_util::TwistSubscriber](../nav2_util/README.md#twist-publisher-and-twist-subscriber-for-commanded-velocities).
+
+
+### Lidar estop prevention
+
+We use this with a safety lidar with e-stop zones depending on speed and steering angle. We want to avoid hitting such a zone.
+Thus, the collision monitor must ensure to limit the speed and steering angle so that the field chosen by
+the lidar is not intersecting with any lidar points (that would trigger an estop).
+
+#### Terminology
+
+* **Bucket**: a steering angle range (e.g. -12° to 12°). A bucket groups multiple fields that share the same angle range.
+* **Field**: a specific combination of steering angle bucket and velocity range. Each field corresponds to one `SubPolygonParameter` / velocity polygon entry.
+
+During field set creation, we also generate corresponding velocity polygons. They are about 50% larger than the corresponding
+e-stop zone. Example. Note that linear speed is for the steering wheel, not the baselink.
+
+```yaml
+forward_straight_mid_3:
+  points: # polygon here
+  linear_min: 0.5
+  linear_max: 0.7
+  steering_angle_min: -0.20944 # -12 degrees in radians
+  steering_angle_max: 0.20944 # 12 degrees in radians
+  linear_limit: 0.49 # steering wheel speed, not base link speed
+```
+
+Here, the **bucket** is the angle range [-12°, 12°]. The **field** is that bucket combined with the speed range [0.5, 0.7].
+
+So - if we are between 0.5 and 0.7 m/s, and hit that warning field, we must reduce our speed to *below* that field - because there is an obstacle in the polygon,
+which, if we approach it further, would trigger an estop.
+Once we are at 0.49, we will be in another field with a smaller polygon on the lidar side. Thus, the velocity polygon is also smaller. If we keep approaching the obstacle, we would slow down further.
+If the obstacle e.g. moves with us or is on the side, we can keep that speed.
+
+### Step 1: Normal collision monitor with velocity polygon
+
+### Step 2: Steering validation
+
+All speed comparisons against the low threshold use **steering wheel speed** (which accounts for the steering angle), except for the direction reversal check which uses baselink speed.
+
+We always assume that a matching field exists for the current velocity. If no field matches (e.g. the robot is outside all configured speed ranges), a warning is logged and steering validation is skipped for that cycle.
+
+If speed goes through zero (so sign(target speed) <> sign(current speed)):
+
+* if abs(current baselink speed) > low threshold → keep steering angle (we must anyway just slow down asap)
+* if abs(current baselink speed) < low threshold → allow steering
+
+else:
+
+1. check if both abs(target steering wheel speed) and abs(current steering wheel speed) are < low threshold. If yes → done
+2. check the one-step faster field in the **current** bucket for collision (same-bucket speed limit). Only the one-step faster field needs to be checked, even if target speed is in a much faster field. If the next field is collision-free → current bucket allows up to next field's max. If the next field has obstacles or no faster field exists → current bucket allows up to current field's max. This limit is always enforced — including when the target angle is in a different bucket — because the robot is still physically in the current bucket during any steering transition.
+3. check if target angle is in same bucket as current angle. If yes →
+   1. if abs(current steering wheel speed) < low threshold → done (robot is at standstill and must be free to start moving, the current field is not meaningful for speed limiting)
+   2. limit speed to the current bucket's speed limit from step 2. → done
+4. if target angle is in a different bucket → determine the direction of steering and find the neighbouring bucket from current angle in that direction. Only one bucket step at a time, even if the target angle is several buckets away.
+5. in the neighbouring bucket, determine max speed / valid field
+   1. start at fastest possible field (field for max(current speed, target speed)). If that is in collision, go down until a collision-free one is found. That one we call “valid” field. If all fields are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
+6. now adapt speed and steering angle
+   1. limit target speed to the **minimum** of: max speed of valid field (from 5) and current bucket's speed limit (from 2)
+   2. limit steering angle to one bucket step at a time:
+      * if current speed is larger than max valid speed: hold at boundary of **current** bucket (do not proceed into the next bucket until speed is valid)
+      * otherwise: use target angle
+
+All speed and angle limits are inset by a small safety margin (0.02 m/s for speed, 0.01 rad for angle) so that the resulting velocity lands clearly inside the target field, not on its boundary. This prevents the next cycle's field lookup from falling into a gap or fallback due to floating-point boundary issues.
+
+→ done
+
+After some iterations, the current speed will be in the valid field → AMR will be allowed to steer one bucket at a time. On each cycle the neighbour becomes the current bucket and the next neighbour is checked.
+
+### Field exceedance prevention
+
+A fundamental safety invariant: **the commanded speed must never exceed the fastest configured field for the current steering angle bucket.** Violating this would cause the safety lidar to activate an e-stop, since no matching protective field exists for that speed/angle combination.
+
+#### Rule 1: Speed must stay within the available fields of the current bucket
+
+For any given steering angle, the lidar has a finite set of configured fields (each covering a speed range). The collision monitor must clamp the commanded speed so that it never exceeds the maximum speed of the fastest field defined for that bucket. If a bucket only has fields up to 0.5 m/s, the robot must not be commanded above 0.5 m/s while in that bucket — regardless of what the planner requests.
+
+This applies at all times, not only when obstacles are detected. Even in free space, sending a speed that has no corresponding field for the current angle would be unsafe.
+
+If no fields exist at all for the current physical steering angle, the velocity is set to zero.
+
+#### Rule 2: High speed only after entering the corresponding bucket
+
+When the robot transitions from a fully turned position (where only slow-speed fields exist) toward a straight position (where high-speed fields are available), the higher speed must **not** be sent until the steering angle has actually entered the bucket that supports that speed.
+
+Example: if the robot is fully turned left at 0.3 m/s and the planner requests straight driving at 1.0 m/s, the sequence must be:
+1. The robot begins straightening the steering while remaining at the slow speed allowed by the current (turned) bucket.
+2. Only once the steering angle crosses into the straight bucket — which has fields defined up to 1.0 m/s — may the speed be increased.
+3. Speed increases follow the normal one-field-step-at-a-time logic from Step 2.
+
+The opposite direction (straight → turned) is handled naturally: as the steering angle enters a more turned bucket with lower max speed, Rule 1 immediately clamps the speed down.

@@ -293,6 +293,7 @@ typename nav2::ServiceServer<SrvT>::SharedPtr create_service(
  * @param spin_thread Whether to spin with a dedicated thread internally (default is false)
  * @param realtime Whether the action server's worker thread
  * should have elevated prioritization (soft realtime)
+ * @param niceness Nice value for the worker thread when realtime is not used
  * @return A shared pointer to the created nav2::SimpleActionServer
  */
 template<typename ActionT, typename NodeT>
@@ -303,10 +304,13 @@ typename nav2::SimpleActionServer<ActionT>::SharedPtr create_action_server(
   typename nav2::SimpleActionServer<ActionT>::CompletionCallback complete_cb = nullptr,
   std::chrono::milliseconds server_timeout = std::chrono::milliseconds(500),
   bool spin_thread = false,
-  const bool realtime = false)
+  const bool realtime = false,
+  int cpu_core = -1,
+  int niceness = 0)
 {
   return std::make_shared<nav2::SimpleActionServer<ActionT>>(
-    node, action_name, execute_callback, complete_cb, server_timeout, spin_thread, realtime);
+    node, action_name, execute_callback, complete_cb, server_timeout, spin_thread,
+    realtime, cpu_core, niceness);
 }
 
 /**
