@@ -717,9 +717,13 @@ bool CollisionMonitor::processStopSlowdownLimit(
         // steering-wheel speed, so limit in the steering-wheel frame. This keeps
         // the cap effective when the base_link linear velocity is ~0 (e.g.
         // turning in place), which the base_link path below skips via its
-        // `!= 0.0` guard. The active field is only selected for a matching
-        // driving direction, so sw_speed and sw_limit carry the same sign and
-        // the ratio stays non-negative without taking absolute values.
+        // `!= 0.0` guard. linear_limit is stored as an unsigned magnitude while
+        // sw_speed is signed by driving direction, so compute the ratio from
+        // magnitudes (mirroring the base_link path's std::hypot below). The
+        // field is direction-matched, so applying the magnitude ratio to the
+        // signed velocity preserves direction; a signed ratio would otherwise go
+        // negative for backward driving and clamp to 0, zeroing the command
+        // instead of capping it.
         // Gated on enable_steering_validation_ so legacy configs (flag off, and
         // which tune linear_limit/angular_limit for the base_link path) keep the
         // original limiting behavior unchanged; the steering-wheel-speed limiting
@@ -727,7 +731,7 @@ bool CollisionMonitor::processStopSlowdownLimit(
         const double sw_speed = vel_polygon->getSteeringWheelSpeed(velocity);
         const double sw_limit = vel_polygon->getSteeringWheelLinearLimit();
         if (sw_speed != 0.0) {
-          ratio = std::min(ratio, sw_limit / sw_speed);
+          ratio = std::min(ratio, std::abs(sw_limit) / std::abs(sw_speed));
         }
         if (velocity.tw != 0.0) {
           ratio = std::min(ratio, polygon->getAngularLimit() / std::abs(velocity.tw));
