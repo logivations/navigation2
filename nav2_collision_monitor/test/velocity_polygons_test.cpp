@@ -223,6 +223,7 @@ protected:
   void setSteeringVelocityPolygonParameters(
     const double wheelbase, const double low_speed_threshold,
     const std::vector<std::string> & sub_polygon_names);
+  void addSteeringStaircase();
 
   // Creating routines
   void createVelocityPolygon(const std::string & action_type, const bool is_holonomic);
@@ -1241,8 +1242,48 @@ TEST_F(Tester, testValidateSteeringDifferentBucketAllCollision)
     nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
 
   bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
-  // Speed (0.3) is already within the slowest field's max (0.5), so nothing to change
+  // Escape hatch: every left field is occupied, but the slowest field admits the
+  // current speed (0.3 < 0.5), so steering into the occupied bucket is allowed
+  // (the obstacle is already inside even the smallest field). Speed (0.3) is
+  // within the slowest field's max (0.5), so nothing to change.
   EXPECT_FALSE(modified);
+}
+
+TEST_F(Tester, testValidateSteeringDifferentBucketAllCollisionTooFastHolds)
+{
+  // Escape hatch boundary: every left field is occupied AND the current speed
+  // (0.7) exceeds even the slowest field's max (0.5). The robot must NOT steer
+  // into the occupied bucket yet — it slows and holds at the current (straight)
+  // bucket boundary first.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_slow", "straight_fast", "left_slow"});
+  addSteeringAngleSubPolygon("straight_slow", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_fast", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("left_slow", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.7, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  nav2_collision_monitor::Velocity odom_vel{0.7, 0.0, 0.0};  // straight, fast
+  double target_sa = 0.3;
+  double target_tw = std::tan(target_sa) * 0.7 / WHEELBASE;
+  nav2_collision_monitor::Velocity cmd_vel{0.7, 0.0, target_tw};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Occupy the (slow-geometry) left field.
+  collision_map["source"] = {
+    {0.0, 0.0},
+    {0.2, 0.1},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
+  EXPECT_NEAR(result_sa, 0.1 - 0.01, 0.03);  // held at straight boundary, not steered in
 }
 
 TEST_F(Tester, testValidateSteeringDifferentBucketDecelerationToValidField)
@@ -1907,6 +1948,108 @@ TEST_F(Tester, testValidateSteeringStep6bUsesSteeringWheelSpeedNotBaselinkX)
   // The robot's sw_speed (0.45) is within left_slow's max (0.5), so 6b should NOT
   // trigger. The old baselink-x comparison would have incorrectly clamped steering.
   EXPECT_FALSE(modified);
+}
+
+// ============ Step 6: advance angle only as far as the current speed allows ============
+//
+// A "staircase" of buckets whose max speed drops as the steering angle grows:
+//   straight [-0.1, 0.1]  : slow[0,0.5] + mid[0.5,1.0] + fast[1.0,1.5]  (max 1.5)
+//   b1       [0.1, 0.52]  : slow[0,0.5] + mid[0.5,1.0]                  (max 1.0)
+//   b2       [0.52, 0.87] : slow[0,0.5]                                (max 0.5)
+//   b3       [0.87, 1.571]: slow[0,0.3]                                (max 0.3)  ← 90°
+// The target is always ~90° (b3) at 0.25 m/s; only the current speed changes.
+void Tester::addSteeringStaircase()
+{
+  addSteeringAngleSubPolygon("straight_s", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_m", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_f", 1.0, 1.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("b1_s", 0.0, 0.5, 0.1, 0.52, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("b1_m", 0.5, 1.0, 0.1, 0.52, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("b2_s", 0.0, 0.5, 0.52, 0.87, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("b3_s", 0.0, 0.3, 0.87, 1.571, STEERING_POLYGON_SLOW_STR);
+}
+
+TEST_F(Tester, testStep6CliffFromFastStraightDoesNotSendTargetAngle)
+{
+  // (1) From 1.5 m/s straight toward 90° @ 0.25 m/s: at 1.5 m/s the very next
+  // bucket (b1, max 1.0) is already a cliff, so the wheel must NOT be commanded
+  // toward 90° — it holds near the straight-bucket boundary while slowing.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_s", "straight_m", "straight_f", "b1_s", "b1_m", "b2_s", "b3_s"});
+  addSteeringStaircase();
+  createSteeringVelocityPolygon("limit");
+
+  const double target_sw = 0.25, target_angle = 1.5;  // ~90° right-hand bucket (b3)
+  nav2_collision_monitor::Velocity cmd_vel{
+    target_sw * std::cos(target_angle), 0.0, target_sw * std::sin(target_angle) / WHEELBASE};
+  nav2_collision_monitor::Velocity odom_vel{1.5, 0.0, 0.0};  // straight, fast
+  velocity_polygon_->updatePolygon(odom_vel);
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
+  // Held at the straight boundary (0.1 - angle_margin), nowhere near 90°.
+  EXPECT_LT(result_sa, 0.2);
+  EXPECT_NEAR(result_sa, 0.1 - 0.01, 0.03);
+}
+
+TEST_F(Tester, testStep6SlowStraightReachesTargetAngle)
+{
+  // (2) From 0.25 m/s straight toward 90° @ 0.25 m/s: every bucket up to 90°
+  // admits 0.25 m/s, so the target angle is reachable directly — send 90°.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_s", "straight_m", "straight_f", "b1_s", "b1_m", "b2_s", "b3_s"});
+  addSteeringStaircase();
+  createSteeringVelocityPolygon("limit");
+
+  const double target_sw = 0.25, target_angle = 1.5;
+  nav2_collision_monitor::Velocity cmd_vel{
+    target_sw * std::cos(target_angle), 0.0, target_sw * std::sin(target_angle) / WHEELBASE};
+  nav2_collision_monitor::Velocity odom_vel{0.25, 0.0, 0.0};  // straight, slow
+  velocity_polygon_->updatePolygon(odom_vel);
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+  velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
+  // Full target angle is commanded.
+  EXPECT_NEAR(result_sa, target_angle, 0.05);
+}
+
+TEST_F(Tester, testStep6MidStraightAdvancesToIntermediateBucket)
+{
+  // (3) From 1.0 m/s straight toward 90° @ 0.25 m/s: b1 (max 1.0) admits 1.0 but
+  // b2 (max 0.5) does not, so the wheel advances to the far edge of b1 (~0.52 rad
+  // ≈ 30°) and no further, while slowing toward b2's max.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_s", "straight_m", "straight_f", "b1_s", "b1_m", "b2_s", "b3_s"});
+  addSteeringStaircase();
+  createSteeringVelocityPolygon("limit");
+
+  const double target_sw = 0.25, target_angle = 1.5;
+  nav2_collision_monitor::Velocity cmd_vel{
+    target_sw * std::cos(target_angle), 0.0, target_sw * std::sin(target_angle) / WHEELBASE};
+  nav2_collision_monitor::Velocity odom_vel{1.0, 0.0, 0.0};  // straight, mid
+  velocity_polygon_->updatePolygon(odom_vel);
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
+  // Advanced into b1 but stopped at its far edge (0.52 - angle_margin ≈ 0.51),
+  // i.e. did not enter b2 and did not reach the 90° target.
+  EXPECT_GT(result_sa, 0.1);
+  EXPECT_LT(result_sa, 0.87);
+  EXPECT_NEAR(result_sa, 0.52 - 0.01, 0.05);
 }
 
 TEST_F(Tester, testFieldsModeDefaultFiltering)

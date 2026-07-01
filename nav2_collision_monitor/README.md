@@ -175,20 +175,26 @@ else:
 3. check if target angle is in same bucket as current angle. If yes →
    1. if abs(current steering wheel speed) < low threshold → done (robot is at standstill and must be free to start moving, the current field is not meaningful for speed limiting)
    2. limit speed to the current bucket's speed limit from step 2. → done
-4. if target angle is in a different bucket → determine the direction of steering and find the neighbouring bucket from current angle in that direction. Only one bucket step at a time, even if the target angle is several buckets away.
-5. in the neighbouring bucket, determine max speed / valid field
-   1. start at fastest possible field (field for max(current speed, target speed)). If that is in collision, go down until a collision-free one is found. That one we call “valid” field. If all fields are in collision, use the slowest one with same speed sign in target direction (that is allowed even if in collision)
-6. now adapt speed and steering angle
-   1. limit target speed to the **minimum** of: max speed of valid field (from 5) and current bucket's speed limit (from 2)
-   2. limit steering angle to one bucket step at a time:
-      * if current speed is larger than max valid speed: hold at boundary of **current** bucket (do not proceed into the next bucket until speed is valid)
-      * otherwise: use target angle
+4. if the target angle is in a different bucket → **advance as far toward the target as is valid at the current speed.** Walk buckets one step at a time from the current angle toward the target. A bucket is **reachable** if it contains a collision-free field whose speed range includes the current steering wheel speed. Keep advancing through contiguously-reachable buckets until either:
+   * the target angle's bucket is reached — the whole path is valid at the current speed, or
+   * a bucket is **not** reachable — a *cliff*, where its fastest collision-free field is slower than the current speed, or there is no field at all beyond in the current mode. Call the first unreachable bucket the **blocking** bucket.
+
+   This deliberately advances multiple buckets in one cycle when they all admit the current speed (every intermediate angle is then in a real field), and holds at the current bucket boundary when even the immediate neighbour is a cliff.
+
+   **Escape hatch (all fields occupied):** if *every* field in the next bucket is in collision (no collision-free field at all), the robot is still allowed to steer into it via its **slowest** field — provided the current speed fits that field — capped to the slowest field's speed and without cascading further. Steering there cannot make things worse (the obstacle is already inside even the smallest field, and the velocity polygons are enlarged relative to the real lidar e-stop zone). If the current speed exceeds even the slowest field, this is treated as a cliff (slow down and hold first).
+5. now adapt the steering angle:
+   * command the far edge (toward the target) of the last reachable bucket, clamped so it never overshoots the target angle. If no bucket beyond the current one is reachable, this collapses to holding at the current bucket boundary.
+6. now adapt the speed — limit the commanded steering wheel speed to the **minimum** of:
+   1. the current bucket's speed limit (from step 2), and
+   2. the max speed of the **blocking** bucket's fastest collision-free field (if blocked by a cliff), or the target bucket's field max (if the target was reached).
+
+   This actively slows the robot toward the speed at which the blocking bucket becomes enterable.
 
 All speed and angle limits are inset by a small safety margin (0.02 m/s for speed, 0.01 rad for angle) so that the resulting velocity lands clearly inside the target field, not on its boundary. This prevents the next cycle's field lookup from falling into a gap or fallback due to floating-point boundary issues.
 
 → done
 
-After some iterations, the current speed will be in the valid field → AMR will be allowed to steer one bucket at a time. On each cycle the neighbour becomes the current bucket and the next neighbour is checked.
+Over successive cycles the reachable angle marches toward the target as the speed drops. The commanded `(angle, speed)` is always inside a real field, so the physical steering wheel is never driven across a speed cliff into an `(angle, speed)` combination that has no lidar field. Because the commanded angle only ever enters buckets whose fields admit the robot's *current actual* speed, deceleration always leads the steering — the wheel cannot cut the corner into an undefined region while the robot is still too fast for it.
 
 ### Field exceedance prevention
 
