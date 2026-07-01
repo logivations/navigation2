@@ -2052,6 +2052,69 @@ TEST_F(Tester, testStep6MidStraightAdvancesToIntermediateBucket)
   EXPECT_NEAR(result_sa, 0.52 - 0.01, 0.05);
 }
 
+TEST_F(Tester, testStep6MultiBucketAdvanceCapsSpeedToReachableBucket)
+{
+  // Advancing through a reachable bucket to a hard coverage boundary must cap the
+  // commanded speed to the reachable bucket's max, not leave it at the (higher)
+  // current-bucket limit. straight supports up to 1.0; b1 only up to 0.5; there
+  // is no bucket beyond b1. Target is past b1 at a high speed (0.9) b1 cannot hold.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"straight_s", "straight_m", "b1_s"});
+  addSteeringAngleSubPolygon("straight_s", 0.0, 0.5, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("straight_m", 0.5, 1.0, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("b1_s", 0.0, 0.5, 0.1, 0.5, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity odom_vel{0.3, 0.0, 0.0};  // straight, fits b1's [0,0.5]
+  velocity_polygon_->updatePolygon(odom_vel);
+  const double target_sw = 0.9, target_angle = 0.6;  // past b1 (max 0.5 rad), high speed
+  nav2_collision_monitor::Velocity cmd_vel{
+    target_sw * std::cos(target_angle), 0.0, target_sw * std::sin(target_angle) / WHEELBASE};
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  // Commanded steering-wheel speed must not exceed b1's max (0.5).
+  double result_sw = velocity_polygon_->callBaselinkToSteeringSpeed(
+    action.req_vel.x, action.req_vel.tw);
+  EXPECT_LE(std::abs(result_sw), 0.5 + 1e-6);
+}
+
+TEST_F(Tester, testStep6BackwardSlowReachesTargetAngle)
+{
+  // Reversing slowly toward a fully-turned angle: every backward bucket admits the
+  // current speed, so the target angle is reachable directly. Regression for the
+  // sign bug where backward fields ([-0.5, 0], linear_max_ ~ 0) were never
+  // recognized as reachable and the wheel froze near the straight bucket.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"bw_straight_s", "bw_straight_m", "bw_b1", "bw_b2", "bw_b3"});
+  addSteeringAngleSubPolygon("bw_straight_s", -0.5, 0.0, -0.1, 0.1, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("bw_straight_m", -1.0, -0.5, -0.1, 0.1, STEERING_POLYGON_FAST_STR);
+  addSteeringAngleSubPolygon("bw_b1", -0.5, 0.0, 0.1, 0.52, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("bw_b2", -0.5, 0.0, 0.52, 0.87, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("bw_b3", -0.3, 0.0, 0.87, 1.571, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  const double sw = 0.25, target_angle = 1.5;  // ~86° left, reversing
+  nav2_collision_monitor::Velocity cmd_vel{
+    -sw * std::cos(target_angle), 0.0, -sw * std::sin(target_angle) / WHEELBASE};
+  nav2_collision_monitor::Velocity odom_vel{-0.25, 0.0, 0.0};  // straight, reversing slow
+  velocity_polygon_->updatePolygon(odom_vel);
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+  velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
+  // Reaches the reversing target angle instead of freezing near straight.
+  EXPECT_NEAR(result_sa, target_angle, 0.05);
+  EXPECT_LT(action.req_vel.x, 0.0);  // still reversing
+}
+
 TEST_F(Tester, testFieldsModeDefaultFiltering)
 {
   createVelocityPolygonWithModes("stop");

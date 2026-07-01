@@ -798,6 +798,15 @@ bool VelocityPolygon::validateSteering(
     const double dir = (target_sa > current_sa) ? 1.0 : -1.0;
     constexpr double kAngleEps = 0.01;
 
+    // A field admits a (signed) steering-wheel speed iff the speed lies within
+    // its [linear_min_, linear_max_] range — the same signed test findField()
+    // uses. Magnitude comparisons would be wrong for backward fields, whose
+    // range is e.g. [-0.5, 0] (linear_max_ ~ 0), making |sw| <= |linear_max_|
+    // unsatisfiable for any reverse motion.
+    auto field_admits_speed = [](const SubPolygonParameter * sp, double sw) {
+        return sw >= sp->linear_min_ && sw <= sp->linear_max_;
+      };
+
     // Scan buckets one step at a time from the current bucket toward the target.
     // current_field is known to contain current_sw (found above).
     const SubPolygonParameter * scan_field = current_field;
@@ -834,26 +843,43 @@ bool VelocityPolygon::validateSteering(
 
       // In the next bucket, find a collision-free field whose speed range
       // includes the current speed. Also track the fastest collision-free field
-      // (for the cliff slowdown) — its absence means every field is occupied.
+      // (for the cliff slowdown / bucket speed cap) — its absence means every
+      // field is occupied. Point counts are cached so the debug/barrier code
+      // below does not recompute point-in-polygon on the same fields.
       const SubPolygonParameter * enter_field = nullptr;
       const SubPolygonParameter * fastest_free = nullptr;
+      int fastest_free_pts = 0;
+      int slowest_pts = 0;
       for (int i = static_cast<int>(next_fields.size()) - 1; i >= 0; i--) {
-        if (getPointsInsideSubPolygon(*next_fields[i], collision_points_map) >= min_points_) {
+        const int pts = getPointsInsideSubPolygon(*next_fields[i], collision_points_map);
+        if (i == 0) {
+          slowest_pts = pts;  // next_fields is sorted slowest-first, so front() == [0]
+        }
+        if (pts >= min_points_) {
           continue;  // field occupied by an obstacle
         }
         if (fastest_free == nullptr) {
           fastest_free = next_fields[i];
+          fastest_free_pts = pts;
         }
-        if (std::abs(current_sw) >= std::abs(next_fields[i]->linear_min_) &&
-          std::abs(current_sw) <= std::abs(next_fields[i]->linear_max_))
-        {
+        if (field_admits_speed(next_fields[i], current_sw)) {
           enter_field = next_fields[i];
           break;
         }
       }
 
       if (enter_field != nullptr) {
-        // Next bucket is reachable at the current speed → keep scanning from it.
+        // Next bucket is reachable at the current speed → advance into it, and
+        // lower the speed barrier to this bucket's capacity (its fastest
+        // collision-free field). Every traversed bucket contributes its cap, so
+        // a later hard boundary or target cannot leave the commanded speed above
+        // what an intermediate bucket admits.
+        const double bucket_cap = forward ?
+          fastest_free->linear_max_ - speed_margin_ :
+          fastest_free->linear_min_ + speed_margin_;
+        if (std::abs(bucket_cap) < std::abs(barrier_limit_sw)) {
+          barrier_limit_sw = bucket_cap;
+        }
         scan_field = enter_field;
         checked_field = enter_field;
         debug_msg.valid_field_name = enter_field->velocity_polygon_name_;
@@ -872,8 +898,7 @@ bool VelocityPolygon::validateSteering(
         }
         checked_field = fastest_free;
         debug_msg.valid_field_name = fastest_free->velocity_polygon_name_;
-        debug_msg.neighbour_collision_pts =
-          getPointsInsideSubPolygon(*fastest_free, collision_points_map);
+        debug_msg.neighbour_collision_pts = fastest_free_pts;
         break;
       }
 
@@ -891,22 +916,21 @@ bool VelocityPolygon::validateSteering(
       }
       checked_field = slowest;
       debug_msg.valid_field_name = slowest->velocity_polygon_name_;
-      debug_msg.neighbour_collision_pts =
-        getPointsInsideSubPolygon(*slowest, collision_points_map);
-      if (std::abs(current_sw) > std::abs(slowest->linear_max_)) {
-        // Too fast even for the slowest occupied field → treat as a cliff: slow
-        // down and hold at the current bucket boundary before entering.
+      debug_msg.neighbour_collision_pts = slowest_pts;
+      if (!field_admits_speed(slowest, current_sw)) {
+        // Current speed doesn't fit even the slowest occupied field → treat as a
+        // cliff: slow down and hold at the current bucket boundary before entering.
         break;
       }
       // Speed fits the slowest field → enter the occupied bucket (to the target
-      // if it lies within, else to the bucket's far edge) and stop scanning.
+      // if it lies within, else to the bucket's far edge) and stop scanning. The
+      // barrier already carries slowest_cap, so no separate target cap is needed.
       {
         const double occ_edge = (dir > 0) ?
           slowest->steering_angle_max_ : slowest->steering_angle_min_;
         if ((dir > 0 && target_sa <= occ_edge) || (dir < 0 && target_sa >= occ_edge)) {
           reachable_edge = target_sa;
           reached_target = true;
-          scan_field = slowest;   // so the target-bucket speed cap uses this field
         } else {
           reachable_edge = occ_edge;
         }
@@ -915,25 +939,22 @@ bool VelocityPolygon::validateSteering(
     }
 
     // 6b. Steering angle: furthest reachable angle toward the target, inset by
-    // angle_margin_ so the next cycle's findField lands inside a real field
-    // (no inset when the exact target is reachable).
+    // angle_margin_ so the next cycle's findField lands inside a real field (no
+    // inset when the exact target is reachable). The inset must never push the
+    // command back past current_sa — for a bucket narrower than angle_margin_
+    // that would steer the wrong way, into the previous bucket.
     if (reached_target) {
       limited_sa = target_sa;
+    } else if (dir > 0) {
+      limited_sa = std::max(current_sa, reachable_edge - angle_margin_);
     } else {
-      limited_sa = reachable_edge - dir * angle_margin_;
+      limited_sa = std::min(current_sa, reachable_edge + angle_margin_);
     }
 
-    // 6a. Speed: min of the current-bucket limit / barrier and, when the target
-    // bucket was reached, that bucket's own max.
+    // 6a. Speed: the barrier already reflects the current bucket's limit (step 2)
+    // and the capacity of every bucket entered up to (and including) the target
+    // bucket, so it is the final effective limit.
     effective_limit_sw = barrier_limit_sw;
-    if (reached_target) {
-      const double target_cap = forward ?
-        scan_field->linear_max_ - speed_margin_ :
-        scan_field->linear_min_ + speed_margin_;
-      if (std::abs(target_cap) < std::abs(effective_limit_sw)) {
-        effective_limit_sw = target_cap;
-      }
-    }
 
     if (std::abs(limited_sa - target_sa) > 1e-9) {
       debug_msg.steering_angle_limit = limited_sa;

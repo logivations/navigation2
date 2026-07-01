@@ -185,10 +185,11 @@ else:
 5. now adapt the steering angle:
    * command the far edge (toward the target) of the last reachable bucket, clamped so it never overshoots the target angle. If no bucket beyond the current one is reachable, this collapses to holding at the current bucket boundary.
 6. now adapt the speed — limit the commanded steering wheel speed to the **minimum** of:
-   1. the current bucket's speed limit (from step 2), and
-   2. the max speed of the **blocking** bucket's fastest collision-free field (if blocked by a cliff), or the target bucket's field max (if the target was reached).
+   1. the current bucket's speed limit (from step 2),
+   2. the capacity (fastest collision-free field) of **every bucket entered** on the way to the reachable edge, and
+   3. the max speed of the **blocking** bucket's fastest collision-free field (if a cliff stopped progress).
 
-   This actively slows the robot toward the speed at which the blocking bucket becomes enterable.
+   This actively slows the robot toward the speed at which the blocking bucket becomes enterable, and guarantees the commanded speed never exceeds what any traversed bucket admits — so a multi-bucket advance to a coverage boundary cannot leave the speed above the reachable bucket's max.
 
 All speed and angle limits are inset by a small safety margin (0.02 m/s for speed, 0.01 rad for angle) so that the resulting velocity lands clearly inside the target field, not on its boundary. This prevents the next cycle's field lookup from falling into a gap or fallback due to floating-point boundary issues.
 
