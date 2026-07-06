@@ -239,6 +239,16 @@ protected:
   double steeringAngleToTw(double baselink_speed, double steering_angle) const;
 
   /**
+   * @brief Compute the effective speed margin at a given field boundary.
+   * Combines the absolute floor (speed_margin_) with a boundary-proportional
+   * term (speed_margin_rel_ * |field_limit|). Used everywhere the algorithm
+   * caps commanded speed at a field's linear_max_/linear_min_.
+   * @param field_limit The field boundary being approached (linear_max_ or linear_min_)
+   * @return speed_margin_ + speed_margin_rel_ * std::abs(field_limit)
+   */
+  double effectiveSpeedMargin(double field_limit) const;
+
+  /**
    * @brief Find the field (sub-polygon) matching a given steering wheel speed and steering angle
    * @param steering_wheel_speed Speed in steering wheel frame
    * @param steering_angle Steering angle in radians
@@ -305,8 +315,10 @@ protected:
   double wheelbase_;
   /// @brief Speed below which steering is freely allowed
   double low_speed_threshold_;
-  /// @brief Speed margin (m/s) to stay inside field boundaries
+  /// @brief Absolute speed margin (m/s) to stay inside field boundaries
   double speed_margin_;
+  /// @brief Relative speed margin (fraction of field limit) added to speed_margin_
+  double speed_margin_rel_;
   /// @brief Angle margin (rad) to stay inside field boundaries
   double angle_margin_;
   /// @brief Current fields mode for filtering sub-polygons
