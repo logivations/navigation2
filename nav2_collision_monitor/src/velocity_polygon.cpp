@@ -79,7 +79,7 @@ bool VelocityPolygon::getParameters(
     speed_margin_ = node->declare_or_get_parameter(
       polygon_name_ + ".speed_margin", 0.00625);
     speed_margin_rel_ = node->declare_or_get_parameter(
-      polygon_name_ + ".speed_margin_rel", 0.0292);
+      polygon_name_ + ".speed_margin_rel", 0.01);
     angle_margin_ = node->declare_or_get_parameter(
       polygon_name_ + ".angle_margin", 0.01);
 
