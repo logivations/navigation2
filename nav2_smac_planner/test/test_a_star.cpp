@@ -157,6 +157,182 @@ TEST(AStarTest, test_a_star_2d)
   delete costmapA;
 }
 
+TEST(AStarTest, test_a_star_2d_free_space_search)
+{
+  auto lnode = std::make_shared<nav2::LifecycleNode>("test");
+  nav2_smac_planner::SearchInfo info;
+  nav2_smac_planner::AStarAlgorithm<nav2_smac_planner::Node2D> a_star(
+    nav2_smac_planner::MotionModel::TWOD, info);
+  int max_iterations = 100000;
+  float tolerance = 0.0;
+  int it_on_approach = 10;
+  int terminal_checking_interval = 5000;
+  double max_planning_time = 120.0;
+  int num_it = 0;
+
+  a_star.initialize(
+    false, max_iterations, it_on_approach, terminal_checking_interval,
+    max_planning_time, 0.0, 1);
+
+  nav2_costmap_2d::Costmap2D * costmapA =
+    new nav2_costmap_2d::Costmap2D(100, 100, 0.1, 0.0, 0.0, 0);
+  // wall to the right of the start, so the only way out of the
+  // "no-waiting zone" is to the left
+  for (unsigned int j = 0; j < 100; ++j) {
+    costmapA->setCost(60, j, 254);
+  }
+
+  auto costmap_ros = std::make_shared<nav2_costmap_2d::Costmap2DROS>();
+  costmap_ros->on_configure(rclcpp_lifecycle::State());
+  auto costmap = costmap_ros->getCostmap();
+  *costmap = *costmapA;
+
+  auto dummy_cancel_checker = []() {
+      return false;
+    };
+
+  std::unique_ptr<nav2_smac_planner::GridCollisionChecker> checker =
+    std::make_unique<nav2_smac_planner::GridCollisionChecker>(costmap_ros, 1, lnode);
+  checker->setFootprint(nav2_costmap_2d::Footprint(), true, 0.0);
+  a_star.setCollisionChecker(checker.get());
+
+  // no-waiting zone covers x in [30, 70], anything else is a valid stop.
+  // The wall at x=60 blocks the shorter right-hand exits beyond it, so the
+  // cheapest reachable stop from (50, 50) is straight left at (29, 50)
+  a_star.setStart(50u, 50u, 0);
+  a_star.enableFreeSpaceSearch(
+    [](const float & x, const float & /*y*/) {
+      return x < 30.0f || x > 70.0f;
+    });
+
+  // no goal needs to be set in free space search
+  nav2_smac_planner::Node2D::CoordinateVector path;
+  EXPECT_TRUE(a_star.createPath(path, num_it, tolerance, dummy_cancel_checker));
+
+  // backtraced path is ordered stop -> start
+  ASSERT_GT(path.size(), 1u);
+  EXPECT_EQ(path.front().x, 29.0f);
+  EXPECT_EQ(path.front().y, 50.0f);
+  EXPECT_EQ(path.back().x, 50.0f);
+  EXPECT_EQ(path.back().y, 50.0f);
+  // straight line out is the cheapest: 21 steps + start pose
+  EXPECT_EQ(path.size(), 22u);
+  for (unsigned int i = 0; i != path.size(); i++) {
+    EXPECT_EQ(costmapA->getCost(path[i].x, path[i].y), 0);
+  }
+
+  // start already being a valid stop returns a single-pose path
+  path.clear();
+  num_it = 0;
+  a_star.setCollisionChecker(checker.get());
+  a_star.setStart(50u, 50u, 0);
+  a_star.enableFreeSpaceSearch(
+    [](const float & /*x*/, const float & /*y*/) {
+      return true;
+    });
+  EXPECT_TRUE(a_star.createPath(path, num_it, tolerance, dummy_cancel_checker));
+  ASSERT_EQ(path.size(), 1u);
+  EXPECT_EQ(path.front().x, 50.0f);
+  EXPECT_EQ(path.front().y, 50.0f);
+
+  // no valid stop reachable fails after exhausting the search space
+  path.clear();
+  num_it = 0;
+  a_star.setCollisionChecker(checker.get());
+  a_star.setStart(50u, 50u, 0);
+  a_star.enableFreeSpaceSearch(
+    [](const float & /*x*/, const float & /*y*/) {
+      return false;
+    });
+  EXPECT_FALSE(a_star.createPath(path, num_it, tolerance, dummy_cancel_checker));
+
+  // invalid stop checkers are rejected
+  EXPECT_THROW(
+    a_star.enableFreeSpaceSearch(
+      nav2_smac_planner::AStarAlgorithm<nav2_smac_planner::Node2D>::FreeSpaceStopChecker()),
+    std::runtime_error);
+
+  // goal-directed planning still works after disabling free space search
+  path.clear();
+  num_it = 0;
+  a_star.disableFreeSpaceSearch();
+  a_star.setCollisionChecker(checker.get());
+  a_star.setStart(20u, 20u, 0);
+  a_star.setGoal(40u, 80u, 0);
+  EXPECT_TRUE(a_star.createPath(path, num_it, tolerance, dummy_cancel_checker));
+  EXPECT_GT(path.size(), 1u);
+
+  delete costmapA;
+}
+
+TEST(AStarTest, test_a_star_se2_free_space_search)
+{
+  auto lnode = std::make_shared<nav2::LifecycleNode>("test");
+  nav2_smac_planner::SearchInfo info;
+  info.change_penalty = 0.1;
+  info.non_straight_penalty = 1.1;
+  info.reverse_penalty = 2.0;
+  info.minimum_turning_radius = 8;  // in grid coordinates
+  info.retrospective_penalty = 0.015;
+  info.analytic_expansion_max_length = 20.0;  // in grid coordinates
+  info.analytic_expansion_ratio = 3.5;
+  unsigned int size_theta = 72;
+  info.cost_penalty = 1.7;
+  nav2_smac_planner::AStarAlgorithm<nav2_smac_planner::NodeHybrid> a_star(
+    nav2_smac_planner::MotionModel::DUBIN, info);
+  int max_iterations = 100000;
+  float tolerance = 10.0;
+  int it_on_approach = 10;
+  int terminal_checking_interval = 5000;
+  double max_planning_time = 120.0;
+  int num_it = 0;
+
+  a_star.initialize(
+    false, max_iterations, it_on_approach, terminal_checking_interval,
+    max_planning_time, 401, size_theta);
+
+  nav2_costmap_2d::Costmap2D * costmapA =
+    new nav2_costmap_2d::Costmap2D(100, 100, 0.1, 0.0, 0.0, 0);
+
+  auto costmap_ros = std::make_shared<nav2_costmap_2d::Costmap2DROS>();
+  costmap_ros->on_configure(rclcpp_lifecycle::State());
+  auto costmap = costmap_ros->getCostmap();
+  *costmap = *costmapA;
+
+  std::unique_ptr<nav2_smac_planner::GridCollisionChecker> checker =
+    std::make_unique<nav2_smac_planner::GridCollisionChecker>(costmap_ros, size_theta, lnode);
+  checker->setFootprint(nav2_costmap_2d::Footprint(), true, 0.0);
+
+  auto dummy_cancel_checker = []() {
+      return false;
+    };
+
+  // no-waiting zone covers x in [30, 70]: fan out from (50, 50) with
+  // kinematically feasible motion primitives until outside of it
+  a_star.setCollisionChecker(checker.get());
+  a_star.setStart(50u, 50u, 0u);
+  a_star.enableFreeSpaceSearch(
+    [](const float & x, const float & /*y*/) {
+      return x < 30.0f || x > 70.0f;
+    });
+
+  nav2_smac_planner::NodeHybrid::CoordinateVector path;
+  EXPECT_TRUE(a_star.createPath(path, num_it, tolerance, dummy_cancel_checker));
+
+  // backtraced path is ordered stop -> start, stop must be outside the zone
+  ASSERT_GT(path.size(), 1u);
+  EXPECT_TRUE(path.front().x < 30.5f || path.front().x > 69.5f);
+  // path is collision free and has no skipped nodes
+  for (unsigned int i = 0; i != path.size(); i++) {
+    EXPECT_EQ(costmapA->getCost(path[i].x, path[i].y), 0);
+  }
+  for (unsigned int i = 1; i != path.size(); i++) {
+    EXPECT_LT(hypotf(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y), 2.1f);
+  }
+
+  delete costmapA;
+}
+
 TEST(AStarTest, test_a_star_se2)
 {
   auto lnode = std::make_shared<nav2::LifecycleNode>("test");

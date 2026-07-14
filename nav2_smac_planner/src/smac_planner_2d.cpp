@@ -78,6 +78,18 @@ void SmacPlanner2D::configure(
 
   _max_planning_time = node->declare_or_get_parameter(name + ".max_planning_time", 2.0);
 
+  // In find free space mode the goal pose is ignored: the planner fans out
+  // from the start (Dijkstra) and returns a path to the cheapest-to-reach
+  // position outside of the no-waiting zone grid
+  _find_free_space_mode = node->declare_or_get_parameter(name + ".find_free_space_mode", false);
+  if (_find_free_space_mode) {
+    _no_waiting_zone.configure(node, name);
+    RCLCPP_INFO(
+      _logger, "%s is in find free space mode: goal poses will be ignored and the "
+      "no-waiting zone is taken from topic '%s'.",
+      _name.c_str(), _no_waiting_zone.getTopic().c_str());
+  }
+
   _motion_model = MotionModel::TWOD;
 
   if (_max_on_approach_iterations <= 0) {
@@ -188,6 +200,7 @@ void SmacPlanner2D::cleanup()
     _costmap_downsampler->on_cleanup();
     _costmap_downsampler.reset();
   }
+  _no_waiting_zone.cleanup();
   _raw_plan_publisher.reset();
 }
 
@@ -212,7 +225,7 @@ nav_msgs::msg::Path SmacPlanner2D::createPlan(
   _a_star->setCollisionChecker(&_collision_checker);
 
   // Set starting point
-  float mx_start, my_start, mx_goal, my_goal;
+  float mx_start, my_start, mx_goal = 0.0, my_goal = 0.0;
   if (!costmap->worldToMapContinuous(
       start.pose.position.x,
       start.pose.position.y,
@@ -225,18 +238,27 @@ nav_msgs::msg::Path SmacPlanner2D::createPlan(
   }
   _a_star->setStart(mx_start, my_start, 0);
 
-  // Set goal point
-  if (!costmap->worldToMapContinuous(
-      goal.pose.position.x,
-      goal.pose.position.y,
-      mx_goal,
-      my_goal))
-  {
-    throw nav2_core::GoalOutsideMapBounds(
-            "Goal Coordinates of(" + std::to_string(goal.pose.position.x) + ", " +
-            std::to_string(goal.pose.position.y) + ") was outside bounds");
+  if (_find_free_space_mode) {
+    // Ignore the goal: fan out from the start and stop at the cheapest-to-reach
+    // position outside of the no-waiting zone
+    _a_star->enableFreeSpaceSearch(
+      _no_waiting_zone.createFreeSpaceStopChecker(costmap, _global_frame));
+  } else {
+    _a_star->disableFreeSpaceSearch();
+
+    // Set goal point
+    if (!costmap->worldToMapContinuous(
+        goal.pose.position.x,
+        goal.pose.position.y,
+        mx_goal,
+        my_goal))
+    {
+      throw nav2_core::GoalOutsideMapBounds(
+              "Goal Coordinates of(" + std::to_string(goal.pose.position.x) + ", " +
+              std::to_string(goal.pose.position.y) + ") was outside bounds");
+    }
+    _a_star->setGoal(mx_goal, my_goal, 0);
   }
-  _a_star->setGoal(mx_goal, my_goal, 0);
 
   // Setup message
   nav_msgs::msg::Path plan;
@@ -251,7 +273,9 @@ nav_msgs::msg::Path SmacPlanner2D::createPlan(
   pose.pose.orientation.w = 1.0;
 
   // Corner case of start and goal being on the same cell
-  if (std::floor(mx_start) == std::floor(mx_goal) && std::floor(my_start) == std::floor(my_goal)) {
+  if (!_find_free_space_mode &&
+    std::floor(mx_start) == std::floor(mx_goal) && std::floor(my_start) == std::floor(my_goal))
+  {
     pose.pose = start.pose;
     // if we have a different start and goal orientation, set the unique path pose to the goal
     // orientation, unless use_final_approach_orientation=true where we need it to be the start
@@ -284,6 +308,10 @@ nav_msgs::msg::Path SmacPlanner2D::createPlan(
     }
 
     if (num_iterations < _a_star->getMaxIterations()) {
+      if (_find_free_space_mode) {
+        throw nav2_core::NoValidPathCouldBeFound(
+                "no reachable position outside the no-waiting zone found");
+      }
       throw nav2_core::NoValidPathCouldBeFound("no valid path found");
     } else {
       throw nav2_core::PlannerTimedOut("exceeded maximum iterations");
@@ -321,8 +349,10 @@ nav_msgs::msg::Path SmacPlanner2D::createPlan(
   // it does not rotate.
   // And deal with corner case of plan of length 1
   // If use_final_approach_orientation=false (default), override last pose orientation to match goal
+  // In find free space mode the goal orientation is meaningless, so the final
+  // approach orientation is always used
   size_t plan_size = plan.poses.size();
-  if (_use_final_approach_orientation) {
+  if (_use_final_approach_orientation || _find_free_space_mode) {
     if (plan_size == 1) {
       plan.poses.back().pose.orientation = start.pose.orientation;
     } else if (plan_size > 1) {

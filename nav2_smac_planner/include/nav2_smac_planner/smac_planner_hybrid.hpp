@@ -20,6 +20,7 @@
 #include <string>
 
 #include "nav2_smac_planner/a_star.hpp"
+#include "nav2_smac_planner/no_waiting_zone.hpp"
 #include "nav2_smac_planner/smoother.hpp"
 #include "nav2_smac_planner/utils.hpp"
 #include "nav2_smac_planner/costmap_downsampler.hpp"
@@ -139,6 +140,8 @@ protected:
   MotionModel _motion_model;
   GoalHeadingMode _goal_heading_mode;
   int _coarse_search_resolution;
+  bool _find_free_space_mode;
+  NoWaitingZone _no_waiting_zone;
   nav2::Publisher<nav_msgs::msg::Path>::SharedPtr _raw_plan_publisher;
   nav2::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
     _planned_footprints_publisher;

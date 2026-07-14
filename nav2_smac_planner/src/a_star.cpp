@@ -42,6 +42,7 @@ AStarAlgorithm<NodeT>::AStarAlgorithm(
   _x_size(0),
   _y_size(0),
   _search_info(search_info),
+  _free_space_search(false),
   _start(nullptr),
   _goal_manager(GoalManagerT()),
   _motion_model(motion_model)
@@ -310,11 +311,65 @@ void AStarAlgorithm<NodeT>::setGoal(
 }
 
 template<typename NodeT>
+void AStarAlgorithm<NodeT>::enableFreeSpaceSearch(const FreeSpaceStopChecker & stop_checker)
+{
+  if (!stop_checker) {
+    throw std::runtime_error("Free space search requires a valid stop checker.");
+  }
+  _free_space_search = true;
+  _free_space_stop_checker = stop_checker;
+  // Goals are unused in free space search, clear any stale goal state
+  _goal_manager.clear();
+}
+
+template<typename NodeT>
+void AStarAlgorithm<NodeT>::disableFreeSpaceSearch()
+{
+  _free_space_search = false;
+  _free_space_stop_checker = FreeSpaceStopChecker();
+}
+
+template<typename NodeT>
+bool AStarAlgorithm<NodeT>::checkFreeSpaceStop(
+  const NodePtr & current_node, CoordinateVector & path)
+{
+  const Coordinates node_coords =
+    NodeT::getCoords(current_node->getIndex(), getSizeX(), getSizeDim3());
+  if (!_free_space_stop_checker(node_coords.x, node_coords.y)) {
+    return false;
+  }
+
+  // Nodes are expanded in order of increasing accumulated cost (no heuristic),
+  // so the first node passing the stop checker is the cheapest one to reach.
+  if (!current_node->parent) {
+    // The start itself is a valid stop position: single-pose path
+    if constexpr (std::is_same_v<NodeT, Node2D>) {
+      path.push_back(node_coords);
+    } else {
+      Coordinates pose = current_node->pose;
+      pose.theta = _shared_ctx->motion_table.getAngleFromBin(pose.theta);
+      path.push_back(pose);
+    }
+    return true;
+  }
+
+  return current_node->backtracePath(path);
+}
+
+template<typename NodeT>
 bool AStarAlgorithm<NodeT>::areInputsValid()
 {
   // Check if graph was filled in
   if (_graph.empty()) {
     throw std::runtime_error("Failed to compute path, no costmap given.");
+  }
+
+  // Free space search requires only a start and a stop checker, no goals
+  if (_free_space_search) {
+    if (!_start) {
+      throw std::runtime_error("Failed to compute path, no valid start given.");
+    }
+    return true;
   }
 
   // Check if points were filled in
@@ -362,9 +417,11 @@ bool AStarAlgorithm<NodeT>::createPath(
   }
 
   NodeVector coarse_check_goals, fine_check_goals;
-  _goal_manager.prepareGoalsForAnalyticExpansion(
-    coarse_check_goals, fine_check_goals,
-    _coarse_search_resolution);
+  if (!_free_space_search) {
+    _goal_manager.prepareGoalsForAnalyticExpansion(
+      coarse_check_goals, fine_check_goals,
+      _coarse_search_resolution);
+  }
 
   // 0) Add starting point to the open set
   addNode(0.0, getStart());
@@ -430,23 +487,32 @@ bool AStarAlgorithm<NodeT>::createPath(
     // 2) Mark Nbest as visited
     current_node->visited();
 
-    // 2.1) Use an analytic expansion (if available) to generate a path
-    expansion_result = nullptr;
-    expansion_result = _expander->tryAnalyticExpansion(
-      current_node, coarse_check_goals, fine_check_goals,
-      _goal_manager.getGoalsCoordinates(), neighborGetter, analytic_iterations, closest_distance);
-    if (expansion_result != nullptr) {
-      current_node = expansion_result;
-    }
+    if (_free_space_search) {
+      // 3) In free space search, stop at the first (thus cheapest to reach)
+      // node satisfying the stop checker, e.g. outside a no-waiting zone
+      if (checkFreeSpaceStop(current_node, path)) {
+        return true;
+      }
+    } else {
+      // 2.1) Use an analytic expansion (if available) to generate a path
+      expansion_result = nullptr;
+      expansion_result = _expander->tryAnalyticExpansion(
+        current_node, coarse_check_goals, fine_check_goals,
+        _goal_manager.getGoalsCoordinates(), neighborGetter, analytic_iterations,
+        closest_distance);
+      if (expansion_result != nullptr) {
+        current_node = expansion_result;
+      }
 
-    // 3) Check if we're at the goal, backtrace if required
-    if (_goal_manager.isGoal(current_node)) {
-      return current_node->backtracePath(path);
-    } else if (_best_heuristic_node.first < getToleranceHeuristic()) {
-      // Optimization: Let us find when in tolerance and refine within reason
-      approach_iterations++;
-      if (approach_iterations >= getOnApproachMaxIterations()) {
-        return _graph.at(_best_heuristic_node.second).backtracePath(path);
+      // 3) Check if we're at the goal, backtrace if required
+      if (_goal_manager.isGoal(current_node)) {
+        return current_node->backtracePath(path);
+      } else if (_best_heuristic_node.first < getToleranceHeuristic()) {
+        // Optimization: Let us find when in tolerance and refine within reason
+        approach_iterations++;
+        if (approach_iterations >= getOnApproachMaxIterations()) {
+          return _graph.at(_best_heuristic_node.second).backtracePath(path);
+        }
       }
     }
 
@@ -467,8 +533,14 @@ bool AStarAlgorithm<NodeT>::createPath(
         neighbor->setAccumulatedCost(g_cost);
         neighbor->parent = current_node;
 
-        // 4.3) Add to queue with heuristic cost
-        addNode(g_cost + getHeuristicCost(neighbor), neighbor);
+        // 4.3) Add to queue with heuristic cost. Free space search has no goal
+        // to compute a heuristic toward: queue on pure accumulated cost
+        // (Dijkstra) so the search fans out uniformly from the start.
+        if (_free_space_search) {
+          addNode(g_cost, neighbor);
+        } else {
+          addNode(g_cost + getHeuristicCost(neighbor), neighbor);
+        }
       }
     }
   }

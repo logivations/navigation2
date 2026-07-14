@@ -134,6 +134,18 @@ void SmacPlannerHybrid::configure(
   _coarse_search_resolution =
     node->declare_or_get_parameter(name + ".coarse_search_resolution", 1);
 
+  // In find free space mode the goal pose is ignored: the planner fans out
+  // from the start (Dijkstra) and returns a path to the cheapest-to-reach
+  // position outside of the no-waiting zone grid
+  _find_free_space_mode = node->declare_or_get_parameter(name + ".find_free_space_mode", false);
+  if (_find_free_space_mode) {
+    _no_waiting_zone.configure(node, name);
+    RCLCPP_INFO(
+      _logger, "%s is in find free space mode: goal poses will be ignored and the "
+      "no-waiting zone is taken from topic '%s'.",
+      _name.c_str(), _no_waiting_zone.getTopic().c_str());
+  }
+
   if (_goal_heading_mode == GoalHeadingMode::UNKNOWN) {
     std::string error_msg = "Unable to get GoalHeader type. Given '" + goal_heading_type + "' "
       "Valid options are DEFAULT, BIDIRECTIONAL, ALL_DIRECTION. ";
@@ -349,6 +361,7 @@ void SmacPlannerHybrid::cleanup()
     _costmap_downsampler->on_cleanup();
     _costmap_downsampler.reset();
   }
+  _no_waiting_zone.cleanup();
   _raw_plan_publisher.reset();
   if (_debug_visualizations) {
     _expansions_publisher.reset();
@@ -382,7 +395,7 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
   _a_star->setCollisionChecker(&_collision_checker);
 
   // Set starting point, in A* bin search coordinates
-  float mx_start, my_start, mx_goal, my_goal;
+  float mx_start, my_start, mx_goal = 0.0, my_goal = 0.0;
   if (!costmap->worldToMapContinuous(
       start.pose.position.x,
       start.pose.position.y,
@@ -406,30 +419,39 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
     static_cast<unsigned int>(start_orientation_bin);
   _a_star->setStart(mx_start, my_start, start_orientation_bin_int);
 
-  // Set goal point, in A* bin search coordinates
-  if (!costmap->worldToMapContinuous(
-      goal.pose.position.x,
-      goal.pose.position.y,
-      mx_goal,
-      my_goal))
-  {
-    throw nav2_core::GoalOutsideMapBounds(
-            "Goal Coordinates of(" + std::to_string(goal.pose.position.x) + ", " +
-            std::to_string(goal.pose.position.y) + ") was outside bounds");
+  unsigned int goal_orientation_bin_int = 0;
+  if (_find_free_space_mode) {
+    // Ignore the goal: fan out from the start and stop at the cheapest-to-reach
+    // pose outside of the no-waiting zone
+    _a_star->enableFreeSpaceSearch(
+      _no_waiting_zone.createFreeSpaceStopChecker(costmap, _global_frame));
+  } else {
+    _a_star->disableFreeSpaceSearch();
+
+    // Set goal point, in A* bin search coordinates
+    if (!costmap->worldToMapContinuous(
+        goal.pose.position.x,
+        goal.pose.position.y,
+        mx_goal,
+        my_goal))
+    {
+      throw nav2_core::GoalOutsideMapBounds(
+              "Goal Coordinates of(" + std::to_string(goal.pose.position.x) + ", " +
+              std::to_string(goal.pose.position.y) + ") was outside bounds");
+    }
+    double goal_orientation_bin = std::round(tf2::getYaw(goal.pose.orientation) / _angle_bin_size);
+    while (goal_orientation_bin < 0.0) {
+      goal_orientation_bin += static_cast<float>(_angle_quantizations);
+    }
+    // This is needed to handle precision issues
+    if (goal_orientation_bin >= static_cast<float>(_angle_quantizations)) {
+      goal_orientation_bin -= static_cast<float>(_angle_quantizations);
+    }
+    goal_orientation_bin_int = static_cast<unsigned int>(goal_orientation_bin);
+    _a_star->setGoal(
+      mx_goal, my_goal, static_cast<unsigned int>(goal_orientation_bin_int),
+      _goal_heading_mode, _coarse_search_resolution);
   }
-  double goal_orientation_bin = std::round(tf2::getYaw(goal.pose.orientation) / _angle_bin_size);
-  while (goal_orientation_bin < 0.0) {
-    goal_orientation_bin += static_cast<float>(_angle_quantizations);
-  }
-  // This is needed to handle precision issues
-  if (goal_orientation_bin >= static_cast<float>(_angle_quantizations)) {
-    goal_orientation_bin -= static_cast<float>(_angle_quantizations);
-  }
-  unsigned int goal_orientation_bin_int =
-    static_cast<unsigned int>(goal_orientation_bin);
-  _a_star->setGoal(
-    mx_goal, my_goal, static_cast<unsigned int>(goal_orientation_bin_int),
-    _goal_heading_mode, _coarse_search_resolution);
 
   // Setup message
   nav_msgs::msg::Path plan;
@@ -444,7 +466,8 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
   pose.pose.orientation.w = 1.0;
 
   // Corner case of start and goal being on the same cell
-  if (std::floor(mx_start) == std::floor(mx_goal) &&
+  if (!_find_free_space_mode &&
+    std::floor(mx_start) == std::floor(mx_goal) &&
     std::floor(my_start) == std::floor(my_goal) &&
     start_orientation_bin_int == goal_orientation_bin_int)
   {
@@ -494,6 +517,10 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
     }
 
     if (num_iterations < _a_star->getMaxIterations()) {
+      if (_find_free_space_mode) {
+        throw nav2_core::NoValidPathCouldBeFound(
+                "no reachable pose outside the no-waiting zone found");
+      }
       throw nav2_core::NoValidPathCouldBeFound("no valid path found");
     } else {
       throw nav2_core::PlannerTimedOut("exceeded maximum iterations");

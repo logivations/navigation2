@@ -55,6 +55,7 @@ public:
   typedef typename NodeT::CoordinateVector CoordinateVector;
   typedef typename NodeVector::iterator NeighborIterator;
   typedef std::function<bool (const uint64_t &, NodeT * &)> NodeGetter;
+  typedef std::function<bool (const float &, const float &)> FreeSpaceStopChecker;
   typedef GoalManager<NodeT> GoalManagerT;
   using NodeContext = typename NodeT::NodeContext;
 
@@ -157,6 +158,25 @@ public:
     const float & mx,
     const float & my,
     const unsigned int & dim_3);
+
+  /**
+   * @brief Enable free space search ("find free space" mode). Instead of
+   * searching toward a goal, the search fans out from the start using a
+   * uniform-cost (Dijkstra) expansion — no goal heuristic — and terminates at
+   * the first expanded node for which the stop checker returns true (e.g. a
+   * position outside of a no-waiting zone). Since nodes are expanded in order
+   * of increasing accumulated traversal cost, the returned position is the
+   * reachable stop position with the lowest traversal cost from the start.
+   * Any goals previously set are cleared; setGoal need not be called.
+   * @param stop_checker Functor taking a position in costmap cell coordinates
+   * (x, y) and returning true if it is a valid position to stop at
+   */
+  void enableFreeSpaceSearch(const FreeSpaceStopChecker & stop_checker);
+
+  /**
+   * @brief Disable free space search and return to goal-directed planning
+   */
+  void disableFreeSpaceSearch();
 
   /**
    * @brief Get maximum number of iterations to plan
@@ -286,6 +306,15 @@ protected:
   inline bool onVisitationCheckNode(const NodePtr & node);
 
   /**
+   * @brief Check if a node terminates the free space search and backtrace
+   * the path to it if so
+   * @param current_node Node to check against the free space stop checker
+   * @param path Vector of coordinates to fill with path if search terminated
+   * @return if the free space search terminated at this node
+   */
+  inline bool checkFreeSpaceStop(const NodePtr & current_node, CoordinateVector & path);
+
+  /**
    * @brief Populate a debug log of expansions for Hybrid-A* for visualization
    * @param node Node expanded
    * @param expansions_log Log to add not expanded to
@@ -305,6 +334,9 @@ protected:
   unsigned int _dim3_size;
   unsigned int _coarse_search_resolution;
   SearchInfo _search_info;
+
+  bool _free_space_search;
+  FreeSpaceStopChecker _free_space_stop_checker;
 
   NodePtr _start;
   GoalManagerT _goal_manager;

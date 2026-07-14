@@ -21,6 +21,7 @@
 #include <mutex>
 
 #include "nav2_smac_planner/a_star.hpp"
+#include "nav2_smac_planner/no_waiting_zone.hpp"
 #include "nav2_smac_planner/smoother.hpp"
 #include "nav2_smac_planner/utils.hpp"
 #include "nav2_smac_planner/costmap_downsampler.hpp"
@@ -128,6 +129,8 @@ protected:
   int _max_on_approach_iterations;
   int _terminal_checking_interval;
   bool _use_final_approach_orientation;
+  bool _find_free_space_mode;
+  NoWaitingZone _no_waiting_zone;
   SearchInfo _search_info;
   std::string _motion_model_for_search;
   MotionModel _motion_model;

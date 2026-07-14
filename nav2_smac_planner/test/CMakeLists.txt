@@ -9,6 +9,16 @@ target_link_libraries(test_utils
   nav2_util::nav2_util_core
 )
 
+# Test no-waiting zone
+nav2_add_gtest(test_no_waiting_zone
+  test_no_waiting_zone.cpp
+)
+target_link_libraries(test_no_waiting_zone
+  ${library_name}
+  nav2_costmap_2d::nav2_costmap_2d_core
+  rclcpp::rclcpp
+)
+
 # Test costmap downsampler
 nav2_add_gtest(test_costmap_downsampler
   test_costmap_downsampler.cpp

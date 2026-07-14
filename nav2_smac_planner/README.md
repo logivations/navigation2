@@ -142,6 +142,28 @@ planner_server:
         do_refinement: true               # Whether to recursively run the smoother 3 times on the results from prior runs to refine the results further
 ```
 
+## Find Free Space Mode
+
+`SmacPlannerHybrid` and `SmacPlanner2D` support a special "find free space" mode. Instead of planning toward a goal pose, the planner fans out from the robot's current pose using a uniform-cost (Dijkstra) expansion — the regular A\* search without a goal heuristic — and terminates at the first expanded position outside of a **no-waiting zone**. Since nodes are expanded strictly in order of increasing accumulated traversal cost, the returned position is by construction the reachable free position with the lowest traversal cost from the start (in the 2D planner with `cost_travel_multiplier: 0.0`, this is exactly the shortest-path-distance-closest position; with a non-zero multiplier, cheap low-cost spots are preferred over marginally closer high-cost ones).
+
+The no-waiting zone is provided as a `nav_msgs/OccupancyGrid` on a topic rather than marked in the global costmap, since the robot may start *inside* the zone and must still be able to travel through it — it only constrains where the search may stop. Cells with occupancy >= `no_waiting_zone_occupied_threshold` are inside the zone; unknown cells (-1) and positions outside the zone grid bounds count as outside (valid places to stop).
+
+In this mode, the goal pose of the planning request is ignored entirely (though one must still be sent). It is typically configured as an additional planner plugin instance alongside the regular goal-directed one, e.g.:
+
+```
+planner_server:
+  ros__parameters:
+    planner_plugins: ["GridBased", "FindFreeSpace"]
+
+    FindFreeSpace:
+      plugin: "nav2_smac_planner::SmacPlanner2D"
+      find_free_space_mode: true                 # ignore the goal, fan out from start until outside the no-waiting zone
+      no_waiting_zone_topic: "no_waiting_zone"   # OccupancyGrid topic of the no-waiting zone (latched/transient local supported)
+      no_waiting_zone_occupied_threshold: 1      # minimum occupancy value considered inside the zone
+```
+
+If no zone grid has been received yet when a plan is requested, the planner fails with an error rather than silently treating everything as free space. If the robot is already outside the zone, a single-pose path at the current pose is returned. If no reachable position outside the zone exists, planning fails with `NoValidPathCouldBeFound`.
+
 ## Topics
 
 | Topic           | Type              |
