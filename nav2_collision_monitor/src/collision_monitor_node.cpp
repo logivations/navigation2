@@ -574,7 +574,7 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
       // lower (e.g. narrow_fork_down caps at 0.15 m/s): updatePolygon() would
       // then find no match, emitting a spurious "velocity not covered" warning
       // and leaving a stale obstacle polygon for that cycle.
-      double probe_cap = 0.2;
+      double probe_cap = 0.1;
       if (auto vel_polygon = std::dynamic_pointer_cast<VelocityPolygon>(polygon)) {
         double mode_cap = vel_polygon->getMaxProbeSpeedForMode(cmd_vel_in.x >= 0.0);
         if (mode_cap > 0.0) {
