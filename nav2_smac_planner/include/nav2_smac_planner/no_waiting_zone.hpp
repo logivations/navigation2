@@ -28,6 +28,7 @@
 #include "nav2_ros_common/node_utils.hpp"
 #include "nav2_ros_common/qos_profiles.hpp"
 #include "nav2_ros_common/subscription.hpp"
+#include "tf2/LinearMath/Quaternion.hpp"
 #include "tf2/utils.hpp"
 
 namespace nav2_smac_planner
@@ -143,7 +144,8 @@ public:
     // Transform the world position into the (possibly rotated) grid frame
     const double dx = wx - grid.info.origin.position.x;
     const double dy = wy - grid.info.origin.position.y;
-    const double yaw = tf2::getYaw(grid.info.origin.orientation);
+    const auto & o = grid.info.origin.orientation;
+    const double yaw = tf2::getYaw(tf2::Quaternion(o.x, o.y, o.z, o.w));
     const double gx = std::cos(yaw) * dx + std::sin(yaw) * dy;
     const double gy = -std::sin(yaw) * dx + std::cos(yaw) * dy;
 
