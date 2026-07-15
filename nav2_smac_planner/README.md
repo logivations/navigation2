@@ -160,6 +160,7 @@ planner_server:
       find_free_space_mode: true                 # ignore the goal, fan out from start until outside the no-waiting zone
       no_waiting_zone_topic: "no_waiting_zone"   # OccupancyGrid topic of the no-waiting zone (latched/transient local supported)
       no_waiting_zone_occupied_threshold: 1      # minimum occupancy value considered inside the zone
+      no_waiting_zone_padding: 0.0               # minimum clearance (m) of the stop position to every zone cell; set it larger than the follower's goal tolerance and about the robot's half-footprint so the robot neither stalls at the zone edge nor stops with its footprint hanging into the zone
 ```
 
 If no zone grid has been received yet when a plan is requested, the planner fails with an error rather than silently treating everything as free space. If the robot is already outside the zone, a single-pose path at the current pose is returned. If no reachable position outside the zone exists, planning fails with `NoValidPathCouldBeFound`.

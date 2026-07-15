@@ -15,6 +15,7 @@
 #ifndef NAV2_SMAC_PLANNER__NO_WAITING_ZONE_HPP_
 #define NAV2_SMAC_PLANNER__NO_WAITING_ZONE_HPP_
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -56,6 +57,8 @@ public:
       plugin_name + ".no_waiting_zone_topic", std::string("no_waiting_zone"));
     _occupied_threshold = node->declare_or_get_parameter(
       plugin_name + ".no_waiting_zone_occupied_threshold", 1);
+    _padding = node->declare_or_get_parameter(
+      plugin_name + ".no_waiting_zone_padding", 0.0);
     _grid_sub = node->create_subscription<nav_msgs::msg::OccupancyGrid>(
       _topic,
       [this](nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
@@ -115,31 +118,38 @@ public:
     }
 
     const int8_t threshold = static_cast<int8_t>(_occupied_threshold);
+    const double padding = _padding;
     const double resolution = costmap->getResolution();
     const double origin_x = costmap->getOriginX();
     const double origin_y = costmap->getOriginY();
-    return [grid, origin_x, origin_y, resolution, threshold](
+    return [grid, origin_x, origin_y, resolution, threshold, padding](
       const float & mx, const float & my) -> bool {
         const double wx = origin_x + (static_cast<double>(mx) + 0.5) * resolution;
         const double wy = origin_y + (static_cast<double>(my) + 0.5) * resolution;
-        return !isInZone(*grid, wx, wy, threshold);
+        return !isInZone(*grid, wx, wy, threshold, padding);
       };
   }
 
   /**
    * @brief Check if a world position lies within the no-waiting zone.
    * Positions outside the grid bounds and cells with unknown (< 0) occupancy
-   * are considered outside of the zone.
+   * are considered outside of the zone. With a positive padding, positions
+   * closer than `padding` to any zone cell also count as inside, so a stop
+   * position keeps at least that distance to every zone (e.g. so the robot
+   * footprint does not hang into the zone, and the path end lies farther
+   * beyond the zone edge than the follower's goal tolerance).
    * @param grid Zone occupancy grid
    * @param wx World X coordinate
    * @param wy World Y coordinate
    * @param occupied_threshold Minimum occupancy value considered inside the zone
-   * @return If the position is inside the no-waiting zone
+   * @param padding Minimum clearance to the zone in meters (<= 0 disables)
+   * @return If the position is inside the (padded) no-waiting zone
    */
   static bool isInZone(
     const nav_msgs::msg::OccupancyGrid & grid,
     const double & wx, const double & wy,
-    const int8_t & occupied_threshold)
+    const int8_t & occupied_threshold,
+    const double & padding = 0.0)
   {
     // Transform the world position into the (possibly rotated) grid frame
     const double dx = wx - grid.info.origin.position.x;
@@ -148,24 +158,50 @@ public:
     const double yaw = tf2::getYaw(tf2::Quaternion(o.x, o.y, o.z, o.w));
     const double gx = std::cos(yaw) * dx + std::sin(yaw) * dy;
     const double gy = -std::sin(yaw) * dx + std::cos(yaw) * dy;
+    const double res = grid.info.resolution;
 
-    if (gx < 0.0 || gy < 0.0) {
-      return false;
+    if (padding <= 0.0) {
+      if (gx < 0.0 || gy < 0.0) {
+        return false;
+      }
+      const auto mx = static_cast<unsigned int>(gx / res);
+      const auto my = static_cast<unsigned int>(gy / res);
+      if (mx >= grid.info.width || my >= grid.info.height) {
+        return false;
+      }
+      return grid.data[my * grid.info.width + mx] >= occupied_threshold;
     }
 
-    const auto mx = static_cast<unsigned int>(gx / grid.info.resolution);
-    const auto my = static_cast<unsigned int>(gy / grid.info.resolution);
-    if (mx >= grid.info.width || my >= grid.info.height) {
-      return false;
+    // Padded check: scan the zone cells in the padding-radius box around the
+    // position and compare against the nearest point of each occupied cell.
+    // Rotation preserves distances, so the radius is the same in grid frame.
+    const int r = static_cast<int>(std::ceil(padding / res));
+    const int cx = static_cast<int>(std::floor(gx / res));
+    const int cy = static_cast<int>(std::floor(gy / res));
+    const double pad_sq = padding * padding;
+    for (int iy = std::max(cy - r, 0);
+      iy <= std::min(cy + r, static_cast<int>(grid.info.height) - 1); ++iy)
+    {
+      for (int ix = std::max(cx - r, 0);
+        ix <= std::min(cx + r, static_cast<int>(grid.info.width) - 1); ++ix)
+      {
+        if (grid.data[iy * grid.info.width + ix] < occupied_threshold) {
+          continue;
+        }
+        const double ddx = std::max({ix * res - gx, 0.0, gx - (ix + 1) * res});
+        const double ddy = std::max({iy * res - gy, 0.0, gy - (iy + 1) * res});
+        if (ddx * ddx + ddy * ddy <= pad_sq) {
+          return true;
+        }
+      }
     }
-
-    const int8_t value = grid.data[my * grid.info.width + mx];
-    return value >= occupied_threshold;
+    return false;
   }
 
 protected:
   std::string _topic;
   int _occupied_threshold{1};
+  double _padding{0.0};
   nav2::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr _grid_sub;
   nav_msgs::msg::OccupancyGrid::ConstSharedPtr _grid;
   std::mutex _mutex;

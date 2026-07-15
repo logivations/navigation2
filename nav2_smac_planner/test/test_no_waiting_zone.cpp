@@ -71,6 +71,27 @@ TEST(NoWaitingZoneTest, test_is_in_zone_rotated)
   EXPECT_FALSE(NoWaitingZone::isInZone(grid, 2.25, 2.75, 1));
 }
 
+TEST(NoWaitingZoneTest, test_is_in_zone_padding)
+{
+  auto grid = makeGrid(10u, 10u, 0.5, 1.0, 1.0);
+  grid.data[3 * 10 + 2] = 100;  // cell (2, 3): world x [2.0, 2.5], y [2.5, 3.0]
+
+  // 0.3 m right of the zone cell edge: outside unpadded, inside with 0.5 m padding
+  EXPECT_FALSE(NoWaitingZone::isInZone(grid, 2.8, 2.75, 1));
+  EXPECT_TRUE(NoWaitingZone::isInZone(grid, 2.8, 2.75, 1, 0.5));
+  // 0.7 m away: outside even with 0.5 m padding
+  EXPECT_FALSE(NoWaitingZone::isInZone(grid, 3.2, 2.75, 1, 0.5));
+  // diagonal clearance is euclidean: corner of the cell is at (2.5, 3.0),
+  // (2.8, 3.3) is sqrt(0.18) ~ 0.42 m from it
+  EXPECT_TRUE(NoWaitingZone::isInZone(grid, 2.8, 3.3, 1, 0.5));
+  EXPECT_FALSE(NoWaitingZone::isInZone(grid, 2.9, 3.4, 1, 0.5));
+  // padded lookups outside of the grid bounds still work near the border
+  EXPECT_FALSE(NoWaitingZone::isInZone(grid, 0.5, 0.5, 1, 0.5));
+  // and see zone cells from just outside the grid
+  grid.data[0] = 100;  // cell (0, 0): world x [1.0, 1.5], y [1.0, 1.5]
+  EXPECT_TRUE(NoWaitingZone::isInZone(grid, 0.8, 1.25, 1, 0.5));
+}
+
 TEST(NoWaitingZoneTest, test_stop_checker_requires_grid)
 {
   nav2_costmap_2d::Costmap2D costmap(100, 100, 0.1, 0.0, 0.0, 0);
