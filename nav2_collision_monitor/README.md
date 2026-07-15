@@ -166,15 +166,17 @@ We always assume that a matching field exists for the current velocity. If no fi
 If speed goes through zero (so sign(target speed) <> sign(current speed)):
 
 * if abs(current baselink speed) > low threshold → keep steering angle (we must anyway just slow down asap)
-* if abs(current baselink speed) < low threshold → allow steering
+* if abs(current baselink speed) < low threshold → allow steering, but cap the speed to the **startup limit** (see below)
 
 else:
 
 1. check if both abs(target steering wheel speed) and abs(current steering wheel speed) are < low threshold. If yes → done
 2. check the one-step faster field in the **current** bucket for collision (same-bucket speed limit). Only the one-step faster field needs to be checked, even if target speed is in a much faster field. If the next field is collision-free → current bucket allows up to next field's max. If the next field has obstacles or no faster field exists → current bucket allows up to current field's max. This limit is always enforced — including when the target angle is in a different bucket — because the robot is still physically in the current bucket during any steering transition.
 3. check if target angle is in same bucket as current angle. If yes →
-   1. if abs(current steering wheel speed) < low threshold → done (robot is at standstill and must be free to start moving, the current field is not meaningful for speed limiting)
+   1. if abs(current steering wheel speed) < low threshold → limit speed to the **startup limit** (robot is at standstill: the odom-derived current field — and with it the step-2 bucket limit — is noise, but the command must still respect the fieldsets at the target angle). → done
    2. limit speed to the current bucket's speed limit from step 2. → done
+
+**Startup limit** (used by the two near-standstill cases above): the bucket speed limit evaluated at the **target** steering angle in the target direction — the slowest field's bound, raised to the next-faster field's bound when that field is collision-free (the same one-field-step rule as step 2). It is at least the slowest field's bound, so the robot can always start moving. Without this cap, a standstill command would pass through unlimited until the measured speed crosses the low threshold; the traction controller, chasing a setpoint far above the first speed-bin boundary, then overshoots past the physical fieldset switch into a faster (possibly occupied) field and trips the protective field.
 4. if the target angle is in a different bucket → **advance as far toward the target as is valid at the current speed.** Walk buckets one step at a time from the current angle toward the target. A bucket is **reachable** if it contains a collision-free field whose speed range includes the current steering wheel speed. Keep advancing through contiguously-reachable buckets until either:
    * the target angle's bucket is reached — the whole path is valid at the current speed, or
    * a bucket is **not** reachable — a *cliff*, where its fastest collision-free field is slower than the current speed, or there is no field at all beyond in the current mode. Call the first unreachable bucket the **blocking** bucket.

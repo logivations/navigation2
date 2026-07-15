@@ -499,6 +499,31 @@ VelocityPolygon::findFieldsForAngle(double steering_angle, bool forward) const
   return result;
 }
 
+double VelocityPolygon::startupBucketLimitSw(
+  double target_sa, bool forward,
+  const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
+  const SubPolygonParameter ** chosen_field_out) const
+{
+  *chosen_field_out = nullptr;
+  auto fields = findFieldsForAngle(target_sa, forward);
+  if (fields.empty()) {
+    return 0.0;
+  }
+  auto cap_of = [&](const SubPolygonParameter * sp) {
+      return forward ?
+             sp->linear_max_ - effectiveSpeedMargin(sp->linear_max_) :
+             sp->linear_min_ + effectiveSpeedMargin(sp->linear_min_);
+    };
+  const SubPolygonParameter * chosen = fields[0];
+  if (fields.size() > 1 &&
+    getPointsInsideSubPolygon(*fields[1], collision_points_map) < min_points_)
+  {
+    chosen = fields[1];
+  }
+  *chosen_field_out = chosen;
+  return cap_of(chosen);
+}
+
 double VelocityPolygon::getMaxProbeSpeedForMode(bool forward) const
 {
   double max_abs = 0.0;
@@ -706,7 +731,23 @@ bool VelocityPolygon::validateSteering(
       debug_msg.steering_angle_limit = current_sa;
       return apply_and_return(true);
     }
-    // abs(current) < threshold → allow steering freely
+    // abs(current) < threshold → allow steering freely, but keep the speed
+    // capped to what the fieldsets at the target angle admit. Passing the
+    // command through uncapped lets the setpoint run to full speed while the
+    // measured speed is still below the threshold; the traction controller
+    // then overshoots the physical fieldset speed-bin boundary into a faster,
+    // possibly occupied field before the moving-speed limits engage.
+    const SubPolygonParameter * startup_field = nullptr;
+    const double startup_cap = startupBucketLimitSw(
+      target_sa, target_speed >= 0, collision_points_map, &startup_field);
+    if (startup_field != nullptr) {
+      checked_field = startup_field;
+      debug_msg.valid_field_name = startup_field->velocity_polygon_name_;
+    }
+    if (std::abs(result_sw) > std::abs(startup_cap)) {
+      result_sw = startup_cap;
+      return apply_and_return(true);
+    }
     return apply_and_return(false);
   }
 
@@ -784,15 +825,28 @@ bool VelocityPolygon::validateSteering(
   double limited_sa;
 
   if (same_bucket) {
-    // 3a. At standstill the current field is not meaningful for speed limiting —
-    // the robot must be free to start moving.
+    // 3a. At standstill the odom-derived current field (and with it the step-2
+    // bucket limit) is not meaningful — but the command must still respect the
+    // fieldsets at the target angle. Returning uncapped here lets the setpoint
+    // run to full speed while the measured speed is still below the threshold,
+    // and the traction controller then overshoots the physical fieldset
+    // speed-bin boundary into a faster, possibly occupied field → protective
+    // field e-stop. The startup cap is at least the slowest field's bound, so
+    // starting to move is always possible.
     if (std::abs(current_sw) < low_speed_threshold_) {
-      return apply_and_return(false);
+      const SubPolygonParameter * startup_field = nullptr;
+      effective_limit_sw = startupBucketLimitSw(
+        target_sa, target_sw >= 0, collision_points_map, &startup_field);
+      if (startup_field != nullptr) {
+        checked_field = startup_field;
+        debug_msg.valid_field_name = startup_field->velocity_polygon_name_;
+      }
+      limited_sa = target_sa;
+    } else {
+      // 3b. Limit speed to current bucket's speed limit from step 2
+      effective_limit_sw = current_bucket_limit_sw;
+      limited_sa = target_sa;
     }
-
-    // 3b. Limit speed to current bucket's speed limit from step 2
-    effective_limit_sw = current_bucket_limit_sw;
-    limited_sa = target_sa;
   } else {
     // --- Steps 4–6: Different bucket ---
     // Advance the steering angle as far toward the target as is valid at the

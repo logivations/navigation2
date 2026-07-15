@@ -1362,6 +1362,99 @@ TEST_F(Tester, testValidateSteeringBackwardSameBucketFasterFieldCollision)
   EXPECT_GE(action.req_vel.x, -0.3 - 1e-6);  // not more negative than -0.3
 }
 
+TEST_F(Tester, testValidateSteeringStandstillSameBucketCapsToOccupiedBucketLimit)
+{
+  // amr47 2026-07-15 regression: robot at standstill, commanded hard reverse,
+  // next-faster backward field occupied. The old standstill exemption passed
+  // the full command through; the controller then overshot the physical
+  // fieldset speed-bin boundary into the occupied field → protective-field
+  // e-stop. The command must instead be capped to the slow field's bound.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"backward_slow", "backward_mid"});
+  addSteeringAngleSubPolygon("backward_slow", -0.3, 0.0, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("backward_mid", -0.7, -0.3, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity cmd_vel{-0.6, 0.0, 0.0};
+  nav2_collision_monitor::Velocity odom_vel{-0.005, 0.0, 0.0};  // standstill
+  velocity_polygon_->updatePolygon(cmd_vel);
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Obstacle inside the backward_mid (larger) polygon only
+  collision_map["source"] = {
+    {-0.6, 0.0},
+    {-0.7, 0.1},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Capped just inside backward_slow ([-0.3, 0]) ...
+  EXPECT_GE(action.req_vel.x, -0.3);
+  // ... but the robot must still be able to start moving
+  EXPECT_LE(action.req_vel.x, -0.25);
+}
+
+TEST_F(Tester, testValidateSteeringStandstillSameBucketNextFieldFreeAllowsMore)
+{
+  // Same standstill start, but the next-faster field is collision-free: the
+  // startup cap rises to that field's bound and the command passes unmodified.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"backward_slow", "backward_mid"});
+  addSteeringAngleSubPolygon("backward_slow", -0.3, 0.0, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("backward_mid", -0.7, -0.3, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity cmd_vel{-0.6, 0.0, 0.0};
+  nav2_collision_monitor::Velocity odom_vel{-0.005, 0.0, 0.0};  // standstill
+  velocity_polygon_->updatePolygon(cmd_vel);
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};  // no obstacles
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_FALSE(modified);
+  EXPECT_NEAR(action.req_vel.x, -0.6, 1e-6);
+}
+
+TEST_F(Tester, testValidateSteeringReversalLowSpeedCapsToOccupiedBucketLimit)
+{
+  // Direction reversal at low speed: steering is allowed freely, but the speed
+  // must still respect the startup cap in the TARGET direction — the old code
+  // passed the full command through here as well.
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"backward_slow", "backward_mid"});
+  addSteeringAngleSubPolygon("backward_slow", -0.3, 0.0, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("backward_mid", -0.7, -0.3, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity cmd_vel{-0.6, 0.0, 0.0};
+  nav2_collision_monitor::Velocity odom_vel{0.05, 0.0, 0.0};  // creeping forward
+  velocity_polygon_->updatePolygon(cmd_vel);
+
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Obstacle inside the backward_mid (larger) polygon only
+  collision_map["source"] = {
+    {-0.6, 0.0},
+    {-0.7, 0.1},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  EXPECT_GE(action.req_vel.x, -0.3);
+  EXPECT_LE(action.req_vel.x, -0.25);
+}
+
 TEST_F(Tester, testValidateSteeringNotApplicableToNonSteering)
 {
   // Create a normal theta-based velocity polygon (not steering angle)
