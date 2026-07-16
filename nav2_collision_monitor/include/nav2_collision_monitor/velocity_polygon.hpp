@@ -268,6 +268,27 @@ protected:
     double steering_angle, bool forward) const;
 
   /**
+   * @brief Speed cap for commands issued at/near standstill, where the
+   * odometry-derived current field is meaningless (the steering angle from
+   * near-zero velocities is noise). Uses the fields at the TARGET steering
+   * angle in the target direction: the slowest field's bound, raised to the
+   * next field's bound when that next field is collision-free — mirroring the
+   * same-bucket speed limit of validateSteering step 2. The cap is at least
+   * the slowest field's bound, so starting to move is always possible.
+   * @param target_sa Commanded steering angle in radians
+   * @param forward True if the commanded motion is forward
+   * @param collision_points_map Map of source name to collision points
+   * @param chosen_field_out Set to the field the cap was taken from
+   *        (nullptr if no field covers the target angle/direction)
+   * @return Signed steering wheel speed cap; 0.0 if no field covers the
+   *         target angle/direction
+   */
+  double startupBucketLimitSw(
+    double target_sa, bool forward,
+    const std::unordered_map<std::string, std::vector<Point>> & collision_points_map,
+    const SubPolygonParameter ** chosen_field_out) const;
+
+  /**
    * @brief Check if a point is inside a given polygon (arbitrary vertices)
    * @param point Point to check
    * @param vertices Polygon vertices
