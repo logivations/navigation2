@@ -259,7 +259,6 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
   vel_publisher_->on_activate();
   transformed_plan_pub_->on_activate();
   tracking_feedback_pub_->on_activate();
-  action_server_->activate();
   param_handler_->activate();
 
   // activate goal checker, progress checker and path handler
@@ -275,6 +274,10 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
       node, get_logger(), ph.first, costmap_ros_,
       costmap_ros_->getTfBuffer());
   }
+
+  // Accept goals only once the plugins above hold a valid costmap; a goal
+  // arriving earlier dereferences their still-null costmap_ros_.
+  action_server_->activate();
 
   // create bond connection
   createBond();
