@@ -242,10 +242,11 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
   vel_publisher_->on_activate();
   transformed_plan_pub_->on_activate();
   tracking_feedback_pub_->on_activate();
-  action_server_->activate();
-  param_handler_->activate();
 
-  // activate goal checker, progress checker and path handler
+  // initialize goal checker, progress checker and path handler before activating the
+  // action server: a goal accepted earlier would run computeControl() against plugins
+  // whose costmap_ros_/tf are still null (segfault in e.g.
+  // FeasiblePathHandler::getTransformedGoal)
   auto node = shared_from_this();
   for (auto & pc : progress_checkers_) {
     pc.second->initialize(node, pc.first);
@@ -258,6 +259,9 @@ ControllerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
       node, get_logger(), ph.first, costmap_ros_,
       costmap_ros_->getTfBuffer());
   }
+
+  action_server_->activate();
+  param_handler_->activate();
 
   // create bond connection
   createBond();
