@@ -424,7 +424,8 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
     // Ignore the goal: fan out from the start and stop at the cheapest-to-reach
     // pose outside of the no-waiting zone
     _a_star->enableFreeSpaceSearch(
-      _no_waiting_zone.createFreeSpaceStopChecker(costmap, _global_frame));
+      _no_waiting_zone.createFreeSpaceStopChecker(
+        costmap, _global_frame, _costmap_ros->getRobotFootprint()));
   } else {
     _a_star->disableFreeSpaceSearch();
 

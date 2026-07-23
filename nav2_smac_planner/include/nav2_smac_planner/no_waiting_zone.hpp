@@ -21,7 +21,9 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
+#include "geometry_msgs/msg/point.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav2_core/planner_exceptions.hpp"
 #include "nav2_costmap_2d/costmap_2d.hpp"
@@ -96,8 +98,9 @@ public:
    * @param global_frame Global frame of the planner, to validate the zone frame
    * @return Stop checker functor
    */
-  std::function<bool(const float &, const float &)> createFreeSpaceStopChecker(
-    const nav2_costmap_2d::Costmap2D * costmap, const std::string & global_frame)
+  std::function<bool(const float &, const float &, const float &)> createFreeSpaceStopChecker(
+    const nav2_costmap_2d::Costmap2D * costmap, const std::string & global_frame,
+    const std::vector<geometry_msgs::msg::Point> & footprint = {})
   {
     nav_msgs::msg::OccupancyGrid::ConstSharedPtr grid;
     {
@@ -122,12 +125,65 @@ public:
     const double resolution = costmap->getResolution();
     const double origin_x = costmap->getOriginX();
     const double origin_y = costmap->getOriginY();
-    return [grid, origin_x, origin_y, resolution, threshold, padding](
-      const float & mx, const float & my) -> bool {
+    return [grid, origin_x, origin_y, resolution, threshold, padding, footprint](
+      const float & mx, const float & my, const float & theta) -> bool {
         const double wx = origin_x + (static_cast<double>(mx) + 0.5) * resolution;
         const double wy = origin_y + (static_cast<double>(my) + 0.5) * resolution;
-        return !isInZone(*grid, wx, wy, threshold, padding);
+        return !footprintInZone(*grid, wx, wy, theta, footprint, threshold, padding);
       };
+  }
+
+  /**
+   * @brief Check if the robot footprint, placed at a pose, overlaps the no-waiting zone.
+   * A single point cannot describe an elongated robot: an isotropic padding large enough to
+   * cover it inflates the zone by the circumscribed radius in every direction, which can leave
+   * no reachable stop position at all in a narrow corridor. The zone is a filled region, so
+   * sampling the footprint outline at grid resolution finds every overlap a fill test would;
+   * the centre is tested too for the degenerate case of a zone smaller than the robot.
+   * @param grid Zone occupancy grid
+   * @param wx World X of the robot origin
+   * @param wy World Y of the robot origin
+   * @param theta Robot heading in radians
+   * @param footprint Robot footprint in the robot frame; empty falls back to a point check
+   * @param occupied_threshold Minimum occupancy value considered inside the zone
+   * @param padding Minimum clearance to the zone in meters (<= 0 disables)
+   * @return If any part of the footprint lies inside the (padded) no-waiting zone
+   */
+  static bool footprintInZone(
+    const nav_msgs::msg::OccupancyGrid & grid,
+    const double & wx, const double & wy, const double & theta,
+    const std::vector<geometry_msgs::msg::Point> & footprint,
+    const int8_t & occupied_threshold,
+    const double & padding = 0.0)
+  {
+    if (isInZone(grid, wx, wy, occupied_threshold, padding)) {
+      return true;
+    }
+    if (footprint.size() < 3) {
+      return false;
+    }
+
+    const double cs = std::cos(theta);
+    const double sn = std::sin(theta);
+    const double step = std::max(grid.info.resolution * 0.5, 1e-3);
+
+    for (size_t i = 0; i < footprint.size(); ++i) {
+      const auto & p0 = footprint[i];
+      const auto & p1 = footprint[(i + 1) % footprint.size()];
+      const double ax = wx + p0.x * cs - p0.y * sn;
+      const double ay = wy + p0.x * sn + p0.y * cs;
+      const double bx = wx + p1.x * cs - p1.y * sn;
+      const double by = wy + p1.x * sn + p1.y * cs;
+      const int samples = std::max(1, static_cast<int>(std::ceil(std::hypot(bx - ax, by - ay) /
+        step)));
+      for (int k = 0; k <= samples; ++k) {
+        const double t = static_cast<double>(k) / static_cast<double>(samples);
+        if (isInZone(grid, ax + (bx - ax) * t, ay + (by - ay) * t, occupied_threshold, padding)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**

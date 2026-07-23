@@ -201,7 +201,7 @@ TEST(AStarTest, test_a_star_2d_free_space_search)
   // cheapest reachable stop from (50, 50) is straight left at (29, 50)
   a_star.setStart(50u, 50u, 0);
   a_star.enableFreeSpaceSearch(
-    [](const float & x, const float & /*y*/) {
+    [](const float & x, const float & /*y*/, const float & /*theta*/) {
       return x < 30.0f || x > 70.0f;
     });
 
@@ -227,7 +227,7 @@ TEST(AStarTest, test_a_star_2d_free_space_search)
   a_star.setCollisionChecker(checker.get());
   a_star.setStart(50u, 50u, 0);
   a_star.enableFreeSpaceSearch(
-    [](const float & /*x*/, const float & /*y*/) {
+    [](const float & /*x*/, const float & /*y*/, const float & /*theta*/) {
       return true;
     });
   EXPECT_TRUE(a_star.createPath(path, num_it, tolerance, dummy_cancel_checker));
@@ -241,7 +241,7 @@ TEST(AStarTest, test_a_star_2d_free_space_search)
   a_star.setCollisionChecker(checker.get());
   a_star.setStart(50u, 50u, 0);
   a_star.enableFreeSpaceSearch(
-    [](const float & /*x*/, const float & /*y*/) {
+    [](const float & /*x*/, const float & /*y*/, const float & /*theta*/) {
       return false;
     });
   EXPECT_FALSE(a_star.createPath(path, num_it, tolerance, dummy_cancel_checker));
@@ -312,7 +312,7 @@ TEST(AStarTest, test_a_star_se2_free_space_search)
   a_star.setCollisionChecker(checker.get());
   a_star.setStart(50u, 50u, 0u);
   a_star.enableFreeSpaceSearch(
-    [](const float & x, const float & /*y*/) {
+    [](const float & x, const float & /*y*/, const float & /*theta*/) {
       return x < 30.0f || x > 70.0f;
     });
 

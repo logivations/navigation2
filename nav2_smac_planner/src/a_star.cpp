@@ -335,7 +335,16 @@ bool AStarAlgorithm<NodeT>::checkFreeSpaceStop(
 {
   const Coordinates node_coords =
     NodeT::getCoords(current_node->getIndex(), getSizeX(), getSizeDim3());
-  if (!_free_space_stop_checker(node_coords.x, node_coords.y)) {
+
+  // Coordinates carry theta as a bin index; the checker wants radians so it can place the
+  // robot footprint. Node2D has no heading (and no motion table) - pass 0.
+  float theta = 0.0f;
+  if constexpr (!std::is_same_v<NodeT, Node2D>) {
+    theta = _shared_ctx->motion_table.getAngleFromBin(
+      static_cast<unsigned int>(node_coords.theta));
+  }
+
+  if (!_free_space_stop_checker(node_coords.x, node_coords.y, theta)) {
     return false;
   }
 

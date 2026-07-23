@@ -55,7 +55,8 @@ public:
   typedef typename NodeT::CoordinateVector CoordinateVector;
   typedef typename NodeVector::iterator NeighborIterator;
   typedef std::function<bool (const uint64_t &, NodeT * &)> NodeGetter;
-  typedef std::function<bool (const float &, const float &)> FreeSpaceStopChecker;
+  // (x, y, theta) in map cells / radians; theta is 0 for nodes without a heading
+  typedef std::function<bool (const float &, const float &, const float &)> FreeSpaceStopChecker;
   typedef GoalManager<NodeT> GoalManagerT;
   using NodeContext = typename NodeT::NodeContext;
 
