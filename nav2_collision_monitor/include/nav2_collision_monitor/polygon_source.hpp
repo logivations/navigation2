@@ -108,6 +108,12 @@ protected:
 
   /// @brief distance between sampled points on polygon edges
   double sampling_distance_;
+
+  /// @brief Report the source as valid (with zero points) when no fresh
+  /// polygons are available, instead of invalidating it. For sources where
+  /// "no polygons around" is a normal state and stale entries should simply
+  /// age out via source_timeout without blocking the robot.
+  bool treat_empty_as_valid_;
 };  // class PolygonSource
 
 }  // namespace nav2_collision_monitor

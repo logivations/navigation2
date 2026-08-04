@@ -778,6 +778,56 @@ TEST_F(Tester, testGetOutdatedData)
   ASSERT_EQ(data.size(), 0u);
 }
 
+TEST_F(Tester, testPolygonTreatEmptyAsValid)
+{
+  rclcpp::Time curr_time = test_node_->now();
+
+  createSources();
+
+  sendTransforms(curr_time);
+
+  // Polygon source with treat_empty_as_valid enabled, subscribed to the same topic
+  const char empty_valid_name[]{"EmptyValidPolygon"};
+  test_node_->declare_parameter(
+    std::string(empty_valid_name) + ".topic", rclcpp::ParameterValue(POLYGON_TOPIC));
+  test_node_->declare_parameter(
+    std::string(empty_valid_name) + ".treat_empty_as_valid", rclcpp::ParameterValue(true));
+
+  auto empty_valid_polygon = std::make_shared<PolygonWrapper>(
+    test_node_, empty_valid_name, tf_buffer_,
+    BASE_FRAME_ID, GLOBAL_FRAME_ID,
+    TRANSFORM_TOLERANCE, DATA_TIMEOUT, true);
+  empty_valid_polygon->configure();
+
+  // Nothing received yet: valid with zero points, while the default source is invalid
+  std::vector<nav2_collision_monitor::Point> data;
+  EXPECT_TRUE(empty_valid_polygon->getData(curr_time, data));
+  EXPECT_EQ(data.size(), 0u);
+
+  // Publish a polygon older than DATA_TIMEOUT to both sources
+  test_node_->publishPolygon(curr_time - DATA_TIMEOUT - 1s);
+  ASSERT_TRUE(waitPolygon(500ms));
+
+  rclcpp::Time start_time = test_node_->now();
+  while (rclcpp::ok() && !empty_valid_polygon->dataReceived() &&
+    test_node_->now() - start_time <= rclcpp::Duration(500ms))
+  {
+    executor_->spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(empty_valid_polygon->dataReceived());
+
+  // Stale polygons age out silently: still valid, zero points, no transform attempted
+  data.clear();
+  EXPECT_TRUE(empty_valid_polygon->getData(curr_time, data));
+  EXPECT_EQ(data.size(), 0u);
+
+  // The default source turns invalid once all its polygons aged out
+  data.clear();
+  EXPECT_FALSE(polygon_->getData(curr_time, data));
+  EXPECT_EQ(data.size(), 0u);
+}
+
 TEST_F(Tester, testIncorrectFrameData)
 {
   rclcpp::Time curr_time = test_node_->now();

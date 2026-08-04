@@ -69,16 +69,8 @@ bool PolygonSource::getData(
   const rclcpp::Time & curr_time,
   std::vector<Point> & data)
 {
-  // Ignore data from the source if it is not being published yet or
-  // not published for a long time
-  if (data_.empty()) {
-    RCLCPP_WARN_THROTTLE(
-      logger_, *clock_, 2000,
-      "[%s]: No polygon source data received yet (data_ is empty)", source_name_.c_str());
-    return false;
-  }
-
-  // Remove stale data
+  // Remove stale data first, so a source whose polygons all aged out is
+  // detected as empty below
   if (source_timeout_.seconds() != 0.0){
     data_.erase(
       std::remove_if(
@@ -86,6 +78,19 @@ bool PolygonSource::getData(
         [this, curr_time](const geometry_msgs::msg::PolygonInstanceStamped & polygon_stamped) {
           return curr_time - rclcpp::Time(polygon_stamped.header.stamp) > source_timeout_;
         }), data_.end());
+  }
+
+  // Ignore data from the source if it is not being published yet or
+  // not published for a long time
+  if (data_.empty()) {
+    if (treat_empty_as_valid_) {
+      return true;
+    }
+    RCLCPP_WARN_THROTTLE(
+      logger_, *clock_, 2000,
+      "[%s]: No polygon source data (none received yet or all polygons older than "
+      "source_timeout)", source_name_.c_str());
+    return false;
   }
 
   tf2::Stamped<tf2::Transform> tf_transform;
@@ -167,6 +172,8 @@ void PolygonSource::getParameters(std::string & source_topic)
 
   sampling_distance_ = node->declare_or_get_parameter(
     source_name_ + ".sampling_distance", 0.1);
+  treat_empty_as_valid_ = node->declare_or_get_parameter(
+    source_name_ + ".treat_empty_as_valid", false);
 }
 
 void PolygonSource::dataCallback(geometry_msgs::msg::PolygonInstanceStamped::ConstSharedPtr msg)
