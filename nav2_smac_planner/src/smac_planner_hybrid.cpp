@@ -166,6 +166,11 @@ void SmacPlannerHybrid::configure(
       _logger, "%s: free_space_heading_mode is ignored without find_free_space_mode.",
       _name.c_str());
   }
+  if (_find_free_space_mode) {
+    RCLCPP_INFO(
+      _logger, "%s free_space_heading_mode '%s' (tolerance %.2f rad).",
+      _name.c_str(), _free_space_heading_mode.c_str(), _free_space_heading_tolerance);
+  }
 
   if (_goal_heading_mode == GoalHeadingMode::UNKNOWN) {
     std::string error_msg = "Unable to get GoalHeader type. Given '" + goal_heading_type + "' "
