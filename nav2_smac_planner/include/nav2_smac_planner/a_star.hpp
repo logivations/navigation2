@@ -171,8 +171,14 @@ public:
    * Any goals previously set are cleared; setGoal need not be called.
    * @param stop_checker Functor taking a position in costmap cell coordinates
    * (x, y) and returning true if it is a valid position to stop at
+   * @param preferred_checker Optional additional preference: the search only
+   * terminates at nodes passing both checkers, but the first node that passed
+   * only stop_checker is kept as a fallback and returned if no node satisfying
+   * both is found before timeout or exhaustion
    */
-  void enableFreeSpaceSearch(const FreeSpaceStopChecker & stop_checker);
+  void enableFreeSpaceSearch(
+    const FreeSpaceStopChecker & stop_checker,
+    const FreeSpaceStopChecker & preferred_checker = FreeSpaceStopChecker());
 
   /**
    * @brief Disable free space search and return to goal-directed planning
@@ -316,6 +322,15 @@ protected:
   inline bool checkFreeSpaceStop(const NodePtr & current_node, CoordinateVector & path);
 
   /**
+   * @brief Backtrace the path to a node that terminates the free space search,
+   * handling the parentless single-pose case (the start itself is the stop)
+   * @param node Terminal node of the free space search
+   * @param path Vector of coordinates to fill with the path
+   * @return if a path could be produced
+   */
+  inline bool backtraceFreeSpaceNode(const NodePtr & node, CoordinateVector & path);
+
+  /**
    * @brief Populate a debug log of expansions for Hybrid-A* for visualization
    * @param node Node expanded
    * @param expansions_log Log to add not expanded to
@@ -338,6 +353,8 @@ protected:
 
   bool _free_space_search;
   FreeSpaceStopChecker _free_space_stop_checker;
+  FreeSpaceStopChecker _free_space_preferred_checker;
+  NodePtr _free_space_fallback_node;
 
   NodePtr _start;
   GoalManagerT _goal_manager;

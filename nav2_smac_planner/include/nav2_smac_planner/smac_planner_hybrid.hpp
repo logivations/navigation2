@@ -142,6 +142,8 @@ protected:
   int _coarse_search_resolution;
   bool _find_free_space_mode;
   NoWaitingZone _no_waiting_zone;
+  std::string _free_space_heading_mode;
+  double _free_space_heading_tolerance;
   nav2::Publisher<nav_msgs::msg::Path>::SharedPtr _raw_plan_publisher;
   nav2::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
     _planned_footprints_publisher;

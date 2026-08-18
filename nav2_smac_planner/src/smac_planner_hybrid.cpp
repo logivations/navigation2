@@ -146,6 +146,27 @@ void SmacPlannerHybrid::configure(
       _name.c_str(), _no_waiting_zone.getTopic().c_str());
   }
 
+  // Free space search only: constrain the heading of the returned stop pose to
+  // the start pose's heading (park at the same orientation the robot had on
+  // its path). "preferred" falls back to any valid stop pose if no aligned one
+  // is reachable, "forced" fails instead.
+  _free_space_heading_mode =
+    node->declare_or_get_parameter(name + ".free_space_heading_mode", std::string("none"));
+  _free_space_heading_tolerance =
+    node->declare_or_get_parameter(name + ".free_space_heading_tolerance", 0.35);
+  if (_free_space_heading_mode != "none" && _free_space_heading_mode != "preferred" &&
+    _free_space_heading_mode != "forced")
+  {
+    throw nav2_core::PlannerException(
+            "Invalid free_space_heading_mode '" + _free_space_heading_mode +
+            "'. Valid options are none, preferred, forced.");
+  }
+  if (_free_space_heading_mode != "none" && !_find_free_space_mode) {
+    RCLCPP_WARN(
+      _logger, "%s: free_space_heading_mode is ignored without find_free_space_mode.",
+      _name.c_str());
+  }
+
   if (_goal_heading_mode == GoalHeadingMode::UNKNOWN) {
     std::string error_msg = "Unable to get GoalHeader type. Given '" + goal_heading_type + "' "
       "Valid options are DEFAULT, BIDIRECTIONAL, ALL_DIRECTION. ";
@@ -423,9 +444,28 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
   if (_find_free_space_mode) {
     // Ignore the goal: fan out from the start and stop at the cheapest-to-reach
     // pose outside of the no-waiting zone
-    _a_star->enableFreeSpaceSearch(
-      _no_waiting_zone.createFreeSpaceStopChecker(
-        costmap, _global_frame, _costmap_ros->getRobotFootprint()));
+    const auto zone_checker = _no_waiting_zone.createFreeSpaceStopChecker(
+      costmap, _global_frame, _costmap_ros->getRobotFootprint());
+    if (_free_space_heading_mode == "none") {
+      _a_star->enableFreeSpaceSearch(zone_checker);
+    } else {
+      // Park at the heading the robot had on its path when the search started
+      const double heading_ref = tf2::getYaw(start.pose.orientation);
+      const double heading_tol = _free_space_heading_tolerance;
+      const auto aligned_checker =
+        [heading_ref, heading_tol](const float &, const float &, const float & theta) -> bool {
+          return std::abs(std::remainder(theta - heading_ref, 2.0 * M_PI)) <= heading_tol;
+        };
+      if (_free_space_heading_mode == "forced") {
+        _a_star->enableFreeSpaceSearch(
+          [zone_checker, aligned_checker](
+            const float & mx, const float & my, const float & theta) -> bool {
+            return zone_checker(mx, my, theta) && aligned_checker(mx, my, theta);
+          });
+      } else {
+        _a_star->enableFreeSpaceSearch(zone_checker, aligned_checker);
+      }
+    }
   } else {
     _a_star->disableFreeSpaceSearch();
 
@@ -519,6 +559,10 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
 
     if (num_iterations < _a_star->getMaxIterations()) {
       if (_find_free_space_mode) {
+        if (_free_space_heading_mode == "forced") {
+          throw nav2_core::NoValidPathCouldBeFound(
+                  "no reachable pose outside the no-waiting zone matches the required heading");
+        }
         throw nav2_core::NoValidPathCouldBeFound(
                 "no reachable pose outside the no-waiting zone found");
       }

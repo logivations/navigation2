@@ -43,6 +43,7 @@ AStarAlgorithm<NodeT>::AStarAlgorithm(
   _y_size(0),
   _search_info(search_info),
   _free_space_search(false),
+  _free_space_fallback_node(nullptr),
   _start(nullptr),
   _goal_manager(GoalManagerT()),
   _motion_model(motion_model)
@@ -311,13 +312,16 @@ void AStarAlgorithm<NodeT>::setGoal(
 }
 
 template<typename NodeT>
-void AStarAlgorithm<NodeT>::enableFreeSpaceSearch(const FreeSpaceStopChecker & stop_checker)
+void AStarAlgorithm<NodeT>::enableFreeSpaceSearch(
+  const FreeSpaceStopChecker & stop_checker,
+  const FreeSpaceStopChecker & preferred_checker)
 {
   if (!stop_checker) {
     throw std::runtime_error("Free space search requires a valid stop checker.");
   }
   _free_space_search = true;
   _free_space_stop_checker = stop_checker;
+  _free_space_preferred_checker = preferred_checker;
   // Goals are unused in free space search, clear any stale goal state
   _goal_manager.clear();
 }
@@ -327,6 +331,7 @@ void AStarAlgorithm<NodeT>::disableFreeSpaceSearch()
 {
   _free_space_search = false;
   _free_space_stop_checker = FreeSpaceStopChecker();
+  _free_space_preferred_checker = FreeSpaceStopChecker();
 }
 
 template<typename NodeT>
@@ -348,21 +353,40 @@ bool AStarAlgorithm<NodeT>::checkFreeSpaceStop(
     return false;
   }
 
+  if (_free_space_preferred_checker &&
+    !_free_space_preferred_checker(node_coords.x, node_coords.y, theta))
+  {
+    // Valid but not preferred: keep the first (thus cheapest) such node as a
+    // fallback and keep searching for a preferred one. Its cost and parent
+    // chain are final once visited, so backtracing it later is safe.
+    if (!_free_space_fallback_node) {
+      _free_space_fallback_node = current_node;
+    }
+    return false;
+  }
+
   // Nodes are expanded in order of increasing accumulated cost (no heuristic),
   // so the first node passing the stop checker is the cheapest one to reach.
-  if (!current_node->parent) {
-    // The start itself is a valid stop position: single-pose path
+  return backtraceFreeSpaceNode(current_node, path);
+}
+
+template<typename NodeT>
+bool AStarAlgorithm<NodeT>::backtraceFreeSpaceNode(
+  const NodePtr & node, CoordinateVector & path)
+{
+  if (!node->parent) {
+    // The start itself is the stop position: single-pose path
     if constexpr (std::is_same_v<NodeT, Node2D>) {
-      path.push_back(node_coords);
+      path.push_back(NodeT::getCoords(node->getIndex(), getSizeX(), getSizeDim3()));
     } else {
-      Coordinates pose = current_node->pose;
+      Coordinates pose = node->pose;
       pose.theta = _shared_ctx->motion_table.getAngleFromBin(pose.theta);
       path.push_back(pose);
     }
     return true;
   }
 
-  return current_node->backtracePath(path);
+  return node->backtracePath(path);
 }
 
 template<typename NodeT>
@@ -419,6 +443,7 @@ bool AStarAlgorithm<NodeT>::createPath(
   steady_clock::time_point start_time = steady_clock::now();
   _tolerance = tolerance;
   _best_heuristic_node = {std::numeric_limits<float>::max(), 0};
+  _free_space_fallback_node = nullptr;
   clearQueue();
 
   if (!areInputsValid()) {
@@ -471,6 +496,11 @@ bool AStarAlgorithm<NodeT>::createPath(
       std::chrono::duration<double> planning_duration =
         std::chrono::duration_cast<std::chrono::duration<double>>(steady_clock::now() - start_time);
       if (static_cast<double>(planning_duration.count()) >= _max_planning_time) {
+        if (_free_space_search) {
+          // Timed out before finding a preferred stop: settle for the fallback
+          return _free_space_fallback_node &&
+                 backtraceFreeSpaceNode(_free_space_fallback_node, path);
+        }
         // In case of timeout, return the path that is closest, if within tolerance.
         return getClosestPathWithinTolerance(path);
       }
@@ -552,6 +582,12 @@ bool AStarAlgorithm<NodeT>::createPath(
         }
       }
     }
+  }
+
+  if (_free_space_search) {
+    // Search exhausted without a preferred stop: settle for the fallback
+    return _free_space_fallback_node &&
+           backtraceFreeSpaceNode(_free_space_fallback_node, path);
   }
 
   // If we run out of search options, return the path that is closest, if within tolerance.
