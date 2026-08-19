@@ -171,14 +171,18 @@ public:
    * Any goals previously set are cleared; setGoal need not be called.
    * @param stop_checker Functor taking a position in costmap cell coordinates
    * (x, y) and returning true if it is a valid position to stop at
-   * @param preferred_checker Optional additional preference: the search only
-   * terminates at nodes passing both checkers, but the first node that passed
-   * only stop_checker is kept as a fallback and returned if no node satisfying
+   * @param preferred_checker Optional additional preference on the stop pose
+   * (the deployed one constrains its heading, relative to a reference the
+   * caller picks). The search only terminates at nodes passing both checkers;
+   * if require_preferred is false, the first node that passed only
+   * stop_checker is kept as a fallback and returned when no node satisfying
    * both is found before timeout or exhaustion
+   * @param require_preferred Fail instead of falling back to that node
    */
   void enableFreeSpaceSearch(
     const FreeSpaceStopChecker & stop_checker,
-    const FreeSpaceStopChecker & preferred_checker = FreeSpaceStopChecker());
+    const FreeSpaceStopChecker & preferred_checker = FreeSpaceStopChecker(),
+    const bool & require_preferred = false);
 
   /**
    * @brief Disable free space search and return to goal-directed planning
@@ -352,6 +356,7 @@ protected:
   SearchInfo _search_info;
 
   bool _free_space_search;
+  bool _free_space_require_preferred;
   FreeSpaceStopChecker _free_space_stop_checker;
   FreeSpaceStopChecker _free_space_preferred_checker;
   NodePtr _free_space_fallback_node;

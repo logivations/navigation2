@@ -80,6 +80,7 @@ nav2_add_gtest(test_a_star
 target_link_libraries(test_a_star
   ${library_name}
   ament_index_cpp::ament_index_cpp
+  angles::angles
   nav2_costmap_2d::nav2_costmap_2d_core
   rclcpp::rclcpp
   rclcpp_lifecycle::rclcpp_lifecycle

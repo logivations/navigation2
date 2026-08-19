@@ -161,9 +161,13 @@ planner_server:
       no_waiting_zone_topic: "no_waiting_zone"   # OccupancyGrid topic of the no-waiting zone (latched/transient local supported)
       no_waiting_zone_occupied_threshold: 1      # minimum occupancy value considered inside the zone
       no_waiting_zone_padding: 0.0               # minimum clearance (m) of the stop position to every zone cell; set it larger than the follower's goal tolerance and about the robot's half-footprint so the robot neither stalls at the zone edge nor stops with its footprint hanging into the zone
+      free_space_heading_mode: "none"            # SmacPlannerHybrid only: none | preferred | forced — constrain the heading of the stop pose to the heading of the start pose
+      free_space_heading_tolerance: 0.35         # maximum deviation (rad) from the start heading for a pose to count as aligned
 ```
 
 If no zone grid has been received yet when a plan is requested, the planner fails with an error rather than silently treating everything as free space. If the robot is already outside the zone, a single-pose path at the current pose is returned. If no reachable position outside the zone exists, planning fails with `NoValidPathCouldBeFound`.
+
+`free_space_heading_mode` makes the search stop where the robot keeps the heading it started with, instead of whatever heading the cheapest escape maneuver happens to end in (`SmacPlannerHybrid` only — `SmacPlanner2D` states carry no heading). `preferred` returns the cheapest aligned pose if one is reachable and otherwise falls back to the cheapest legal pose; `forced` never returns a misaligned pose and fails with `NoValidPathCouldBeFound` instead.
 
 ## Topics
 

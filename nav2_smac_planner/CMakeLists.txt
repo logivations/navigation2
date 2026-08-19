@@ -97,6 +97,7 @@ target_link_libraries(${library_name} PUBLIC
   ${visualization_msgs_TARGETS}
 )
 target_link_libraries(${library_name} PRIVATE
+  angles::angles
   pluginlib::pluginlib
 )
 
