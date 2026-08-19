@@ -43,6 +43,8 @@ AStarAlgorithm<NodeT>::AStarAlgorithm(
   _y_size(0),
   _search_info(search_info),
   _free_space_search(false),
+  _free_space_require_preferred(false),
+  _free_space_fallback_node(nullptr),
   _start(nullptr),
   _goal_manager(GoalManagerT()),
   _motion_model(motion_model)
@@ -311,13 +313,18 @@ void AStarAlgorithm<NodeT>::setGoal(
 }
 
 template<typename NodeT>
-void AStarAlgorithm<NodeT>::enableFreeSpaceSearch(const FreeSpaceStopChecker & stop_checker)
+void AStarAlgorithm<NodeT>::enableFreeSpaceSearch(
+  const FreeSpaceStopChecker & stop_checker,
+  const FreeSpaceStopChecker & preferred_checker,
+  const bool & require_preferred)
 {
   if (!stop_checker) {
     throw std::runtime_error("Free space search requires a valid stop checker.");
   }
   _free_space_search = true;
   _free_space_stop_checker = stop_checker;
+  _free_space_preferred_checker = preferred_checker;
+  _free_space_require_preferred = require_preferred;
   // Goals are unused in free space search, clear any stale goal state
   _goal_manager.clear();
 }
@@ -327,6 +334,8 @@ void AStarAlgorithm<NodeT>::disableFreeSpaceSearch()
 {
   _free_space_search = false;
   _free_space_stop_checker = FreeSpaceStopChecker();
+  _free_space_preferred_checker = FreeSpaceStopChecker();
+  _free_space_require_preferred = false;
 }
 
 template<typename NodeT>
@@ -344,25 +353,50 @@ bool AStarAlgorithm<NodeT>::checkFreeSpaceStop(
       static_cast<unsigned int>(node_coords.theta));
   }
 
+  // The preference is orders of magnitude cheaper to evaluate than the stop
+  // checker (which samples the robot footprint), so test it first and skip the
+  // stop check whenever its outcome cannot matter: the node can then neither
+  // terminate the search nor become the fallback.
+  const bool preferred = !_free_space_preferred_checker ||
+    _free_space_preferred_checker(node_coords.x, node_coords.y, theta);
+  if (!preferred && (_free_space_require_preferred || _free_space_fallback_node)) {
+    return false;
+  }
+
   if (!_free_space_stop_checker(node_coords.x, node_coords.y, theta)) {
+    return false;
+  }
+
+  if (!preferred) {
+    // Valid but not preferred: keep the first (thus cheapest) such node as a
+    // fallback and keep searching for a preferred one. Its cost and parent
+    // chain are final once visited, so backtracing it later is safe.
+    _free_space_fallback_node = current_node;
     return false;
   }
 
   // Nodes are expanded in order of increasing accumulated cost (no heuristic),
   // so the first node passing the stop checker is the cheapest one to reach.
-  if (!current_node->parent) {
-    // The start itself is a valid stop position: single-pose path
+  return backtraceFreeSpaceNode(current_node, path);
+}
+
+template<typename NodeT>
+bool AStarAlgorithm<NodeT>::backtraceFreeSpaceNode(
+  const NodePtr & node, CoordinateVector & path)
+{
+  if (!node->parent) {
+    // The start itself is the stop position: single-pose path
     if constexpr (std::is_same_v<NodeT, Node2D>) {
-      path.push_back(node_coords);
+      path.push_back(NodeT::getCoords(node->getIndex(), getSizeX(), getSizeDim3()));
     } else {
-      Coordinates pose = current_node->pose;
+      Coordinates pose = node->pose;
       pose.theta = _shared_ctx->motion_table.getAngleFromBin(pose.theta);
       path.push_back(pose);
     }
     return true;
   }
 
-  return current_node->backtracePath(path);
+  return node->backtracePath(path);
 }
 
 template<typename NodeT>
@@ -401,6 +435,13 @@ bool AStarAlgorithm<NodeT>::areInputsValid()
 template<typename NodeT>
 bool AStarAlgorithm<NodeT>::getClosestPathWithinTolerance(CoordinateVector & path)
 {
+  if (_free_space_search) {
+    // No goal to be close to: the best-so-far of a free space search is the
+    // cheapest node that passed the stop checker but not the preference
+    return _free_space_fallback_node &&
+           backtraceFreeSpaceNode(_free_space_fallback_node, path);
+  }
+
   if (_best_heuristic_node.first < getToleranceHeuristic()) {
     _graph.at(_best_heuristic_node.second).backtracePath(path);
     return true;
@@ -419,6 +460,7 @@ bool AStarAlgorithm<NodeT>::createPath(
   steady_clock::time_point start_time = steady_clock::now();
   _tolerance = tolerance;
   _best_heuristic_node = {std::numeric_limits<float>::max(), 0};
+  _free_space_fallback_node = nullptr;
   clearQueue();
 
   if (!areInputsValid()) {

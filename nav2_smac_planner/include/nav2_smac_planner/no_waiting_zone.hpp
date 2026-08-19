@@ -38,6 +38,37 @@ namespace nav2_smac_planner
 {
 
 /**
+ * @enum nav2_smac_planner::FreeSpaceHeadingMode
+ * @brief How strongly the free space search constrains the heading of the pose
+ * it stops at: not at all, prefer an aligned one but settle for any legal one,
+ * or only ever stop at an aligned one
+ */
+enum class FreeSpaceHeadingMode
+{
+  UNKNOWN = 0,
+  NONE = 1,
+  PREFERRED = 2,
+  FORCED = 3
+};
+
+/**
+ * @brief Parse a free space heading mode parameter value
+ * @param mode Parameter value, one of "none", "preferred", "forced"
+ * @return The mode, or UNKNOWN if the string matches none of them
+ */
+inline FreeSpaceHeadingMode fromStringToFSH(const std::string & mode)
+{
+  if (mode == "none") {
+    return FreeSpaceHeadingMode::NONE;
+  } else if (mode == "preferred") {
+    return FreeSpaceHeadingMode::PREFERRED;
+  } else if (mode == "forced") {
+    return FreeSpaceHeadingMode::FORCED;
+  }
+  return FreeSpaceHeadingMode::UNKNOWN;
+}
+
+/**
  * @class nav2_smac_planner::NoWaitingZone
  * @brief Subscribes to an OccupancyGrid topic describing a "no-waiting zone"
  * and provides stop checkers for the free space search ("find free space"

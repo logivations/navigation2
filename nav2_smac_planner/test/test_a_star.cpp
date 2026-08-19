@@ -18,6 +18,7 @@
 #include <vector>
 #include <limits>
 
+#include "angles/angles.h"
 #include "gtest/gtest.h"
 #include "rclcpp/rclcpp.hpp"
 #include "nav2_costmap_2d/costmap_2d.hpp"
@@ -329,6 +330,126 @@ TEST(AStarTest, test_a_star_se2_free_space_search)
   for (unsigned int i = 1; i != path.size(); i++) {
     EXPECT_LT(hypotf(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y), 2.1f);
   }
+
+  delete costmapA;
+}
+
+TEST(AStarTest, test_a_star_se2_free_space_heading)
+{
+  auto lnode = std::make_shared<nav2::LifecycleNode>("test");
+  nav2_smac_planner::SearchInfo info;
+  info.change_penalty = 0.1;
+  info.non_straight_penalty = 1.1;
+  info.reverse_penalty = 1.0;
+  info.minimum_turning_radius = 8;  // in grid coordinates
+  info.retrospective_penalty = 0.015;
+  info.analytic_expansion_max_length = 20.0;  // in grid coordinates
+  info.analytic_expansion_ratio = 3.5;
+  unsigned int size_theta = 72;
+  info.cost_penalty = 1.7;
+  nav2_smac_planner::AStarAlgorithm<nav2_smac_planner::NodeHybrid> a_star(
+    nav2_smac_planner::MotionModel::REEDS_SHEPP, info);
+  int max_iterations = 100000;
+  float tolerance = 10.0;
+  int it_on_approach = 10;
+  int terminal_checking_interval = 5000;
+  double max_planning_time = 120.0;
+  int num_it = 0;
+
+  a_star.initialize(
+    false, max_iterations, it_on_approach, terminal_checking_interval,
+    max_planning_time, 401, size_theta);
+
+  nav2_costmap_2d::Costmap2D * costmapA =
+    new nav2_costmap_2d::Costmap2D(100, 100, 0.1, 0.0, 0.0, 0);
+
+  auto costmap_ros = std::make_shared<nav2_costmap_2d::Costmap2DROS>();
+  costmap_ros->on_configure(rclcpp_lifecycle::State());
+  auto costmap = costmap_ros->getCostmap();
+  *costmap = *costmapA;
+
+  std::unique_ptr<nav2_smac_planner::GridCollisionChecker> checker =
+    std::make_unique<nav2_smac_planner::GridCollisionChecker>(costmap_ros, size_theta, lnode);
+  checker->setFootprint(nav2_costmap_2d::Footprint(), true, 0.0);
+
+  auto dummy_cancel_checker = []() {
+      return false;
+    };
+
+  // no-waiting zone covers x in [30, 70]; start (50, 50) heads along +x (bin 0)
+  const auto zone_checker =
+    [](const float & x, const float & /*y*/, const float & /*theta*/) {
+      return x < 30.0f || x > 70.0f;
+    };
+  const double heading_tol = 0.35;
+  const auto aligned_to_start =
+    [heading_tol](const float & /*x*/, const float & /*y*/, const float & theta) {
+      return std::abs(angles::shortest_angular_distance(0.0, theta)) <= heading_tol;
+    };
+  const auto anywhere = [](const float &, const float &, const float &) {return true;};
+  const auto never = [](const float &, const float &, const float &) {return false;};
+  // terminal poses are continuous, the checker saw the cell-quantized bin angle
+  const double bin_slack = 2.0 * M_PI / size_theta;
+  auto ang_diff = [](const float & a, const float & b) {
+      return std::abs(angles::shortest_angular_distance(a, b));
+    };
+
+  // setCollisionChecker clears the graph, so it must be re-called per scenario
+  auto run = [&](
+    const nav2_smac_planner::AStarAlgorithm<nav2_smac_planner::NodeHybrid>::FreeSpaceStopChecker &
+    stop,
+    const nav2_smac_planner::AStarAlgorithm<nav2_smac_planner::NodeHybrid>::FreeSpaceStopChecker &
+    preferred = {},
+    const bool & require_preferred = false, const unsigned int & start_bin = 0u)
+    {
+      a_star.setCollisionChecker(checker.get());
+      a_star.setStart(50u, 50u, start_bin);
+      a_star.enableFreeSpaceSearch(stop, preferred, require_preferred);
+      nav2_smac_planner::NodeHybrid::CoordinateVector path;
+      num_it = 0;
+      EXPECT_TRUE(a_star.createPath(path, num_it, tolerance, dummy_cancel_checker));
+      return path;
+    };
+
+  // forced only stops where the zone is clear AND the heading is aligned
+  auto path = run(zone_checker, aligned_to_start, true);
+  ASSERT_GT(path.size(), 1u);
+  EXPECT_TRUE(path.front().x < 30.5f || path.front().x > 69.5f);
+  EXPECT_LE(ang_diff(path.front().theta, 0.0f), heading_tol + bin_slack);
+
+  // preferred with an aligned stop reachable terminates aligned as well
+  path = run(zone_checker, aligned_to_start);
+  ASSERT_GT(path.size(), 1u);
+  EXPECT_TRUE(path.front().x < 30.5f || path.front().x > 69.5f);
+  EXPECT_LE(ang_diff(path.front().theta, 0.0f), heading_tol + bin_slack);
+
+  // reference terminal without any preference, for the fallback case below
+  path = run(zone_checker);
+  ASSERT_GT(path.size(), 1u);
+  const float plain_stop_x = path.front().x;
+  const float plain_stop_y = path.front().y;
+
+  // preferred with an unsatisfiable preference falls back to the cheapest
+  // zone-clear stop (identical to the run without a preference)
+  path = run(zone_checker, never);
+  ASSERT_GT(path.size(), 1u);
+  EXPECT_EQ(path.front().x, plain_stop_x);
+  EXPECT_EQ(path.front().y, plain_stop_y);
+
+  // forced with a zone-clear but misaligned start (bin 18 = pi/2) produces a
+  // realignment maneuver ending aligned
+  path = run(anywhere, aligned_to_start, true, 18u);
+  ASSERT_GT(path.size(), 1u);
+  EXPECT_LE(ang_diff(path.front().theta, 0.0f), heading_tol + bin_slack);
+  EXPECT_NEAR(path.back().theta, static_cast<float>(M_PI_2), 1e-3);
+
+  // preferred with a zone-clear but misaligned start and nothing aligned
+  // reachable falls back to holding the start pose (single-pose path)
+  path = run(anywhere, never, false, 18u);
+  ASSERT_EQ(path.size(), 1u);
+  EXPECT_EQ(path.front().x, 50.0f);
+  EXPECT_EQ(path.front().y, 50.0f);
+  EXPECT_NEAR(path.front().theta, static_cast<float>(M_PI_2), 1e-3);
 
   delete costmapA;
 }

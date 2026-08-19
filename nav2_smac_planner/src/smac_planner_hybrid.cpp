@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <limits>
 
+#include "angles/angles.h"
 #include "nav2_smac_planner/smac_planner_hybrid.hpp"
 
 // #define BENCHMARK_TESTING
@@ -138,12 +139,33 @@ void SmacPlannerHybrid::configure(
   // from the start (Dijkstra) and returns a path to the cheapest-to-reach
   // position outside of the no-waiting zone grid
   _find_free_space_mode = node->declare_or_get_parameter(name + ".find_free_space_mode", false);
+
+  // Free space search only: constrain the heading of the returned stop pose to
+  // the start pose's heading (park at the same orientation the robot had on
+  // its path). "preferred" falls back to any valid stop pose if no aligned one
+  // is reachable, "forced" fails instead.
+  std::string free_space_heading_type =
+    node->declare_or_get_parameter(name + ".free_space_heading_mode", std::string("none"));
+  _free_space_heading_mode = fromStringToFSH(free_space_heading_type);
+  _free_space_heading_tolerance =
+    node->declare_or_get_parameter(name + ".free_space_heading_tolerance", 0.35);
+  if (_free_space_heading_mode == FreeSpaceHeadingMode::UNKNOWN) {
+    throw nav2_core::PlannerException(
+            "Unable to get free space heading mode. Given '" + free_space_heading_type + "'. "
+            "Valid options are none, preferred, forced.");
+  }
+
   if (_find_free_space_mode) {
     _no_waiting_zone.configure(node, name);
     RCLCPP_INFO(
-      _logger, "%s is in find free space mode: goal poses will be ignored and the "
-      "no-waiting zone is taken from topic '%s'.",
-      _name.c_str(), _no_waiting_zone.getTopic().c_str());
+      _logger, "%s is in find free space mode: goal poses will be ignored, the no-waiting zone "
+      "is taken from topic '%s' and the heading mode is '%s' (tolerance %.2f rad).",
+      _name.c_str(), _no_waiting_zone.getTopic().c_str(), free_space_heading_type.c_str(),
+      _free_space_heading_tolerance);
+  } else if (_free_space_heading_mode != FreeSpaceHeadingMode::NONE) {
+    RCLCPP_WARN(
+      _logger, "%s: free_space_heading_mode is ignored without find_free_space_mode.",
+      _name.c_str());
   }
 
   if (_goal_heading_mode == GoalHeadingMode::UNKNOWN) {
@@ -407,7 +429,8 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
             std::to_string(start.pose.position.y) + ") was outside bounds");
   }
 
-  double start_orientation_bin = std::round(tf2::getYaw(start.pose.orientation) / _angle_bin_size);
+  const double start_yaw = tf2::getYaw(start.pose.orientation);
+  double start_orientation_bin = std::round(start_yaw / _angle_bin_size);
   while (start_orientation_bin < 0.0) {
     start_orientation_bin += static_cast<float>(_angle_quantizations);
   }
@@ -423,9 +446,20 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
   if (_find_free_space_mode) {
     // Ignore the goal: fan out from the start and stop at the cheapest-to-reach
     // pose outside of the no-waiting zone
+    AStarAlgorithm<NodeHybrid>::FreeSpaceStopChecker aligned_checker;
+    if (_free_space_heading_mode != FreeSpaceHeadingMode::NONE) {
+      // Park at the heading the robot had on its path when the search started
+      aligned_checker =
+        [ref = start_yaw, tol = _free_space_heading_tolerance](
+        const float &, const float &, const float & theta) -> bool {
+          return std::abs(angles::shortest_angular_distance(ref, theta)) <= tol;
+        };
+    }
     _a_star->enableFreeSpaceSearch(
       _no_waiting_zone.createFreeSpaceStopChecker(
-        costmap, _global_frame, _costmap_ros->getRobotFootprint()));
+        costmap, _global_frame, _costmap_ros->getRobotFootprint()),
+      aligned_checker,
+      _free_space_heading_mode == FreeSpaceHeadingMode::FORCED);
   } else {
     _a_star->disableFreeSpaceSearch();
 
@@ -519,6 +553,10 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
 
     if (num_iterations < _a_star->getMaxIterations()) {
       if (_find_free_space_mode) {
+        if (_free_space_heading_mode == FreeSpaceHeadingMode::FORCED) {
+          throw nav2_core::NoValidPathCouldBeFound(
+                  "no reachable pose outside the no-waiting zone matches the required heading");
+        }
         throw nav2_core::NoValidPathCouldBeFound(
                 "no reachable pose outside the no-waiting zone found");
       }
@@ -717,6 +755,15 @@ rcl_interfaces::msg::SetParametersResult SmacPlannerHybrid::validateParameterUpd
             parameter.as_string().c_str());
           result.successful = false;
         }
+      } else if (param_name == _name + ".free_space_heading_mode") {
+        if (fromStringToFSH(parameter.as_string()) == FreeSpaceHeadingMode::UNKNOWN) {
+          RCLCPP_WARN(
+            _logger,
+            "Unable to get free space heading mode. Given '%s'. Valid options are none, "
+            "preferred, forced. Ignoring parameter update.",
+            parameter.as_string().c_str());
+          result.successful = false;
+        }
       }
     }
   }
@@ -870,6 +917,10 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
           "GoalHeadingMode type set to '%s'.",
           goal_heading_type.c_str());
         _goal_heading_mode = goal_heading_mode;
+      } else if (param_name == _name + ".free_space_heading_mode") {
+        RCLCPP_INFO(
+          _logger, "FreeSpaceHeadingMode set to '%s'.", parameter.as_string().c_str());
+        _free_space_heading_mode = fromStringToFSH(parameter.as_string());
       }
     }
   }

@@ -171,8 +171,18 @@ public:
    * Any goals previously set are cleared; setGoal need not be called.
    * @param stop_checker Functor taking a position in costmap cell coordinates
    * (x, y) and returning true if it is a valid position to stop at
+   * @param preferred_checker Optional additional preference on the stop pose
+   * (the deployed one constrains its heading, relative to a reference the
+   * caller picks). The search only terminates at nodes passing both checkers;
+   * if require_preferred is false, the first node that passed only
+   * stop_checker is kept as a fallback and returned when no node satisfying
+   * both is found before timeout or exhaustion
+   * @param require_preferred Fail instead of falling back to that node
    */
-  void enableFreeSpaceSearch(const FreeSpaceStopChecker & stop_checker);
+  void enableFreeSpaceSearch(
+    const FreeSpaceStopChecker & stop_checker,
+    const FreeSpaceStopChecker & preferred_checker = FreeSpaceStopChecker(),
+    const bool & require_preferred = false);
 
   /**
    * @brief Disable free space search and return to goal-directed planning
@@ -316,6 +326,15 @@ protected:
   inline bool checkFreeSpaceStop(const NodePtr & current_node, CoordinateVector & path);
 
   /**
+   * @brief Backtrace the path to a node that terminates the free space search,
+   * handling the parentless single-pose case (the start itself is the stop)
+   * @param node Terminal node of the free space search
+   * @param path Vector of coordinates to fill with the path
+   * @return if a path could be produced
+   */
+  inline bool backtraceFreeSpaceNode(const NodePtr & node, CoordinateVector & path);
+
+  /**
    * @brief Populate a debug log of expansions for Hybrid-A* for visualization
    * @param node Node expanded
    * @param expansions_log Log to add not expanded to
@@ -337,7 +356,10 @@ protected:
   SearchInfo _search_info;
 
   bool _free_space_search;
+  bool _free_space_require_preferred;
   FreeSpaceStopChecker _free_space_stop_checker;
+  FreeSpaceStopChecker _free_space_preferred_checker;
+  NodePtr _free_space_fallback_node;
 
   NodePtr _start;
   GoalManagerT _goal_manager;
