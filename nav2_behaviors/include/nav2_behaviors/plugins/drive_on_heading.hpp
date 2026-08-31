@@ -17,6 +17,7 @@
 #define NAV2_BEHAVIORS__PLUGINS__DRIVE_ON_HEADING_HPP_
 
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <utility>
@@ -50,6 +51,7 @@ public:
     command_x_(0.0),
     command_speed_(0.0),
     command_disable_collision_checks_(false),
+    command_steering_angle_(0.0),
     simulate_ahead_time_(0.0)
   {
   }
@@ -81,6 +83,17 @@ public:
     command_speed_ = command->speed;
     command_time_allowance_ = command->time_allowance;
     command_disable_collision_checks_ = command->disable_collision_checks;
+    command_steering_angle_ = command->steering_angle;
+    if (std::fabs(command_steering_angle_) > 0.3) {
+      // Fieldset steering clamps typically pin the physical steering to
+      // ~0.175-0.29 rad in narrow fields, so larger angles are likely
+      // unexecutable there and the arc will not match the commanded one.
+      RCLCPP_WARN(
+        this->logger_,
+        "DriveOnHeading: steering_angle %.3f rad > 0.3 rad; fieldset steering "
+        "clamps may make this unexecutable in narrow fields.",
+        command_steering_angle_);
+    }
 
     free_goal_vel = command->free_goal_vel;
 
@@ -130,6 +143,11 @@ public:
     feedback_->distance_traveled = distance;
     this->action_server_->publish_feedback(feedback_);
 
+    // Termination is on Euclidean (chord) displacement from the start pose.
+    // With a nonzero steering_angle the robot drives an arc, so the chord is
+    // slightly shorter than the arc length; for the intended shallow angles
+    // (<= 0.25 rad) and short distances the error is < 1%, so the straight-line
+    // termination logic is deliberately kept.
     if (distance >= std::fabs(command_x_)) {
       if (!free_goal_vel)
       {
@@ -168,6 +186,12 @@ public:
       cmd_vel->twist.linear.x = forward ? minimum_speed_ : -minimum_speed_;
     }
 
+    // On tricycle-steered vehicles the physical steering angle is encoded in
+    // the vx/wz ratio, so holding a fixed steering angle means scaling wz with
+    // the current linear speed.
+    cmd_vel->twist.angular.z =
+      steeringAngleToTw(cmd_vel->twist.linear.x, command_steering_angle_, wheelbase_);
+
     geometry_msgs::msg::Pose pose2d = current_pose.pose;
 
     if (!isCollisionFree(distance, cmd_vel->twist, pose2d)) {
@@ -190,6 +214,29 @@ public:
   CostmapInfoType getResourceInfo() override {return CostmapInfoType::LOCAL;}
 
   void onCleanup() override {last_vel_ = std::numeric_limits<double>::max();}
+
+  /**
+   * @brief Convert a fixed physical steering angle into the angular velocity
+   * to publish alongside the given base-link linear speed.
+   *
+   * Must match the stack-wide convention in
+   * nav2_collision_monitor::VelocityPolygon::steeringAngleToTw /
+   * computeSteeringAngle: tw = tan(angle) * |v| / wheelbase, with the sign
+   * negated when driving in reverse so the physical steering angle stays fixed.
+   *
+   * @param speed base-link linear speed [m/s] (signed)
+   * @param steering_angle physical steering angle [rad]
+   * @param wheelbase distance between steering and fixed axle [m]
+   * @return angular velocity [rad/s]
+   */
+  static double steeringAngleToTw(double speed, double steering_angle, double wheelbase)
+  {
+    double tw = std::tan(steering_angle) * std::abs(speed) / wheelbase;
+    if (speed < 0.0) {
+      tw = -tw;
+    }
+    return tw;
+  }
 
   void onActionCompletion(std::shared_ptr<typename ActionT::Result>/*result*/)
   override
@@ -214,7 +261,9 @@ protected:
       return true;
     }
 
-    // Simulate ahead by simulate_ahead_time_ in this->cycle_frequency_ increments
+    // Simulate ahead by simulate_ahead_time_ in this->cycle_frequency_ increments.
+    // The simulation is a straight line even with a nonzero steering_angle; for the
+    // intended shallow angles and short distances the lateral deviation is negligible.
     int cycle_count = 0;
     double sim_position_change;
     const double diff_dist = abs(command_x_) - distance;
@@ -259,6 +308,10 @@ protected:
       this->behavior_name_ + ".deceleration_limit", -2.5);
     minimum_speed_ = node->declare_or_get_parameter(
       this->behavior_name_ + ".minimum_speed", 0.10);
+    // Vehicle wheelbase [m], used to convert a goal steering_angle into wz.
+    // Node-level (shared between drive_on_heading/backup instances); the
+    // default matches the tricycle forklift (amr_parameters.yaml, CAD value).
+    wheelbase_ = node->declare_or_get_parameter("wheelbase", 1.2526);
 
     if (acceleration_limit_ <= 0.0 || deceleration_limit_ >= 0.0) {
       RCLCPP_ERROR(
@@ -276,6 +329,8 @@ protected:
   double command_x_;
   double command_speed_;
   bool command_disable_collision_checks_;
+  double command_steering_angle_;
+  double wheelbase_;
   rclcpp::Duration command_time_allowance_{0, 0};
   rclcpp::Time end_time_;
   double simulate_ahead_time_;

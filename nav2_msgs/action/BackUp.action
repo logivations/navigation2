@@ -5,6 +5,9 @@ float32 speed
 builtin_interfaces/Duration time_allowance
 bool disable_collision_checks False
 bool free_goal_vel
+# Fixed steering angle [rad] to hold while driving; see DriveOnHeading.action.
+# 0.0 (default) = straight, unchanged behavior.
+float32 steering_angle 0.0
 ---
 #result definition
 

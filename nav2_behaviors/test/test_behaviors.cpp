@@ -23,6 +23,7 @@
 
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "nav2_behaviors/timed_behavior.hpp"
+#include "nav2_behaviors/plugins/drive_on_heading.hpp"
 #include "nav2_msgs/action/dummy_behavior.hpp"
 
 using nav2_behaviors::TimedBehavior;
@@ -279,6 +280,40 @@ TEST_F(BehaviorTest, testingTotalElapsedTimeIsZeroIfFailureOnRun)
   ASSERT_TRUE(sendCommand("Testing failure on run"));
   EXPECT_EQ(getResult().result->total_elapsed_time.sec, 0.0);
   SUCCEED();
+}
+
+TEST(DriveOnHeadingSteering, steeringAngleToTwMatchesStackConvention)
+{
+  using DoH = nav2_behaviors::DriveOnHeading<>;
+  const double wheelbase = 1.2526;
+
+  // Zero steering angle -> zero angular velocity (classic DriveOnHeading).
+  EXPECT_DOUBLE_EQ(DoH::steeringAngleToTw(0.5, 0.0, wheelbase), 0.0);
+  EXPECT_DOUBLE_EQ(DoH::steeringAngleToTw(-0.5, 0.0, wheelbase), 0.0);
+
+  // Forward: tw = tan(angle) * |v| / wheelbase.
+  EXPECT_NEAR(
+    DoH::steeringAngleToTw(0.1, 0.17, wheelbase),
+    std::tan(0.17) * 0.1 / wheelbase, 1e-12);
+
+  // Reverse: sign negated so the physical steering angle stays fixed
+  // (matches nav2_collision_monitor::VelocityPolygon::steeringAngleToTw).
+  EXPECT_NEAR(
+    DoH::steeringAngleToTw(-0.1, 0.17, wheelbase),
+    -std::tan(0.17) * 0.1 / wheelbase, 1e-12);
+
+  // Negative steering angle mirrors the sign.
+  EXPECT_NEAR(
+    DoH::steeringAngleToTw(-0.1, -0.17, wheelbase),
+    std::tan(0.17) * 0.1 / wheelbase, 1e-12);
+
+  // Round trip through the collision monitor's computeSteeringAngle convention:
+  // angle = atan2(wheelbase * tw_corrected, |v|), tw_corrected = -tw for v < 0.
+  double v = -0.1;
+  double angle = 0.17;
+  double tw = DoH::steeringAngleToTw(v, angle, wheelbase);
+  double tw_corrected = v < 0.0 ? -tw : tw;
+  EXPECT_NEAR(std::atan2(wheelbase * tw_corrected, std::abs(v)), angle, 1e-12);
 }
 
 int main(int argc, char ** argv)

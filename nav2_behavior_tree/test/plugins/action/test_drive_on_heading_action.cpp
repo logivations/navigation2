@@ -129,12 +129,13 @@ TEST_F(DriveOnHeadingActionTestFixture, test_ports)
   EXPECT_EQ(tree_->rootNode()->getInput<double>("speed"), 0.025);
   EXPECT_EQ(tree_->rootNode()->getInput<double>("time_allowance"), 10.0);
   EXPECT_EQ(tree_->rootNode()->getInput<bool>("disable_collision_checks"), false);
+  EXPECT_EQ(tree_->rootNode()->getInput<double>("steering_angle"), 0.0);
 
   xml_txt =
     R"(
       <root BTCPP_format="4">
         <BehaviorTree ID="MainTree">
-            <DriveOnHeading dist_to_travel="2" speed="0.26" disable_collision_checks="true" />
+            <DriveOnHeading dist_to_travel="2" speed="0.26" disable_collision_checks="true" steering_angle="0.17" />
         </BehaviorTree>
       </root>)";
 
@@ -142,6 +143,7 @@ TEST_F(DriveOnHeadingActionTestFixture, test_ports)
   EXPECT_EQ(tree_->rootNode()->getInput<double>("dist_to_travel"), 2.0);
   EXPECT_EQ(tree_->rootNode()->getInput<double>("speed"), 0.26);
   EXPECT_EQ(tree_->rootNode()->getInput<bool>("disable_collision_checks"), true);
+  EXPECT_EQ(tree_->rootNode()->getInput<double>("steering_angle"), 0.17);
 }
 
 TEST_F(DriveOnHeadingActionTestFixture, test_tick)
@@ -150,7 +152,7 @@ TEST_F(DriveOnHeadingActionTestFixture, test_tick)
     R"(
       <root BTCPP_format="4">
         <BehaviorTree ID="MainTree">
-            <DriveOnHeading dist_to_travel="2" speed="0.26" />
+            <DriveOnHeading dist_to_travel="2" speed="0.26" steering_angle="-0.17" />
         </BehaviorTree>
       </root>)";
 
@@ -165,6 +167,7 @@ TEST_F(DriveOnHeadingActionTestFixture, test_tick)
   auto goal = action_server_->getCurrentGoal();
   EXPECT_EQ(goal->target.x, 2.0);
   EXPECT_EQ(goal->speed, 0.26f);
+  EXPECT_EQ(goal->steering_angle, -0.17f);
 }
 
 TEST_F(DriveOnHeadingActionTestFixture, test_failure)

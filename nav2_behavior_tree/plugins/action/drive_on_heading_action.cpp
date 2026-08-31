@@ -40,6 +40,8 @@ void DriveOnHeadingAction::initialize()
   getInput("disable_collision_checks", disable_collision_checks);
   bool free_goal_vel;
   getInput("free_goal_vel", free_goal_vel);
+  double steering_angle;
+  getInput("steering_angle", steering_angle);
 
   // Populate the input message
   goal_.target.x = dist;
@@ -49,6 +51,7 @@ void DriveOnHeadingAction::initialize()
   goal_.time_allowance = rclcpp::Duration::from_seconds(time_allowance);
   goal_.disable_collision_checks = disable_collision_checks;
   goal_.free_goal_vel = free_goal_vel;
+  goal_.steering_angle = steering_angle;
 }
 
 void DriveOnHeadingAction::on_tick()

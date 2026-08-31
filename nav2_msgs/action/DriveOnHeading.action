@@ -5,6 +5,11 @@ float32 speed
 builtin_interfaces/Duration time_allowance
 bool disable_collision_checks False
 bool free_goal_vel
+# Fixed steering angle [rad] to hold while driving (tricycle-steered vehicles).
+# 0.0 (default) keeps the classic straight DriveOnHeading behavior. Nonzero values
+# make the behavior publish angular.z = tan(steering_angle) * |speed| / wheelbase
+# (sign negated in reverse), i.e. a short arc at a constant physical steering angle.
+float32 steering_angle 0.0
 ---
 #result definition
 

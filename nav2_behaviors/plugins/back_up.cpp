@@ -30,6 +30,7 @@ ResultStatus BackUp::onRun(const std::shared_ptr<const BackUpAction::Goal> comma
   command_speed_ = -std::fabs(command->speed);
   command_time_allowance_ = command->time_allowance;
   command_disable_collision_checks_ = command->disable_collision_checks;
+  command_steering_angle_ = command->steering_angle;
 
   end_time_ = this->clock_->now() + command_time_allowance_;
 

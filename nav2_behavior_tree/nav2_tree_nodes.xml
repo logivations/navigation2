@@ -26,6 +26,7 @@
       <input_port name="server_name">Server name</input_port>
       <input_port name="server_timeout">Server timeout</input_port>
       <input_port name="disable_collision_checks">Disable collision checking</input_port>
+      <input_port name="steering_angle">Fixed physical steering angle [rad] to hold while driving; 0.0 = straight</input_port>
       <output_port name="error_code_id">"Drive on heading error code"</output_port>
       <output_port name="error_msg">"Drive on heading error message"</output_port>
     </Action>
