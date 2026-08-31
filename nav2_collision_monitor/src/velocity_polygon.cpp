@@ -657,6 +657,35 @@ bool VelocityPolygon::validateSteering(
     Velocity result_vel;
     if (mod) {
       result_vel = swToBaselink(result_sw, result_sa);
+      // Limiter invariant: this validator may only scale the requested motion
+      // toward zero — never amplify a component, reverse its sign, or turn a
+      // rotation request into translation. Zero is always admissible (every
+      // driving direction has a field whose speed range includes 0).
+      // swToBaselink() re-anchors the steering-wheel speed at result_sa, and
+      // when result_sa differs from the requested angle the conversion can
+      // violate this: for a pure-rotation command (cmd x == 0, e.g. a spin
+      // started while the robot is still rolling) the bucket barrier speed
+      // came out as ~0.14 m/s of translation, driving the robot off its spin
+      // pose instead of letting it stop; during a direction reversal the
+      // angle-held conversion amplified the linear speed above the request.
+      auto scale_toward_zero = [](double out, double in) -> double {
+          if (out * in <= 0.0) {
+            return 0.0;
+          }
+          return std::abs(out) > std::abs(in) ? in : out;
+        };
+      if (std::abs(cmd_vel_in.x) < 1e-6) {
+        // Pure-rotation request: no translation, and the rotation channel is
+        // the meaningful one — scale it toward zero instead of re-deriving it
+        // from the (zero) linear speed, so an in-place spin stays limitable.
+        result_vel.x = 0.0;
+        result_vel.tw = scale_toward_zero(result_vel.tw, cmd_vel_in.tw);
+      } else {
+        // Translation request: clamp the linear speed, then re-encode the
+        // limited steering angle for the downstream controller at that speed.
+        result_vel.x = scale_toward_zero(result_vel.x, cmd_vel_in.x);
+        result_vel.tw = steeringAngleToTw(result_vel.x, result_sa);
+      }
       debug_msg.final_sw = result_sw;
       debug_msg.limited_sa = result_sa;
       debug_msg.speed_limit_applied = result_vel.x;

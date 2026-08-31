@@ -2416,6 +2416,90 @@ TEST_F(Tester, testFieldsModeNarrowRightSpeedLimitClamped)
   }
 }
 
+// ==================== limiter invariant on the baselink speed ====================
+
+// Regression for the miele-amr1 2026-08-31 side-approach overshoot: a
+// pure-rotation command (PrecisionSpin) issued while the robot is still
+// rolling backward must never come out of validateSteering as translation.
+// Before the invariant clamp, the different-bucket path re-anchored the
+// bucket barrier speed at the reachable steering angle, so a (0, 0, wz)
+// request from a moving robot was answered with ~0.14 m/s of linear creep
+// that drove the robot ~0.4 m off its spin pose.
+TEST_F(Tester, testValidateSteeringPureRotationNeverSynthesizesTranslation)
+{
+  // Backward straight bucket (robot's current state) and a slow forward bucket
+  // at right steering angles on the way toward the spin's target angle (-pi/2).
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"bw_straight", "fw_right_slow"});
+  addSteeringAngleSubPolygon("bw_straight", -0.5, 0.0, -0.3, 0.3, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fw_right_slow", 0.0, 0.15, -1.6, -0.3, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{-0.24, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Spin command while still rolling backward (the DriveOnHeading cancel case)
+  nav2_collision_monitor::Velocity cmd_vel{0.0, 0.0, -0.38};
+  nav2_collision_monitor::Velocity odom_vel{-0.24, 0.0, 0.0};
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Occupy the intermediate bucket (the rack the robot backed toward)
+  collision_map["source"] = {
+    {0.0, 0.0},
+    {0.2, 0.1},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // The planner asked for zero linear speed — the validator must not invent any.
+  // The robot then simply decelerates to standstill, after which the
+  // standstill/startup paths release the steering toward the spin angle.
+  EXPECT_EQ(action.req_vel.x, 0.0);
+  // The rotation channel may survive scaled toward zero, but never flipped
+  // in sign or amplified beyond the request.
+  EXPECT_LE(action.req_vel.tw, 0.0);
+  EXPECT_LE(std::abs(action.req_vel.tw), std::abs(cmd_vel.tw) + 1e-9);
+}
+
+// The direction-reversal angle hold converts the requested speed through a
+// different steering angle than the planner's, which amplified the baselink
+// speed above the request (0.5 requested → ~0.57 commanded). The invariant
+// caps the speed at the requested magnitude while the twist keeps encoding
+// the held (current) steering angle.
+TEST_F(Tester, testValidateSteeringReversalNeverAmplifiesSpeed)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD, {"slow", "fast"});
+  addSteeringAngleSubPolygon("slow", 0.0, 0.5, -0.5, 0.5, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fast", 0.5, 1.0, -0.5, 0.5, STEERING_POLYGON_FAST_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.3, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Planner wants forward with steering; robot still moves backward.
+  nav2_collision_monitor::Velocity cmd_vel{0.5, 0.0, 0.3};
+  nav2_collision_monitor::Velocity odom_vel{-0.5, 0.0, 0.1};
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // Same direction as requested, never faster than requested.
+  EXPECT_GT(action.req_vel.x, 0.0);
+  EXPECT_LE(std::abs(action.req_vel.x), std::abs(cmd_vel.x) + 1e-9);
+  // The twist still encodes the held (current) steering angle.
+  const double held_sa = velocity_polygon_->callComputeSteeringAngle(odom_vel);
+  const double result_sa = velocity_polygon_->callComputeSteeringAngle(action.req_vel);
+  EXPECT_NEAR(result_sa, held_sa, 1e-6);
+}
+
 int main(int argc, char ** argv)
 {
   // Initialize the system
