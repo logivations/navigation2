@@ -2500,6 +2500,83 @@ TEST_F(Tester, testValidateSteeringReversalNeverAmplifiesSpeed)
   EXPECT_NEAR(result_sa, held_sa, 1e-6);
 }
 
+// Regression for the miele-amr1 2026-08-31 10:38 UTC dead spins: a pure-rotation
+// command at standstill must be answered with a capped same-sign yaw rate, not
+// zeroed. Before the standstill hemisphere snap, target_sw's sign came from
+// cmd.x == 0 ("forward") while current_sw's sign was odometry noise ("backward"),
+// so the same-bucket limit ran over backward fields (poisoned by the rack behind
+// the forks), the bucket walk ran over forward fields and stalled on the sign bit,
+// and the result carried the backward barrier — which the limiter invariant then
+// rightly rejected to (0, 0).
+TEST_F(Tester, testValidateSteeringStandstillSpinCappedNotZeroed)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"fw_straight_slow", "bw_straight_slow", "bw_straight_next", "fw_90R_slow"});
+  addSteeringAngleSubPolygon("fw_straight_slow", 0.0, 0.15, -0.3, 0.3, STEERING_POLYGON_SLOW_STR);
+  // The robot's straight backward bucket, and its next-faster field occupied by
+  // structure behind the forks (points inside the FAST polygon only)
+  addSteeringAngleSubPolygon("bw_straight_slow", -0.15, 0.0, -0.3, 0.3, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("bw_straight_next", -0.5, -0.3, -0.3, 0.3, STEERING_POLYGON_FAST_STR);
+  // Free slow field covering the spin's target angle (-pi/2) in the snapped
+  // (target) hemisphere
+  addSteeringAngleSubPolygon("fw_90R_slow", 0.0, 0.15, -1.5708, -0.3, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.0, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  // Spin command at standstill; odom carries a negative noise sign
+  nav2_collision_monitor::Velocity cmd_vel{0.0, 0.0, -0.35};
+  nav2_collision_monitor::Velocity odom_vel{-1e-9, 0.0, -1e-12};
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  // Inside the FAST polygon but outside the SLOW one → only bw_straight_next occupied
+  collision_map["source"] = {
+    {1.2, 0.5}, {1.3, 0.6}, {1.2, 0.55}, {1.25, 0.5},
+  };
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.action_type, nav2_collision_monitor::LIMIT);
+  // No synthesized translation
+  EXPECT_EQ(action.req_vel.x, 0.0);
+  // The spin survives: same sign as requested, capped by the target-angle slow
+  // field's bound (0.15 minus margin, over wheelbase 1.0) — nonzero.
+  EXPECT_LT(action.req_vel.tw, -0.05);
+  EXPECT_GE(action.req_vel.tw, -0.35);
+}
+
+// With no field covering the target angle, the walk holds at the last covered
+// bucket edge: the spin comes out heavily limited (steering only up to the edge)
+// but never with a flipped sign and never as synthesized translation.
+TEST_F(Tester, testValidateSteeringStandstillSpinHoldsAtBucketEdgeWithoutTargetField)
+{
+  setSteeringVelocityPolygonParameters(WHEELBASE, LOW_SPEED_THRESHOLD,
+    {"bw_straight_slow", "fw_straight_slow"});
+  addSteeringAngleSubPolygon("bw_straight_slow", -0.15, 0.0, -0.3, 0.3, STEERING_POLYGON_SLOW_STR);
+  addSteeringAngleSubPolygon("fw_straight_slow", 0.0, 0.15, -0.3, 0.3, STEERING_POLYGON_SLOW_STR);
+  createSteeringVelocityPolygon("limit");
+
+  nav2_collision_monitor::Velocity vel{0.0, 0.0, 0.0};
+  velocity_polygon_->updatePolygon(vel);
+
+  nav2_collision_monitor::Velocity cmd_vel{0.0, 0.0, -0.35};
+  nav2_collision_monitor::Velocity odom_vel{-1e-9, 0.0, 0.0};
+  std::unordered_map<std::string, std::vector<nav2_collision_monitor::Point>> collision_map;
+  collision_map["source"] = {};
+
+  nav2_collision_monitor::Action action{
+    nav2_collision_monitor::DO_NOTHING, cmd_vel, ""};
+
+  bool modified = velocity_polygon_->validateSteering(cmd_vel, odom_vel, collision_map, action);
+  EXPECT_TRUE(modified);
+  EXPECT_EQ(action.req_vel.x, 0.0);
+  EXPECT_LE(action.req_vel.tw, 0.0);
+  EXPECT_GE(action.req_vel.tw, -0.35);
+}
+
 int main(int argc, char ** argv)
 {
   // Initialize the system

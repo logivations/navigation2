@@ -794,6 +794,23 @@ bool VelocityPolygon::validateSteering(
     return apply_and_return(false);
   }
 
+  // --- Standstill hemisphere snap ---
+  // At (near) standstill the SIGN of current_sw is odometry noise, but it decides
+  // every hemisphere selection below: the current field, the step-2 same-bucket
+  // limit, and field_admits_speed() in the bucket walk. With the wrong bit the
+  // walk stalls at the first bucket edge and the same-bucket limit is computed
+  // over the opposite direction's fields — for a pure-rotation command (whose
+  // target_sw sign comes from cmd.x == 0, i.e. "forward") this deterministically
+  // killed standstill spins whenever the noise bit was negative (miele amr1
+  // 2026-08-31 10:38 UTC: spins answered with (0,0), no polygon triggered).
+  // Snap the current speed into the target's hemisphere: a robot at rest has no
+  // driving direction, so validate the start against the fields it is actually
+  // being asked to move in. Magnitude stays ~0, so the standstill/startup paths
+  // (README "Startup limit") behave exactly as before.
+  if (std::abs(current_sw) < low_speed_threshold_) {
+    current_sw = std::copysign(1e-9, target_sw);
+  }
+
   // --- Find current field ---
   const SubPolygonParameter * current_field = findField(current_sw, current_sa);
   debug_msg.current_field_name = current_field ? current_field->velocity_polygon_name_ : "";
