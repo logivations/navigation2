@@ -594,6 +594,22 @@ void ControllerServer::computeControl()
     result->error_msg = e.what();
     action_server_->terminate_current(result);
     return;
+  } catch (nav2_core::EmptyPath & e) {
+    // Must be caught before InvalidPath (its base class). The controller is only the
+    // last consumer of a path that was never produced: the planner has already logged
+    // the failure with the full cause (PlannerServer::exceptionWarning), so logging
+    // it again here only multiplied a single planning failure into another ERROR plus
+    // an action-server abort warning. The goal is still aborted and the requester is
+    // told through error_code INVALID_PATH and error_msg. Any other InvalidPath - a
+    // non-empty path the controller itself rejects, e.g. from the path handler - has
+    // not been reported upstream and keeps its severity in the handler below.
+    RCLCPP_DEBUG(this->get_logger(), "%s", e.what());
+    onGoalExit(true);
+    std::shared_ptr<Action::Result> result = std::make_shared<Action::Result>();
+    result->error_code = Action::Result::INVALID_PATH;
+    result->error_msg = e.what();
+    action_server_->terminate_current(result);
+    return;
   } catch (nav2_core::InvalidPath & e) {
     RCLCPP_ERROR(this->get_logger(), "%s", e.what());
     onGoalExit(true);
@@ -660,7 +676,10 @@ void ControllerServer::setPlannerPath(const nav_msgs::msg::Path & path)
     get_logger(),
     "Providing path to the controller %s", current_controller_.c_str());
   if (path.poses.empty()) {
-    throw nav2_core::InvalidPath("Path is empty.");
+    // EmptyPath, not InvalidPath: an empty path means the planner/smoother that was
+    // supposed to produce it already failed and logged the real cause. See the
+    // EmptyPath handler in computeControl() for why this is not reported again.
+    throw nav2_core::EmptyPath("Path is empty.");
   }
   controllers_[current_controller_]->newPathReceived(path);
   path_handlers_[current_path_handler_]->setPlan(path);

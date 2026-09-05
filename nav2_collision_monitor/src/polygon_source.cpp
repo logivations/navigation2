@@ -86,12 +86,14 @@ bool PolygonSource::getData(
     if (treat_empty_as_valid_) {
       return true;
     }
-    RCLCPP_WARN_THROTTLE(
-      logger_, *clock_, 2000,
-      "[%s]: No polygon source data (none received yet or all polygons older than "
-      "source_timeout)", source_name_.c_str());
-    return false;
+    // A source that is configured but never publishes stays in this state forever, so
+    // report it once on entering and once on recovery instead of throttling it into
+    // the log for as long as the robot runs (see Source::reportDataAvailability).
+    return reportDataAvailability(
+      false,
+      "No polygon source data (none received yet or all polygons older than source_timeout)");
   }
+  reportDataAvailability(true);
 
   tf2::Stamped<tf2::Transform> tf_transform;
   for (const auto & polygon_instance : data_) {

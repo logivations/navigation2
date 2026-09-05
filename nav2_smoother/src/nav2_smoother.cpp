@@ -334,8 +334,13 @@ void SmootherServer::smoothPlan()
     action_server_->terminate_current(result);
     return;
   } catch (nav2_core::InvalidPath & ex) {
+    // validate() already reported the reason at the severity that fits it (DEBUG for
+    // an empty path, which the path producer has already reported, WARN for anything
+    // the smoother diagnoses itself). This handler only propagates the failure, so it
+    // must not turn one event into a second log line - the caller still learns about
+    // it through error_code/error_msg in the action result.
     result->error_msg = ex.what();
-    RCLCPP_ERROR(this->get_logger(), result->error_msg.c_str());
+    RCLCPP_DEBUG(this->get_logger(), "%s", result->error_msg.c_str());
     result->error_code = ActionResult::INVALID_PATH;
     action_server_->terminate_current(result);
     return;
@@ -357,7 +362,17 @@ void SmootherServer::smoothPlan()
 bool SmootherServer::validate(const nav_msgs::msg::Path & path)
 {
   if (path.poses.empty()) {
-    RCLCPP_WARN(get_logger(), "Requested path to smooth is empty");
+    // An empty path is never something the smoother can diagnose: it means the
+    // producer of the path (the planner) already failed and logged the real cause,
+    // e.g. "<planner>plugin failed to plan from (...) to (...): 'no valid path
+    // found'" in PlannerServer::exceptionWarning(). Repeating it here - once from
+    // this check, once from the InvalidPath handler and once from the action server
+    // abort - turned a single planning failure into six log records per attempt.
+    // Report it at DEBUG; the requester is still told about it, because the goal is
+    // aborted with error_code INVALID_PATH and a matching error_msg.
+    // Anything the smoother diagnoses on its own (i.e. a non-empty but unusable
+    // path) has not been reported anywhere upstream and belongs at WARN here.
+    RCLCPP_DEBUG(get_logger(), "Requested path to smooth is empty");
     return false;
   }
 

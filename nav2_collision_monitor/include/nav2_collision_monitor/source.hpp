@@ -119,6 +119,21 @@ protected:
     const rclcpp::Time & curr_time) const;
 
   /**
+   * @brief Edge-triggered reporting of the "this source has no usable data" state.
+   *
+   * A source that is configured but never publishes is a permanent state, not a
+   * per-cycle event: throttled logging turns it into ~1800 warnings per hour for as
+   * long as the robot runs. Following amr/logging_guidelines.drawio.svg ("instead of
+   * logging in a loop when in a certain state, log once when entering that state and
+   * once when exiting it"), this reports the transition into the dead-source state
+   * once and the recovery once.
+   * @param has_data Whether usable data is available in the current cycle
+   * @param reason Why there is no data; only used on the transition into the state
+   * @return has_data, so callers can `return reportDataAvailability(false, "...");`
+   */
+  bool reportDataAvailability(const bool has_data, const std::string & reason = "");
+
+  /**
    * @brief Validate incoming parameter updates before applying them.
    * This callback is triggered when one or more parameters are about to be updated.
    * It checks the validity of parameter values and rejects updates that would lead
@@ -185,6 +200,9 @@ protected:
   bool base_shift_correction_;
   /// @brief Whether source is enabled
   bool enabled_;
+  /// @brief Whether the "no data from this source" state has already been reported,
+  /// so that it is logged once on entering and once on leaving instead of every cycle
+  bool no_data_reported_{false};
 };  // class Source
 
 }  // namespace nav2_collision_monitor

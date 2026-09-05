@@ -621,9 +621,21 @@ protected:
     if constexpr (has_error_code<typename ActionT::Result>::value &&
       has_error_msg<typename ActionT::Result>::value)
     {
-      warn_msg(
+      const std::string details =
         "Aborting handle. error_code:" + std::to_string(result->error_code) +
-        ", error_msg:'" + result->error_msg + "'.");
+        ", error_msg:'" + result->error_msg + "'.";
+      // A non-empty error_msg was written - and logged at its real severity - by the
+      // server that filled in this result, and it is handed back to the client in the
+      // result itself. Repeating it here only duplicates an already reported failure,
+      // so it goes to DEBUG: a single Smac planning failure used to produce three of
+      // these warnings (planner, smoother, controller) on top of the reports the
+      // servers themselves had already emitted. A bare error_code with no message was
+      // not reported anywhere else, so it keeps a real severity.
+      if (result->error_msg.empty() && result->error_code != 0) {
+        warn_msg(details);
+      } else {
+        debug_msg(details);
+      }
     } else if constexpr (has_error_code<typename ActionT::Result>::value) {
       warn_msg("Aborting handle. error_code:" + std::to_string(result->error_code) + ".");
     } else {
