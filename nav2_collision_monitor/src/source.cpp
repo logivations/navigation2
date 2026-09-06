@@ -15,6 +15,7 @@
 #include "nav2_collision_monitor/source.hpp"
 
 #include <exception>
+#include <string>
 
 #include "geometry_msgs/msg/transform_stamped.hpp"
 
@@ -108,6 +109,23 @@ bool Source::sourceValid(
   }
 
   return true;
+}
+
+bool Source::reportDataAvailability(const bool has_data, const std::string & reason)
+{
+  if (!has_data) {
+    if (!no_data_reported_) {
+      no_data_reported_ = true;
+      RCLCPP_WARN(
+        logger_, "[%s]: %s. Ignoring this source until it publishes again.",
+        source_name_.c_str(), reason.c_str());
+    }
+  } else if (no_data_reported_) {
+    no_data_reported_ = false;
+    RCLCPP_INFO(logger_, "[%s]: Data received again, source is live.", source_name_.c_str());
+  }
+
+  return has_data;
 }
 
 bool Source::getEnabled() const

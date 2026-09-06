@@ -62,6 +62,24 @@ public:
   : ControllerException(description) {}
 };
 
+/**
+ * @class EmptyPath
+ * @brief The path handed to the controller carries no poses at all.
+ *
+ * Split out of InvalidPath because the two need opposite logging: an empty path is
+ * never produced by the controller itself, it means the upstream path producer
+ * (planner/smoother) already failed and logged the real cause, so the controller
+ * must not report the same event a second time. Every other InvalidPath is a
+ * diagnosis the controller makes on its own and that nobody upstream has logged.
+ * Derived from InvalidPath so existing handlers and error codes keep working.
+ */
+class EmptyPath : public InvalidPath
+{
+public:
+  explicit EmptyPath(const std::string & description)
+  : InvalidPath(description) {}
+};
+
 class NoValidControl : public ControllerException
 {
 public:

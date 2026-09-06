@@ -621,9 +621,28 @@ protected:
     if constexpr (has_error_code<typename ActionT::Result>::value &&
       has_error_msg<typename ActionT::Result>::value)
     {
-      warn_msg(
+      const std::string details =
         "Aborting handle. error_code:" + std::to_string(result->error_code) +
-        ", error_msg:'" + result->error_msg + "'.");
+        ", error_msg:'" + result->error_msg + "'.";
+      // The discriminator is the presence of a MESSAGE, not the error code. A
+      // non-empty error_msg was written - and logged at its real severity - by the
+      // server that filled in this result, and it is handed back to the client in the
+      // result itself; repeating it here only duplicates an already reported failure,
+      // so it goes to DEBUG. A single Smac planning failure used to produce three of
+      // these warnings (planner, smoother, controller) on top of the reports the
+      // servers themselves had already emitted, and all six lines of that chain carry
+      // a non-empty error_msg, so they collapse.
+      //
+      // An empty error_msg means nobody described this abort anywhere - including the
+      // (error_code 0, error_msg "") aborts that made up all 24 goal failures in the
+      // ber-amr3 audit, where this line is the only trace that the goal aborted at
+      // all. Deliberately not qualified by error_code != 0: a missing code makes the
+      // abort less diagnosable, not less worth reporting.
+      if (result->error_msg.empty()) {
+        warn_msg(details);
+      } else {
+        debug_msg(details);
+      }
     } else if constexpr (has_error_code<typename ActionT::Result>::value) {
       warn_msg("Aborting handle. error_code:" + std::to_string(result->error_code) + ".");
     } else {

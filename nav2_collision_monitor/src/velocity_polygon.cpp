@@ -1130,7 +1130,10 @@ bool VelocityPolygon::clampToMaxField(
   // Check if commanded sw speed exceeds max
   if (std::abs(cmd_sw) > std::abs(max_sw)) {
     double clamped_baselink = steeringToBaselinkSpeed(max_sw, cmd_sa);
-    RCLCPP_INFO(
+    // Per-control-cycle detail of a completely normal limiting action - the fieldset
+    // caps the commanded speed on most cycles while driving. Developer information,
+    // not an operator-visible event.
+    RCLCPP_DEBUG(
       logger_,
       "[%s] clampToMaxField: cmd_sw=%.3f exceeds max_sw=%.3f at physical_sa=%.3f, "
       "clamping vel.x from %.3f to %.3f",

@@ -503,7 +503,10 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
         break;
       }
       if (iter.first->second.empty()) {
-        RCLCPP_WARN_THROTTLE(
+        // Not an unwanted state: getData() succeeded, the source simply sees nothing
+        // right now (e.g. no slow-driving zone anywhere near the robot), which is the
+        // normal case for most of a shift. Only of interest when debugging a source.
+        RCLCPP_DEBUG_THROTTLE(
           get_logger(), *get_clock(), 2000,
           "[%s]: Source enabled and getData() succeeded but returned 0 points",
           source->getSourceName().c_str());

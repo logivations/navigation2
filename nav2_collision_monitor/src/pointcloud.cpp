@@ -109,11 +109,12 @@ bool PointCloud::getData(
   // Ignore data from the source if it is not being published yet or
   // not published for a long time
   if (data_ == nullptr) {
-    RCLCPP_WARN_THROTTLE(
-      logger_, *clock_, 2000,
-      "[%s]: No pointcloud data received yet (data_ is null)", source_name_.c_str());
-    return false;
+    // A source that is configured but never publishes stays in this state forever, so
+    // report it once on entering and once on recovery instead of throttling it into
+    // the log for as long as the robot runs (see Source::reportDataAvailability).
+    return reportDataAvailability(false, "No pointcloud data received yet (data_ is null)");
   }
+  reportDataAvailability(true);
   if (!sourceValid(data_->header.stamp, curr_time)) {
     return false;
   }
