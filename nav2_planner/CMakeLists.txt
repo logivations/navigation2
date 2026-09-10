@@ -17,6 +17,7 @@ find_package(rclcpp_components REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(nav2_ros_common REQUIRED)
 
 nav2_package()
@@ -46,6 +47,7 @@ target_link_libraries(${library_name} PUBLIC
   rclcpp_lifecycle::rclcpp_lifecycle
   ${rcl_interfaces_TARGETS}
   tf2_ros::tf2_ros
+  ${visualization_msgs_TARGETS}
 )
 target_link_libraries(${library_name} PRIVATE
   ${lifecycle_msgs_TARGETS}
@@ -98,6 +100,7 @@ ament_export_dependencies(
   rclcpp_lifecycle
   tf2_ros
   nav2_ros_common
+  visualization_msgs
 )
 ament_export_targets(${library_name})
 ament_package()

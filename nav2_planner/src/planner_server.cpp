@@ -120,6 +120,12 @@ PlannerServer::on_configure(const rclcpp_lifecycle::State & state)
 
   // Initialize pubs & subs
   plan_publisher_ = create_publisher<nav_msgs::msg::Path>("plan");
+  failed_start_publisher_ =
+    create_publisher<geometry_msgs::msg::PoseStamped>("planner_server/failed_start");
+  failed_goal_publisher_ =
+    create_publisher<geometry_msgs::msg::PoseStamped>("planner_server/failed_goal");
+  failed_plan_marker_publisher_ =
+    create_publisher<visualization_msgs::msg::MarkerArray>("planner_server/failed_plan_markers");
 
   // Create is path valid service
   is_path_valid_service_ = std::make_unique<IsPathValidService>(
@@ -149,6 +155,9 @@ PlannerServer::on_activate(const rclcpp_lifecycle::State & /*state*/)
   RCLCPP_INFO(get_logger(), "Activating");
 
   plan_publisher_->on_activate();
+  failed_start_publisher_->on_activate();
+  failed_goal_publisher_->on_activate();
+  failed_plan_marker_publisher_->on_activate();
   action_server_pose_->activate();
   action_server_poses_->activate();
   param_handler_->activate();
@@ -178,6 +187,9 @@ PlannerServer::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
   action_server_pose_->deactivate();
   action_server_poses_->deactivate();
   plan_publisher_->on_deactivate();
+  failed_start_publisher_->on_deactivate();
+  failed_goal_publisher_->on_deactivate();
+  failed_plan_marker_publisher_->on_deactivate();
   param_handler_->deactivate();
 
   /*
@@ -210,6 +222,9 @@ PlannerServer::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   action_server_pose_.reset();
   action_server_poses_.reset();
   plan_publisher_.reset();
+  failed_start_publisher_.reset();
+  failed_goal_publisher_.reset();
+  failed_plan_marker_publisher_.reset();
   tf_.reset();
 
   costmap_ros_->cleanup();
@@ -679,6 +694,83 @@ void PlannerServer::exceptionWarning(
 
   error_msg = ss.str();
   RCLCPP_WARN(get_logger(), "%s", error_msg.c_str());
+
+  publishFailedPlan(start, goal, planner_id, ex.what());
+}
+
+void PlannerServer::publishFailedPlan(
+  const geometry_msgs::msg::PoseStamped & start,
+  const geometry_msgs::msg::PoseStamped & goal,
+  const std::string & planner_id,
+  const std::string & reason)
+{
+  if (!failed_start_publisher_ || !failed_goal_publisher_ || !failed_plan_marker_publisher_ ||
+    !failed_start_publisher_->is_activated() || !failed_goal_publisher_->is_activated() ||
+    !failed_plan_marker_publisher_->is_activated())
+  {
+    return;
+  }
+
+  const rclcpp::Time stamp = now();
+  // The poses may carry the (older) request stamp or an empty frame if the TF
+  // lookup itself failed; stamp them now so they line up with the log line and
+  // fall back to the costmap frame so Foxglove can still place them.
+  const std::string frame = start.header.frame_id.empty() ?
+    costmap_ros_->getGlobalFrameID() : start.header.frame_id;
+
+  auto stamped = [&](const geometry_msgs::msg::PoseStamped & pose) {
+      auto msg = std::make_unique<geometry_msgs::msg::PoseStamped>(pose);
+      msg->header.stamp = stamp;
+      msg->header.frame_id = pose.header.frame_id.empty() ? frame : pose.header.frame_id;
+      return msg;
+    };
+  failed_start_publisher_->publish(stamped(start));
+  failed_goal_publisher_->publish(stamped(goal));
+
+  // Markers: green arrow = start, red arrow = goal, text = failure reason.
+  // A finite lifetime lets a stale failure disappear from live Foxglove views.
+  auto markers = std::make_unique<visualization_msgs::msg::MarkerArray>();
+  visualization_msgs::msg::Marker arrow;
+  arrow.header.frame_id = frame;
+  arrow.header.stamp = stamp;
+  arrow.ns = "planner_server/failed_plan";
+  arrow.type = visualization_msgs::msg::Marker::ARROW;
+  arrow.action = visualization_msgs::msg::Marker::ADD;
+  arrow.scale.x = 0.6;  // length
+  arrow.scale.y = 0.12;  // shaft width
+  arrow.scale.z = 0.12;  // head width
+  arrow.lifetime = rclcpp::Duration::from_seconds(60.0);
+  arrow.color.a = 0.9;
+
+  arrow.id = 0;
+  arrow.pose = start.pose;
+  arrow.color.r = 0.1;
+  arrow.color.g = 0.9;
+  arrow.color.b = 0.1;
+  markers->markers.push_back(arrow);
+
+  arrow.id = 1;
+  arrow.pose = goal.pose;
+  arrow.color.r = 0.9;
+  arrow.color.g = 0.1;
+  arrow.color.b = 0.1;
+  markers->markers.push_back(arrow);
+
+  visualization_msgs::msg::Marker text = arrow;
+  text.id = 2;
+  text.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+  text.pose = goal.pose;
+  text.pose.position.z += 0.5;
+  text.scale.x = 0.0;
+  text.scale.y = 0.0;
+  text.scale.z = 0.3;  // text height
+  text.color.r = 1.0;
+  text.color.g = 1.0;
+  text.color.b = 1.0;
+  text.text = planner_id + ": " + reason;
+  markers->markers.push_back(text);
+
+  failed_plan_marker_publisher_->publish(std::move(markers));
 }
 
 }  // namespace nav2_planner
