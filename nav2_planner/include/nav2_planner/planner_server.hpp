@@ -25,6 +25,7 @@
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav_msgs/msg/path.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 #include "nav2_ros_common/lifecycle_node.hpp"
 #include "nav2_msgs/action/compute_path_to_pose.hpp"
 #include "nav2_msgs/action/compute_path_through_poses.hpp"
@@ -214,6 +215,20 @@ protected:
     const std::exception & ex,
     std::string & msg);
 
+  /**
+   * @brief Publish the start/goal of a failed planning request and the failure reason
+   * as PoseStamped + MarkerArray so it can be inspected in Foxglove/RViz
+   * @param start Start pose (global frame)
+   * @param goal Goal pose (global frame)
+   * @param planner_id Planner that failed
+   * @param reason Exception text (e.g. "Goal was in lethal cost")
+   */
+  void publishFailedPlan(
+    const geometry_msgs::msg::PoseStamped & start,
+    const geometry_msgs::msg::PoseStamped & goal,
+    const std::string & planner_id,
+    const std::string & reason);
+
   // Our action server implements the ComputePathToPose action
   typename ActionServerToPose::SharedPtr action_server_pose_;
   typename ActionServerThroughPoses::SharedPtr action_server_poses_;
@@ -237,6 +252,11 @@ protected:
 
   // Publishers for the path
   nav2::Publisher<nav_msgs::msg::Path>::SharedPtr plan_publisher_;
+
+  // Publishers for failed planning requests (debug visualization)
+  nav2::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr failed_start_publisher_;
+  nav2::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr failed_goal_publisher_;
+  nav2::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr failed_plan_marker_publisher_;
 
   // Service to determine if the path is valid
   std::unique_ptr<IsPathValidService> is_path_valid_service_;
