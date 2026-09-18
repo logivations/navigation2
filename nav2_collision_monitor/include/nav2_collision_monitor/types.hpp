@@ -16,6 +16,7 @@
 #define NAV2_COLLISION_MONITOR__TYPES_HPP_
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <string>
 #include <vector>
@@ -73,6 +74,15 @@ struct BoundingBox
       max_x = std::max(max_x, p.x);
       max_y = std::max(max_y, p.y);
     }
+  }
+
+  /// @brief Distance (max norm) from the origin the box reaches out to, 0 for an empty box
+  inline double maxRange() const
+  {
+    if (min_x > max_x) {
+      return 0.0;
+    }
+    return std::max({std::abs(min_x), std::abs(max_x), std::abs(min_y), std::abs(max_y)});
   }
 
   /// @brief Inclusive, so no point inside the polygon is ever rejected

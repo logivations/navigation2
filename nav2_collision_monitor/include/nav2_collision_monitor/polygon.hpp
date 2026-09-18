@@ -170,6 +170,12 @@ public:
   virtual double getMaxRange() const;
 
   /**
+   * @brief Whether the shape is received at run time (polygon / radius / footprint topic),
+   * so getMaxRange() can not be relied on at configuration time.
+   */
+  virtual bool isShapeDynamic() const;
+
+  /**
    * @brief Updates polygon from footprint subscriber (if any)
    */
   virtual void updatePolygon(const Velocity & /*cmd_vel_in*/);

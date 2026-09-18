@@ -22,6 +22,7 @@
 #include "geometry_msgs/msg/polygon_instance_stamped.hpp"
 #include "geometry_msgs/msg/polygon_stamped.hpp"
 
+#include "nav2_collision_monitor/polygon.hpp"
 #include "nav2_collision_monitor/source.hpp"
 
 namespace nav2_collision_monitor
@@ -91,6 +92,20 @@ public:
    * @brief Range the source provides data in, 0 if unlimited
    */
   double getMaxRange() const {return max_range_;}
+
+  /**
+   * @brief Checks that no range limited polygon source cuts off data a polygon it is
+   * checked against needs: the polygon has to be static, within max_range and must not
+   * look ahead of its shape (approach).
+   * @param logger Logger to report the offending source / polygon to
+   * @param sources Configured data sources
+   * @param polygons Configured polygons
+   * @return false if a polygon is not covered
+   */
+  static bool coversPolygons(
+    const rclcpp::Logger & logger,
+    const std::vector<std::shared_ptr<Source>> & sources,
+    const std::vector<std::shared_ptr<Polygon>> & polygons);
 
 protected:
   /**

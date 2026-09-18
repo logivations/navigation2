@@ -63,6 +63,11 @@ double Circle::getMaxRange() const
   return radius_squared_ < 0.0 ? 0.0 : radius_;
 }
 
+bool Circle::isShapeDynamic() const
+{
+  return radius_sub_ != nullptr;
+}
+
 int Circle::getPointsInside(const std::vector<Point> & points) const
 {
   int num = 0;

@@ -167,6 +167,11 @@ bool CollisionDetector::getParameters()
     return false;
   }
 
+  // A range limited source must not cut off data a polygon it is checked against needs
+  if (!PolygonSource::coversPolygons(get_logger(), sources_, polygons_)) {
+    return false;
+  }
+
   return true;
 }
 

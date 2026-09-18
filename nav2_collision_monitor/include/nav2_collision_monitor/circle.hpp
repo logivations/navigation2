@@ -79,6 +79,11 @@ public:
    */
   double getMaxRange() const override;
 
+  /**
+   * @brief Whether the radius is received at run time
+   */
+  bool isShapeDynamic() const override;
+
 protected:
   /**
    * @brief Supporting routine obtaining polygon-specific ROS-parameters

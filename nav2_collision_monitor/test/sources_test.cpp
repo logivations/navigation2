@@ -392,6 +392,11 @@ public:
   {
     return data_.size() > 0;
   }
+
+  void addPolygon(const geometry_msgs::msg::PolygonInstanceStamped & msg)
+  {
+    dataCallback(std::make_shared<geometry_msgs::msg::PolygonInstanceStamped>(msg));
+  }
 };  // PolygonWrapper
 
 class CostmapWrapper : public nav2_collision_monitor::CostmapSource
@@ -846,6 +851,134 @@ TEST_F(Tester, testPolygonMaxRange)
     }
   }
   EXPECT_GT(in_range, 0u);
+}
+
+// 1x1 m square with the given id in the given frame, without points if cleared
+static geometry_msgs::msg::PolygonInstanceStamped makePolygonInstance(
+  const int id, const std::string & frame_id, const rclcpp::Time & stamp,
+  const bool cleared = false)
+{
+  geometry_msgs::msg::PolygonInstanceStamped msg;
+  msg.header.frame_id = frame_id;
+  msg.header.stamp = stamp;
+  msg.polygon.id = id;
+  if (!cleared) {
+    for (const auto & [x, y] : std::vector<std::pair<float, float>>{
+      {0.5f, 0.5f}, {0.5f, -0.5f}, {-0.5f, -0.5f}, {-0.5f, 0.5f}})
+    {
+      geometry_msgs::msg::Point32 p;
+      p.x = x;
+      p.y = y;
+      msg.polygon.polygon.points.push_back(p);
+    }
+  }
+  return msg;
+}
+
+TEST_F(Tester, testPolygonMultipleFrames)
+{
+  rclcpp::Time curr_time = test_node_->now();
+
+  createSources(false);
+  sendTransforms(curr_time);
+  // Wait for the transforms to arrive
+  test_node_->publishPolygon(curr_time);
+  ASSERT_TRUE(waitPolygon(500ms));
+
+  const char frames_name[]{"FramesPolygon"};
+  test_node_->declare_parameter(
+    std::string(frames_name) + ".topic", rclcpp::ParameterValue("frames_polygon"));
+  // Not a divisor of the edge length, so float rounding can not change the sample count
+  test_node_->declare_parameter(
+    std::string(frames_name) + ".sampling_distance", rclcpp::ParameterValue(0.3));
+  auto frames_polygon = std::make_shared<PolygonWrapper>(
+    test_node_, frames_name, tf_buffer_,
+    BASE_FRAME_ID, GLOBAL_FRAME_ID,
+    TRANSFORM_TOLERANCE, DATA_TIMEOUT, false);
+  frames_polygon->configure();
+
+  // Same square alternating between two frames: the transform has to follow the frame
+  frames_polygon->addPolygon(makePolygonInstance(1, SOURCE_FRAME_ID, curr_time));
+  frames_polygon->addPolygon(makePolygonInstance(2, BASE_FRAME_ID, curr_time));
+  frames_polygon->addPolygon(makePolygonInstance(3, SOURCE_FRAME_ID, curr_time));
+
+  std::vector<nav2_collision_monitor::Point> data;
+  ASSERT_TRUE(frames_polygon->getData(curr_time, data));
+  ASSERT_GT(data.size(), 0u);
+  ASSERT_EQ(data.size() % 3, 0u);
+  const size_t n = data.size() / 3;
+  for (size_t i = 0; i < n; ++i) {
+    // Source frame is shifted by (0.1, 0.1) against the base frame
+    EXPECT_NEAR(data[i].x, data[n + i].x + 0.1, EPSILON);
+    EXPECT_NEAR(data[i].y, data[n + i].y + 0.1, EPSILON);
+    EXPECT_NEAR(data[2 * n + i].x, data[i].x, EPSILON);
+    EXPECT_NEAR(data[2 * n + i].y, data[i].y, EPSILON);
+  }
+  EXPECT_NEAR(data[n].x, 0.5, EPSILON);
+  EXPECT_NEAR(data[n].y, 0.5, EPSILON);
+}
+
+TEST_F(Tester, testPolygonCleared)
+{
+  rclcpp::Time curr_time = test_node_->now();
+
+  createSources(false);
+  sendTransforms(curr_time);
+  // Wait for the transforms to arrive
+  test_node_->publishPolygon(curr_time);
+  ASSERT_TRUE(waitPolygon(500ms));
+
+  const char cleared_name[]{"ClearedPolygon"};
+  test_node_->declare_parameter(
+    std::string(cleared_name) + ".topic", rclcpp::ParameterValue("cleared_polygon"));
+  auto cleared_polygon = std::make_shared<PolygonWrapper>(
+    test_node_, cleared_name, tf_buffer_,
+    BASE_FRAME_ID, GLOBAL_FRAME_ID,
+    TRANSFORM_TOLERANCE, DATA_TIMEOUT, false);
+  cleared_polygon->configure();
+
+  std::vector<nav2_collision_monitor::Point> data;
+  cleared_polygon->addPolygon(makePolygonInstance(1, SOURCE_FRAME_ID, curr_time));
+  ASSERT_TRUE(cleared_polygon->getData(curr_time, data));
+  EXPECT_GT(data.size(), 0u);
+
+  // A polygon without points clears its id: valid source, no data
+  data.clear();
+  cleared_polygon->addPolygon(makePolygonInstance(1, SOURCE_FRAME_ID, curr_time, true));
+  EXPECT_TRUE(cleared_polygon->getData(curr_time, data));
+  EXPECT_EQ(data.size(), 0u);
+
+  // ... but only with a valid transform, as for any other polygon
+  data.clear();
+  cleared_polygon->addPolygon(makePolygonInstance(1, INVALID_FRAME_ID, curr_time, true));
+  EXPECT_FALSE(cleared_polygon->getData(curr_time, data));
+  EXPECT_EQ(data.size(), 0u);
+}
+
+TEST_F(Tester, testPolygonEmptyFrameId)
+{
+  rclcpp::Time curr_time = test_node_->now();
+
+  createSources(false);
+  sendTransforms(curr_time);
+  // Wait for the transforms to arrive
+  test_node_->publishPolygon(curr_time);
+  ASSERT_TRUE(waitPolygon(500ms));
+
+  const char no_frame_name[]{"NoFramePolygon"};
+  test_node_->declare_parameter(
+    std::string(no_frame_name) + ".topic", rclcpp::ParameterValue("no_frame_polygon"));
+  auto no_frame_polygon = std::make_shared<PolygonWrapper>(
+    test_node_, no_frame_name, tf_buffer_,
+    BASE_FRAME_ID, GLOBAL_FRAME_ID,
+    TRANSFORM_TOLERANCE, DATA_TIMEOUT, false);
+  no_frame_polygon->configure();
+
+  // No transform for a polygon without frame: the source is invalid
+  no_frame_polygon->addPolygon(makePolygonInstance(1, "", curr_time));
+  std::vector<nav2_collision_monitor::Point> data;
+  EXPECT_FALSE(no_frame_polygon->getData(curr_time, data));
+  EXPECT_EQ(data.size(), 0u);
 }
 
 TEST_F(Tester, testPolygonTreatEmptyAsValid)

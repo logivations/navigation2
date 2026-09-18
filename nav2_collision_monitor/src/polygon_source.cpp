@@ -17,10 +17,12 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <string>
 
 #include "geometry_msgs/msg/polygon_stamped.hpp"
 #include "tf2/transform_datatypes.hpp"
+#include "tf2/LinearMath/Vector3.hpp"
 
 #include "nav2_ros_common/node_utils.hpp"
 #include "nav2_util/robot_utils.hpp"
@@ -73,7 +75,7 @@ bool PolygonSource::getData(
 {
   // Remove stale data first, so a source whose polygons all aged out is
   // detected as empty below
-  if (source_timeout_.seconds() != 0.0){
+  if (source_timeout_.seconds() != 0.0) {
     data_.erase(
       std::remove_if(
         data_.begin(), data_.end(),
@@ -98,12 +100,10 @@ bool PolygonSource::getData(
   tf2::Stamped<tf2::Transform> tf_transform;
   // Frame tf_transform was looked up for. Without base shift correction the transform only
   // depends on the frame, which the polygons of a source typically share.
+  bool tf_valid = false;
   std::string tf_frame_id;
+  geometry_msgs::msg::PolygonStamped poly_out;
   for (const auto & polygon_instance : data_) {
-    if (polygon_instance.polygon.polygon.points.empty()) {
-      // Publishers clear a polygon id by sending it without points
-      continue;
-    }
     if (base_shift_correction_) {
       // Obtaining the transform to get data from source frame and time where it was received
       // to the base frame and current time
@@ -119,7 +119,7 @@ bool PolygonSource::getData(
       // Obtaining the transform to get data from source frame to base frame without time shift
       // considered. Less accurate but much more faster option not dependent on state estimation
       // frames.
-      if (polygon_instance.header.frame_id != tf_frame_id) {
+      if (!tf_valid || polygon_instance.header.frame_id != tf_frame_id) {
         if (
           !nav2_util::getTransform(
             polygon_instance.header.frame_id, base_frame_id_,
@@ -128,13 +128,25 @@ bool PolygonSource::getData(
           return false;
         }
         tf_frame_id = polygon_instance.header.frame_id;
+        tf_valid = true;
       }
     }
-    geometry_msgs::msg::PolygonStamped poly_out, polygon_stamped;
-    geometry_msgs::msg::TransformStamped tf = tf2::toMsg(tf_transform);
-    polygon_stamped.header = polygon_instance.header;
-    polygon_stamped.polygon = polygon_instance.polygon.polygon;
-    tf2::doTransform(polygon_stamped, poly_out, tf);
+    // Publishers clear a polygon id by sending it without points. Skipped only after the
+    // transform lookup, so a source without a valid transform is never reported as valid.
+    const auto & points_in = polygon_instance.polygon.polygon.points;
+    if (points_in.empty()) {
+      continue;
+    }
+    poly_out.header.frame_id = base_frame_id_;
+    poly_out.header.stamp = curr_time;
+    poly_out.polygon.points.resize(points_in.size());
+    for (size_t i = 0; i < points_in.size(); ++i) {
+      const tf2::Vector3 p_v3_b =
+        tf_transform * tf2::Vector3(points_in[i].x, points_in[i].y, points_in[i].z);
+      poly_out.polygon.points[i].x = p_v3_b.x();
+      poly_out.polygon.points[i].y = p_v3_b.y();
+      poly_out.polygon.points[i].z = p_v3_b.z();
+    }
     convertPolygonStampedToPoints(poly_out, data);
   }
   return true;
@@ -143,6 +155,21 @@ bool PolygonSource::getData(
 void PolygonSource::convertPolygonStampedToPoints(
   const geometry_msgs::msg::PolygonStamped & polygon, std::vector<Point> & data) const
 {
+  if (max_range_ > 0.0) {
+    // Most polygons are nowhere near the robot: skip them without looking at their edges
+    float min_x = std::numeric_limits<float>::infinity(), min_y = min_x;
+    float max_x = -min_x, max_y = -min_x;
+    for (const auto & point : polygon.polygon.points) {
+      min_x = std::min(min_x, point.x);
+      min_y = std::min(min_y, point.y);
+      max_x = std::max(max_x, point.x);
+      max_y = std::max(max_y, point.y);
+    }
+    if (min_x > max_range_ || max_x < -max_range_ || min_y > max_range_ || max_y < -max_range_) {
+      return;
+    }
+  }
+
   // Iterate over the vertices of the polygon
   for (size_t i = 0; i < polygon.polygon.points.size(); ++i) {
     const auto & current_point = polygon.polygon.points[i];
@@ -200,6 +227,50 @@ void PolygonSource::convertPolygonStampedToPoints(
       data.push_back(p);
     }
   }
+}
+
+bool PolygonSource::coversPolygons(
+  const rclcpp::Logger & logger,
+  const std::vector<std::shared_ptr<Source>> & sources,
+  const std::vector<std::shared_ptr<Polygon>> & polygons)
+{
+  for (const std::shared_ptr<Source> & source : sources) {
+    const auto polygon_source = std::dynamic_pointer_cast<PolygonSource>(source);
+    if (!polygon_source || polygon_source->getMaxRange() <= 0.0) {
+      continue;
+    }
+    const std::string & source_name = source->getSourceName();
+    const double max_range = polygon_source->getMaxRange();
+    for (const std::shared_ptr<Polygon> & polygon : polygons) {
+      const std::vector<std::string> names = polygon->getSourcesNames();
+      if (std::find(names.begin(), names.end(), source_name) == names.end()) {
+        continue;
+      }
+      if (polygon->getActionType() == APPROACH) {
+        // Approach simulates the robot ahead and needs data beyond the polygon
+        RCLCPP_ERROR(
+          logger,
+          "[%s]: max_range can not be used with approach polygon %s",
+          source_name.c_str(), polygon->getName().c_str());
+        return false;
+      }
+      if (polygon->isShapeDynamic()) {
+        RCLCPP_ERROR(
+          logger,
+          "[%s]: max_range can not be used with polygon %s, its shape is received at run time",
+          source_name.c_str(), polygon->getName().c_str());
+        return false;
+      }
+      if (polygon->getMaxRange() > max_range) {
+        RCLCPP_ERROR(
+          logger,
+          "[%s]: max_range %.2f m does not cover polygon %s reaching out to %.2f m",
+          source_name.c_str(), max_range, polygon->getName().c_str(), polygon->getMaxRange());
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 void PolygonSource::getParameters(std::string & source_topic)

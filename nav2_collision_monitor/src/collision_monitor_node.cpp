@@ -339,26 +339,9 @@ bool CollisionMonitor::getParameters(
     return false;
   }
 
-  // A range limited source must not cut off data inside of a polygon it is checked against
-  for (const std::shared_ptr<Source> & source : sources_) {
-    const auto polygon_source = std::dynamic_pointer_cast<PolygonSource>(source);
-    if (!polygon_source || polygon_source->getMaxRange() <= 0.0) {
-      continue;
-    }
-    for (const std::shared_ptr<Polygon> & polygon : polygons_) {
-      const std::vector<std::string> names = polygon->getSourcesNames();
-      if (std::find(names.begin(), names.end(), source->getSourceName()) == names.end()) {
-        continue;
-      }
-      if (polygon->getMaxRange() > polygon_source->getMaxRange()) {
-        RCLCPP_ERROR(
-          get_logger(),
-          "[%s]: max_range %.2f m does not cover polygon %s reaching out to %.2f m",
-          source->getSourceName().c_str(), polygon_source->getMaxRange(),
-          polygon->getName().c_str(), polygon->getMaxRange());
-        return false;
-      }
-    }
+  // A range limited source must not cut off data a polygon it is checked against needs
+  if (!PolygonSource::coversPolygons(get_logger(), sources_, polygons_)) {
+    return false;
   }
 
   return true;

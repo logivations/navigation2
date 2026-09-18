@@ -551,9 +551,7 @@ double VelocityPolygon::getMaxRange() const
 {
   double max_range = 0.0;
   for (const SubPolygonParameter & sub_polygon : sub_polygons_) {
-    for (const Point & point : sub_polygon.poly_) {
-      max_range = std::max({max_range, std::abs(point.x), std::abs(point.y)});
-    }
+    max_range = std::max(max_range, BoundingBox(sub_polygon.poly_).maxRange());
   }
   return max_range;
 }

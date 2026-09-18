@@ -1653,6 +1653,71 @@ TEST_F(Tester, testSourcesNotSet)
   cm_->cant_configure();
 }
 
+TEST_F(Tester, testPolygonSourceMaxRange)
+{
+  // max_range reaching exactly as far as the polygon covers it
+  setCommonParameters();
+  addPolygon("Stop", POLYGON, 1.0, "stop");
+  addSource(POLYGON_NAME, POLYGON_SOURCE);
+  cm_->declare_parameter(std::string(POLYGON_NAME) + ".max_range", rclcpp::ParameterValue(1.0));
+  setVectors({"Stop"}, {POLYGON_NAME});
+
+  cm_->configure();
+}
+
+TEST_F(Tester, testPolygonSourceMaxRangeTooSmall)
+{
+  setCommonParameters();
+  addPolygon("Stop", POLYGON, 1.0, "stop");
+  addPolygon("Limit", CIRCLE, 2.0, "limit");
+  addSource(POLYGON_NAME, POLYGON_SOURCE);
+  cm_->declare_parameter(std::string(POLYGON_NAME) + ".max_range", rclcpp::ParameterValue(1.5));
+  setVectors({"Stop", "Limit"}, {POLYGON_NAME});
+
+  // The source would cut off data inside of the Limit circle
+  cm_->cant_configure();
+}
+
+TEST_F(Tester, testPolygonSourceMaxRangeNotChecked)
+{
+  // A polygon not checked against the range limited source does not have to be covered
+  setCommonParameters();
+  addPolygon("Stop", POLYGON, 1.0, "stop");
+  addPolygon("Limit", CIRCLE, 2.0, "limit", {SCAN_NAME});
+  addSource(POLYGON_NAME, POLYGON_SOURCE);
+  addSource(SCAN_NAME, SCAN);
+  cm_->declare_parameter(std::string(POLYGON_NAME) + ".max_range", rclcpp::ParameterValue(1.5));
+  setVectors({"Stop", "Limit"}, {POLYGON_NAME, SCAN_NAME});
+
+  cm_->configure();
+}
+
+TEST_F(Tester, testPolygonSourceMaxRangeApproach)
+{
+  // Approach looks ahead of the polygon shape, which a range limited source can not serve
+  setCommonParameters();
+  addPolygon("Approach", CIRCLE, 1.0, "approach");
+  addSource(POLYGON_NAME, POLYGON_SOURCE);
+  cm_->declare_parameter(std::string(POLYGON_NAME) + ".max_range", rclcpp::ParameterValue(10.0));
+  setVectors({"Approach"}, {POLYGON_NAME});
+
+  cm_->cant_configure();
+}
+
+TEST_F(Tester, testPolygonSourceMaxRangeDynamicPolygon)
+{
+  // The reach of a polygon received at run time is unknown at configuration time
+  setCommonParameters();
+  cm_->declare_parameter("Stop.type", rclcpp::ParameterValue("polygon"));
+  cm_->declare_parameter("Stop.action_type", rclcpp::ParameterValue("stop"));
+  cm_->declare_parameter("Stop.polygon_sub_topic", rclcpp::ParameterValue("stop_polygon"));
+  addSource(POLYGON_NAME, POLYGON_SOURCE);
+  cm_->declare_parameter(std::string(POLYGON_NAME) + ".max_range", rclcpp::ParameterValue(10.0));
+  setVectors({"Stop"}, {POLYGON_NAME});
+
+  cm_->cant_configure();
+}
+
 TEST_F(Tester, testCollisionPointsMarkers)
 {
   rclcpp::Time curr_time = cm_->now();

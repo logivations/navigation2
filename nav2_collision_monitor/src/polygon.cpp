@@ -294,11 +294,12 @@ void Polygon::updatePolygon(const Velocity & /*cmd_vel_in*/)
 
 double Polygon::getMaxRange() const
 {
-  double max_range = 0.0;
-  for (const Point & point : poly_) {
-    max_range = std::max({max_range, std::abs(point.x), std::abs(point.y)});
-  }
-  return max_range;
+  return BoundingBox(poly_).maxRange();
+}
+
+bool Polygon::isShapeDynamic() const
+{
+  return polygon_sub_ != nullptr || footprint_sub_ != nullptr;
 }
 
 int Polygon::getPointsInside(const std::vector<Point> & points) const
