@@ -107,6 +107,8 @@ CollisionMonitor::on_configure(const rclcpp_lifecycle::State & state)
 
   collision_points_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
     "~/collision_points_marker");
+  triggering_points_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+    "~/triggering_points_marker");
 
   // Toggle service initialization
   toggle_cm_service_ = create_service<nav2_msgs::srv::Toggle>(
@@ -146,6 +148,7 @@ CollisionMonitor::on_activate(const rclcpp_lifecycle::State & /*state*/)
     state_pub_->on_activate();
   }
   collision_points_marker_pub_->on_activate();
+  triggering_points_marker_pub_->on_activate();
 
   // Activating polygons
   for (std::shared_ptr<Polygon> polygon : polygons_) {
@@ -187,6 +190,7 @@ CollisionMonitor::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
     state_pub_->on_deactivate();
   }
   collision_points_marker_pub_->on_deactivate();
+  triggering_points_marker_pub_->on_deactivate();
 
   // Destroying bond connection
   destroyBond();
@@ -203,6 +207,8 @@ CollisionMonitor::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
   cmd_vel_out_pub_.reset();
   state_pub_.reset();
   collision_points_marker_pub_.reset();
+  triggering_points_marker_pub_.reset();
+  triggering_points_namespaces_.clear();
   fields_mode_sub_.reset();
 
   polygons_.clear();
@@ -556,6 +562,11 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
 
   std::shared_ptr<VelocityPolygon> active_limit_vel_polygon;
 
+  // Collision points inside of the polygons evaluated below, only collected for subscribers
+  const bool publish_triggering_points =
+    triggering_points_marker_pub_->get_subscription_count() > 0;
+  std::map<std::string, std::vector<Point>> triggering_points;
+
   for (std::shared_ptr<Polygon> polygon : polygons_) {
     if (!polygon->getEnabled() || !enabled_) {
       continue;
@@ -607,6 +618,15 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
       }
     }
 
+    if (publish_triggering_points && polygon->isShapeSet()) {
+      std::unordered_map<std::string, std::vector<Point>> polygon_points_inside;
+      polygon->collectPointsInside(sources_collision_points_map, polygon_points_inside);
+      for (auto & source_points : polygon_points_inside) {
+        triggering_points[polygon->getName() + "/" + source_points.first] =
+          std::move(source_points.second);
+      }
+    }
+
     const ActionType at = polygon->getActionType();
     if (at == STOP || at == SLOWDOWN || at == LIMIT) {
       // Process STOP/SLOWDOWN for the selected polygon
@@ -652,6 +672,10 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
   if ((robot_action.polygon_name != robot_action_prev_.polygon_name) && enabled_) {
     // Report changed robot behavior
     notifyActionState(robot_action, action_polygon);
+  }
+
+  if (publish_triggering_points) {
+    publishTriggeringPoints(triggering_points);
   }
 
   // Publish required robot velocity
@@ -845,6 +869,54 @@ void CollisionMonitor::notifyActionState(
     state_msg->action_type = robot_action.action_type;
 
     state_pub_->publish(std::move(state_msg));
+  }
+}
+
+void CollisionMonitor::publishTriggeringPoints(
+  const std::map<std::string, std::vector<Point>> & points_inside)
+{
+  auto marker_array = std::make_unique<visualization_msgs::msg::MarkerArray>();
+
+  visualization_msgs::msg::Marker marker;
+  marker.header.frame_id = get_parameter("base_frame_id").as_string();
+  marker.header.stamp = rclcpp::Time(0, 0);
+  marker.id = 0;
+  marker.type = visualization_msgs::msg::Marker::POINTS;
+  marker.scale.x = 0.05;
+  marker.scale.y = 0.05;
+  marker.color.r = 1.0;
+  marker.color.g = 0.5;
+  marker.color.a = 1.0;
+  marker.lifetime = rclcpp::Duration(0, 0);
+  marker.frame_locked = true;
+
+  // Remove the markers of the namespaces that have no point inside anymore
+  marker.action = visualization_msgs::msg::Marker::DELETE;
+  for (const std::string & marker_namespace : triggering_points_namespaces_) {
+    if (points_inside.find(marker_namespace) == points_inside.end()) {
+      marker.ns = marker_namespace;
+      marker_array->markers.push_back(marker);
+    }
+  }
+  triggering_points_namespaces_.clear();
+
+  marker.action = visualization_msgs::msg::Marker::ADD;
+  for (const auto & namespace_points : points_inside) {
+    marker.ns = namespace_points.first;
+    marker.points.clear();
+    for (const Point & point : namespace_points.second) {
+      geometry_msgs::msg::Point p;
+      p.x = point.x;
+      p.y = point.y;
+      p.z = 0.0;
+      marker.points.push_back(p);
+    }
+    marker_array->markers.push_back(marker);
+    triggering_points_namespaces_.insert(namespace_points.first);
+  }
+
+  if (!marker_array->markers.empty()) {
+    triggering_points_marker_pub_->publish(std::move(marker_array));
   }
 }
 

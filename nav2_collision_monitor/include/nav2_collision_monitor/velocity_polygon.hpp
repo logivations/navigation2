@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -326,6 +327,8 @@ protected:
   // grouped by source via marker namespace (one Marker per source).
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
     next_field_collision_points_pub_;
+  // Marker namespaces of the last published next field points, to delete them
+  std::set<std::string> next_field_points_namespaces_;
   // Current subpolygon name
   std::string current_subpolygon_name_;
   // Variables

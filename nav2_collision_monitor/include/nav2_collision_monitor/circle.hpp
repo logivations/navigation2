@@ -69,6 +69,14 @@ public:
   int getPointsInside(const std::vector<Point> & points) const override;
 
   /**
+   * @brief Appends the points that are inside of the circle, for visualization
+   * @param points Input array of points to be checked
+   * @param points_inside Output array the points inside are appended to
+   */
+  void collectPointsInside(
+    const std::vector<Point> & points, std::vector<Point> & points_inside) const override;
+
+  /**
    * @brief Returns true if circle radius is set.
    * Otherwise, prints a warning and returns false.
    */

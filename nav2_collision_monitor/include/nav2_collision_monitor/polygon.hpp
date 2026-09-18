@@ -189,6 +189,25 @@ public:
   virtual int getPointsInside(const std::vector<Point> & points) const;
 
   /**
+   * @brief Appends the points that are inside of the shape, for visualization
+   * @param points Input array of points to be checked
+   * @param points_inside Output array the points inside are appended to
+   */
+  virtual void collectPointsInside(
+    const std::vector<Point> & points, std::vector<Point> & points_inside) const;
+
+  /**
+   * @brief Collects the points inside of the shape per source associated with the polygon
+   * @param sources_collision_points_map Map containing source name as key,
+   * and input array of source's points to be checked as value
+   * @param points_inside Output map, source name to the points of it inside of the shape.
+   * Sources without a point inside get no entry.
+   */
+  void collectPointsInside(
+    const std::unordered_map<std::string, std::vector<Point>> & sources_collision_points_map,
+    std::unordered_map<std::string, std::vector<Point>> & points_inside) const;
+
+  /**
    * @brief Gets number of points inside given polygon
    * @param sources_collision_points_map Map containing source name as key,
    * and input array of source's points to be checked as value

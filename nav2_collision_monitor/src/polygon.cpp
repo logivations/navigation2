@@ -333,6 +333,37 @@ int Polygon::getPointsInside(
 
   return num;
 }
+
+void Polygon::collectPointsInside(
+  const std::vector<Point> & points, std::vector<Point> & points_inside) const
+{
+  const BoundingBox bounding_box(poly_);
+  for (const Point & point : points) {
+    if (bounding_box.contains(point) &&
+      nav2_util::geometry_utils::isPointInsidePolygon(point.x, point.y, poly_))
+    {
+      points_inside.push_back(point);
+    }
+  }
+}
+
+void Polygon::collectPointsInside(
+  const std::unordered_map<std::string, std::vector<Point>> & sources_collision_points_map,
+  std::unordered_map<std::string, std::vector<Point>> & points_inside) const
+{
+  for (const auto & source_name : getSourcesNames()) {
+    const auto & iter = sources_collision_points_map.find(source_name);
+    if (iter == sources_collision_points_map.end()) {
+      continue;
+    }
+    std::vector<Point> source_points_inside;
+    collectPointsInside(iter->second, source_points_inside);
+    if (!source_points_inside.empty()) {
+      points_inside[source_name] = std::move(source_points_inside);
+    }
+  }
+}
+
 double Polygon::getCollisionTime(
   const std::unordered_map<std::string, std::vector<Point>> & sources_collision_points_map,
   const Velocity & velocity) const

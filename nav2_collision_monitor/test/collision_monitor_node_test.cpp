@@ -50,6 +50,8 @@ static const char CMD_VEL_IN_TOPIC[]{"cmd_vel_in"};
 static const char CMD_VEL_OUT_TOPIC[]{"cmd_vel_out"};
 static const char STATE_TOPIC[]{"collision_monitor_state"};
 static const char COLLISION_POINTS_MARKERS_TOPIC[]{"/collision_monitor/collision_points_marker"};
+static const char TRIGGERING_POINTS_MARKERS_TOPIC[]{
+  "/collision_monitor/triggering_points_marker"};
 static const char FOOTPRINT_TOPIC[]{"footprint"};
 static const char SCAN_NAME[]{"Scan"};
 static const char POINTCLOUD_NAME[]{"PointCloud"};
@@ -189,6 +191,7 @@ public:
     const std::chrono::nanoseconds & timeout);
   bool waitActionState(const std::chrono::nanoseconds & timeout);
   bool waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout);
+  bool waitTriggeringPointsMarker(const std::chrono::nanoseconds & timeout);
   bool waitToggle(
     rclcpp::Client<nav2_msgs::srv::Toggle>::SharedFuture result_future,
     const std::chrono::nanoseconds & timeout);
@@ -227,6 +230,9 @@ protected:
   nav2::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr
     collision_points_marker_sub_;
   visualization_msgs::msg::MarkerArray::ConstSharedPtr collision_points_marker_msg_;
+  rclcpp::Subscription<visualization_msgs::msg::MarkerArray>::SharedPtr
+    triggering_points_marker_sub_;
+  visualization_msgs::msg::MarkerArray::ConstSharedPtr triggering_points_marker_msg_;
 
   // Service client for setting CollisionMonitor parameters
   nav2::ServiceClient<rcl_interfaces::srv::SetParameters>::SharedPtr parameters_client_;
@@ -272,6 +278,11 @@ Tester::Tester()
   collision_points_marker_sub_ = cm_->create_subscription<visualization_msgs::msg::MarkerArray>(
     COLLISION_POINTS_MARKERS_TOPIC,
     std::bind(&Tester::collisionPointsMarkerCallback, this, std::placeholders::_1));
+  triggering_points_marker_sub_ = cm_->create_subscription<visualization_msgs::msg::MarkerArray>(
+    TRIGGERING_POINTS_MARKERS_TOPIC,
+    [this](visualization_msgs::msg::MarkerArray::ConstSharedPtr msg) {
+      triggering_points_marker_msg_ = msg;
+    });
   parameters_client_ =
     cm_->create_client<rcl_interfaces::srv::SetParameters>(
     std::string(
@@ -299,6 +310,7 @@ Tester::~Tester()
 
   action_state_sub_.reset();
   collision_points_marker_sub_.reset();
+  triggering_points_marker_sub_.reset();
 
   cm_.reset();
   executor_.reset();
@@ -688,6 +700,7 @@ void Tester::publishCmdVel(const double x, const double y, const double tw)
   cmd_vel_out_ = nullptr;
   action_state_ = nullptr;
   collision_points_marker_msg_ = nullptr;
+  triggering_points_marker_msg_ = nullptr;
 
   std::unique_ptr<geometry_msgs::msg::Twist> msg =
     std::make_unique<geometry_msgs::msg::Twist>();
@@ -778,6 +791,19 @@ bool Tester::waitCollisionPointsMarker(const std::chrono::nanoseconds & timeout)
   rclcpp::Time start_time = cm_->now();
   while (rclcpp::ok() && cm_->now() - start_time <= rclcpp::Duration(timeout)) {
     if (collision_points_marker_msg_) {
+      return true;
+    }
+    executor_->spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
+  return false;
+}
+
+bool Tester::waitTriggeringPointsMarker(const std::chrono::nanoseconds & timeout)
+{
+  rclcpp::Time start_time = cm_->now();
+  while (rclcpp::ok() && cm_->now() - start_time <= rclcpp::Duration(timeout)) {
+    if (triggering_points_marker_msg_) {
       return true;
     }
     executor_->spin_some();
@@ -1911,6 +1937,70 @@ TEST_F(Tester, testSourceAssociatedToPolygon)
   ASSERT_TRUE(waitActionState(500ms));
   ASSERT_EQ(action_state_->action_type, SLOWDOWN);
   ASSERT_EQ(action_state_->polygon_name, "SlowdownOnAllSources");
+
+  // Stop Collision Monitor node
+  cm_->stop();
+}
+
+TEST_F(Tester, testTriggeringPointsMarkers)
+{
+  rclcpp::Time curr_time = cm_->now();
+
+  // Stop polygon of 1 m, slowdown polygon of 2 m around it
+  setCommonParameters();
+  addPolygon("SlowDown", POLYGON, 2.0, "slowdown");
+  addPolygon("Stop", POLYGON, 1.0, "stop");
+  addSource(SCAN_NAME, SCAN);
+  setVectors({"SlowDown", "Stop"}, {SCAN_NAME});
+
+  // Start Collision Monitor node
+  cm_->start();
+
+  // Share TF
+  sendTransforms(curr_time);
+
+  // Obstacle outside of both polygons: nothing to publish
+  publishScan(3.0, curr_time);
+  ASSERT_TRUE(waitData(3.0, 500ms, curr_time));
+  publishCmdVel(0.5, 0.2, 0.1);
+  ASSERT_TRUE(waitCmdVel(500ms));
+  ASSERT_FALSE(waitTriggeringPointsMarker(100ms));
+
+  // Obstacle inside of the slowdown polygon only: one marker of that polygon and source
+  publishScan(1.5, curr_time);
+  ASSERT_TRUE(waitData(1.5, 500ms, curr_time));
+  publishCmdVel(0.5, 0.2, 0.1);
+  ASSERT_TRUE(waitTriggeringPointsMarker(500ms));
+  ASSERT_EQ(triggering_points_marker_msg_->markers.size(), 1u);
+  EXPECT_EQ(triggering_points_marker_msg_->markers[0].ns, std::string("SlowDown/") + SCAN_NAME);
+  EXPECT_EQ(triggering_points_marker_msg_->markers[0].action, visualization_msgs::msg::Marker::ADD);
+  const size_t slowdown_points = triggering_points_marker_msg_->markers[0].points.size();
+  EXPECT_GT(slowdown_points, 0u);
+
+  // Obstacle inside of both polygons
+  publishScan(0.5, curr_time);
+  ASSERT_TRUE(waitData(0.5, 500ms, curr_time));
+  publishCmdVel(0.5, 0.2, 0.1);
+  ASSERT_TRUE(waitTriggeringPointsMarker(500ms));
+  ASSERT_EQ(triggering_points_marker_msg_->markers.size(), 2u);
+  EXPECT_EQ(triggering_points_marker_msg_->markers[0].ns, std::string("SlowDown/") + SCAN_NAME);
+  EXPECT_EQ(triggering_points_marker_msg_->markers[1].ns, std::string("Stop/") + SCAN_NAME);
+  EXPECT_GT(triggering_points_marker_msg_->markers[1].points.size(), 0u);
+
+  // Obstacle gone: both markers are deleted once ...
+  publishScan(3.0, curr_time);
+  ASSERT_TRUE(waitData(3.0, 500ms, curr_time));
+  publishCmdVel(0.5, 0.2, 0.1);
+  ASSERT_TRUE(waitTriggeringPointsMarker(500ms));
+  ASSERT_EQ(triggering_points_marker_msg_->markers.size(), 2u);
+  for (const auto & marker : triggering_points_marker_msg_->markers) {
+    EXPECT_EQ(marker.action, visualization_msgs::msg::Marker::DELETE);
+  }
+
+  // ... and nothing is published afterwards
+  publishCmdVel(0.5, 0.2, 0.1);
+  ASSERT_TRUE(waitCmdVel(500ms));
+  ASSERT_FALSE(waitTriggeringPointsMarker(100ms));
 
   // Stop Collision Monitor node
   cm_->stop();

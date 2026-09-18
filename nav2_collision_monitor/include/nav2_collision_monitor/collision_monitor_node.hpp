@@ -15,6 +15,8 @@
 #ifndef NAV2_COLLISION_MONITOR__COLLISION_MONITOR_NODE_HPP_
 #define NAV2_COLLISION_MONITOR__COLLISION_MONITOR_NODE_HPP_
 
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include <memory>
@@ -219,6 +221,16 @@ protected:
   void publishPolygons() const;
 
   /**
+   * @brief Publishes the collision points inside of the evaluated polygons, one marker per
+   * polygon and source. Unlike the collision points marker this is a handful of points:
+   * those that (could) cause an action. Nothing is published while no point is inside
+   * of a polygon.
+   * @param points_inside Marker namespace ("<polygon>/<source>") to the points inside
+   */
+  void publishTriggeringPoints(
+    const std::map<std::string, std::vector<Point>> & points_inside);
+
+  /**
    * @brief Enable/disable collision monitor service callback
    * @param request Service request
    * @param response Service response
@@ -258,6 +270,12 @@ protected:
   /// @brief Collision points marker publisher
   nav2::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
     collision_points_marker_pub_;
+
+  /// @brief Publisher of the collision points inside of the polygons evaluated in a cycle
+  nav2::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+    triggering_points_marker_pub_;
+  /// @brief Marker namespaces of the last published triggering points, to delete them
+  std::set<std::string> triggering_points_namespaces_;
 
   /// @brief Enable/disable collision monitor service
   nav2::ServiceServer<nav2_msgs::srv::Toggle>::SharedPtr toggle_cm_service_;

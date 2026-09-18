@@ -726,7 +726,20 @@ bool VelocityPolygon::validateSteering(
       next_field_collision_points_pub_->get_subscription_count() > 0)
     {
       visualization_msgs::msg::MarkerArray marker_array;
-      int marker_id = 0;
+      // Remove the markers of the sources that have no point in the next field anymore
+      for (const std::string & marker_namespace : next_field_points_namespaces_) {
+        const std::string source_name =
+          marker_namespace.substr(std::string("next_field_collision_points_").size());
+        if (next_field_points_by_source.find(source_name) == next_field_points_by_source.end()) {
+          visualization_msgs::msg::Marker m;
+          m.header.frame_id = base_frame_id_;
+          m.ns = marker_namespace;
+          m.id = 0;
+          m.action = visualization_msgs::msg::Marker::DELETE;
+          marker_array.markers.push_back(m);
+        }
+      }
+      next_field_points_namespaces_.clear();
       for (const auto & kv : next_field_points_by_source) {
         const std::string & source_name = kv.first;
         const std::vector<Point> & pts_vec = kv.second;
@@ -734,7 +747,8 @@ bool VelocityPolygon::validateSteering(
         m.header.frame_id = base_frame_id_;
         m.header.stamp = clock_->now();
         m.ns = "next_field_collision_points_" + source_name;
-        m.id = marker_id++;
+        m.id = 0;
+        next_field_points_namespaces_.insert(m.ns);
         m.type = visualization_msgs::msg::Marker::POINTS;
         m.action = visualization_msgs::msg::Marker::ADD;
         m.scale.x = 0.04;
@@ -753,7 +767,9 @@ bool VelocityPolygon::validateSteering(
         }
         marker_array.markers.push_back(m);
       }
-      next_field_collision_points_pub_->publish(std::move(marker_array));
+      if (!marker_array.markers.empty()) {
+        next_field_collision_points_pub_->publish(std::move(marker_array));
+      }
     }
     return mod;
   };
