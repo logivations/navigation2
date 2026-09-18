@@ -16,6 +16,7 @@
 
 #include <math.h>
 #include <cmath>
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <utility>
@@ -776,6 +777,75 @@ TEST_F(Tester, testGetOutdatedData)
   // Polygon data should be empty
   polygon_->getData(curr_time, data);
   ASSERT_EQ(data.size(), 0u);
+}
+
+TEST_F(Tester, testPolygonMaxRange)
+{
+  rclcpp::Time curr_time = test_node_->now();
+
+  createSources();
+
+  sendTransforms(curr_time);
+
+  // Range limited polygon source, subscribed to the same topic
+  const double max_range = 0.95;
+  const char ranged_name[]{"RangedPolygon"};
+  test_node_->declare_parameter(
+    std::string(ranged_name) + ".topic", rclcpp::ParameterValue(POLYGON_TOPIC));
+  test_node_->declare_parameter(
+    std::string(ranged_name) + ".sampling_distance", rclcpp::ParameterValue(0.1));
+  test_node_->declare_parameter(
+    std::string(ranged_name) + ".max_range", rclcpp::ParameterValue(max_range));
+
+  auto ranged_polygon = std::make_shared<PolygonWrapper>(
+    test_node_, ranged_name, tf_buffer_,
+    BASE_FRAME_ID, GLOBAL_FRAME_ID,
+    TRANSFORM_TOLERANCE, DATA_TIMEOUT, false);
+  ranged_polygon->configure();
+
+  // The published 2x2 m square is centered 0.1 m off the base frame origin: two of its
+  // edges are 0.9 m away and cross the range square, the other two are 1.1 m away.
+  test_node_->publishPolygon(curr_time);
+  ASSERT_TRUE(waitPolygon(500ms));
+  rclcpp::Time start_time = test_node_->now();
+  while (rclcpp::ok() && !ranged_polygon->dataReceived() &&
+    test_node_->now() - start_time <= rclcpp::Duration(500ms))
+  {
+    executor_->spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(ranged_polygon->dataReceived());
+
+  std::vector<nav2_collision_monitor::Point> all_data, ranged_data;
+  ASSERT_TRUE(polygon_->getData(curr_time, all_data));
+  ASSERT_TRUE(ranged_polygon->getData(curr_time, ranged_data));
+
+  auto contains = [](
+    const std::vector<nav2_collision_monitor::Point> & data,
+    const nav2_collision_monitor::Point & point) {
+      return std::any_of(
+        data.begin(), data.end(), [&point](const nav2_collision_monitor::Point & p) {
+          return std::hypot(p.x - point.x, p.y - point.y) < 1e-6;
+        });
+    };
+
+  // Clipping drops points, it never moves or adds one ...
+  EXPECT_LT(ranged_data.size(), all_data.size());
+  EXPECT_GT(ranged_data.size(), 0u);
+  for (const auto & point : ranged_data) {
+    EXPECT_TRUE(contains(all_data, point));
+    // ... apart from the rounding slack of less than two samples, only keeps points in range ...
+    EXPECT_LT(std::max(std::abs(point.x), std::abs(point.y)), max_range + 2 * 0.1);
+  }
+  // ... and keeps every point in range
+  size_t in_range = 0;
+  for (const auto & point : all_data) {
+    if (std::max(std::abs(point.x), std::abs(point.y)) <= max_range) {
+      in_range++;
+      EXPECT_TRUE(contains(ranged_data, point));
+    }
+  }
+  EXPECT_GT(in_range, 0u);
 }
 
 TEST_F(Tester, testPolygonTreatEmptyAsValid)

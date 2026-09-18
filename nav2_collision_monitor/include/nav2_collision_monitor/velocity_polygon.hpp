@@ -105,6 +105,11 @@ public:
   void updatePolygon(const Velocity & cmd_vel_in) override;
 
   /**
+   * @brief Distance (max norm) from the base frame origin any of the sub-polygons reaches
+   */
+  double getMaxRange() const override;
+
+  /**
    * @brief Set the current fields mode used for filtering sub-polygons
    * @param mode Mode string (e.g. "default", "fork_down", "narrow_fork_down")
    */

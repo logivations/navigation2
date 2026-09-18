@@ -74,6 +74,11 @@ public:
    */
   bool isShapeSet() override;
 
+  /**
+   * @brief Radius of the circle
+   */
+  double getMaxRange() const override;
+
 protected:
   /**
    * @brief Supporting routine obtaining polygon-specific ROS-parameters

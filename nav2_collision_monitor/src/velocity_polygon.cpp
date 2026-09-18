@@ -547,6 +547,17 @@ double VelocityPolygon::getMaxProbeSpeedForMode(bool forward) const
   return std::max(0.0, max_abs - effectiveSpeedMargin(max_abs));
 }
 
+double VelocityPolygon::getMaxRange() const
+{
+  double max_range = 0.0;
+  for (const SubPolygonParameter & sub_polygon : sub_polygons_) {
+    for (const Point & point : sub_polygon.poly_) {
+      max_range = std::max({max_range, std::abs(point.x), std::abs(point.y)});
+    }
+  }
+  return max_range;
+}
+
 bool VelocityPolygon::isPointInsidePoly(
   const Point & point, const std::vector<Point> & vertices)
 {
@@ -560,12 +571,13 @@ int VelocityPolygon::getPointsInsideSubPolygon(
 {
   int num = 0;
   std::vector<std::string> polygon_sources_names = getSourcesNames();
+  const BoundingBox bounding_box(sub_polygon.poly_);
 
   for (const auto & source_name : polygon_sources_names) {
     const auto & iter = collision_points_map.find(source_name);
     if (iter != collision_points_map.end()) {
       for (const auto & point : iter->second) {
-        if (isPointInsidePoly(point, sub_polygon.poly_)) {
+        if (bounding_box.contains(point) && isPointInsidePoly(point, sub_polygon.poly_)) {
           num++;
           if (points_per_source_out != nullptr) {
             (*points_per_source_out)[source_name].push_back(point);

@@ -15,6 +15,7 @@
 #include "nav2_collision_monitor/polygon.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <utility>
 
@@ -291,11 +292,23 @@ void Polygon::updatePolygon(const Velocity & /*cmd_vel_in*/)
   }
 }
 
+double Polygon::getMaxRange() const
+{
+  double max_range = 0.0;
+  for (const Point & point : poly_) {
+    max_range = std::max({max_range, std::abs(point.x), std::abs(point.y)});
+  }
+  return max_range;
+}
+
 int Polygon::getPointsInside(const std::vector<Point> & points) const
 {
   int num = 0;
+  const BoundingBox bounding_box(poly_);
   for (const Point & point : points) {
-    if (nav2_util::geometry_utils::isPointInsidePolygon(point.x, point.y, poly_)) {
+    if (bounding_box.contains(point) &&
+      nav2_util::geometry_utils::isPointInsidePolygon(point.x, point.y, poly_))
+    {
       num++;
     }
   }

@@ -77,13 +77,20 @@ public:
     std::vector<Point> & data);
 
   /**
-   * @brief Converts a PolygonInstanceStamped to a std::vector<Point>
+   * @brief Converts a PolygonInstanceStamped to a std::vector<Point>. With max_range_ set,
+   * only the sampled points within max_range_ of the frame origin are added; they are
+   * the same points the unlimited sampling produces there.
    * @param polygon Input Polygon to be converted
    * @param data Output vector of Point
    */
   void convertPolygonStampedToPoints(
     const geometry_msgs::msg::PolygonStamped & polygon,
     std::vector<Point> & data) const;
+
+  /**
+   * @brief Range the source provides data in, 0 if unlimited
+   */
+  double getMaxRange() const {return max_range_;}
 
 protected:
   /**
@@ -108,6 +115,12 @@ protected:
 
   /// @brief distance between sampled points on polygon edges
   double sampling_distance_;
+
+  /// @brief Only polygon edges within the square of this half size (m) around the base
+  /// frame origin are sampled, so the cost per cycle depends on what is around the robot
+  /// instead of the total perimeter of all received polygons. Has to cover every polygon
+  /// (field) the source is checked against. 0 samples everything.
+  double max_range_;
 
   /// @brief Report the source as valid (with zero points) when no fresh
   /// polygons are available, instead of invalidating it. For sources where

@@ -58,6 +58,11 @@ void Circle::getPolygon(std::vector<Point> & poly) const
   }
 }
 
+double Circle::getMaxRange() const
+{
+  return radius_squared_ < 0.0 ? 0.0 : radius_;
+}
+
 int Circle::getPointsInside(const std::vector<Point> & points) const
 {
   int num = 0;

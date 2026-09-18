@@ -163,6 +163,13 @@ public:
   virtual bool isShapeSet();
 
   /**
+   * @brief Distance (max norm) from the base frame origin the shape reaches out to,
+   * over all shapes it can take as far as they are known.
+   * Sources may drop data beyond that (see PolygonSource max_range).
+   */
+  virtual double getMaxRange() const;
+
+  /**
    * @brief Updates polygon from footprint subscriber (if any)
    */
   virtual void updatePolygon(const Velocity & /*cmd_vel_in*/);

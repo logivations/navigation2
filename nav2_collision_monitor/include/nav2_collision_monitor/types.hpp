@@ -15,7 +15,10 @@
 #ifndef NAV2_COLLISION_MONITOR__TYPES_HPP_
 #define NAV2_COLLISION_MONITOR__TYPES_HPP_
 
+#include <algorithm>
+#include <limits>
 #include <string>
+#include <vector>
 
 namespace nav2_collision_monitor
 {
@@ -51,6 +54,32 @@ struct Point
 {
   double x;  // x-coordinate of point
   double y;  // y-coordinate of point
+};
+
+/// @brief Axis-aligned bounding box of a polygon. Cheap pre-check before the
+/// point-in-polygon test: most collision points are nowhere near the polygon.
+struct BoundingBox
+{
+  double min_x{std::numeric_limits<double>::infinity()};
+  double min_y{std::numeric_limits<double>::infinity()};
+  double max_x{-std::numeric_limits<double>::infinity()};
+  double max_y{-std::numeric_limits<double>::infinity()};
+
+  explicit BoundingBox(const std::vector<Point> & poly)
+  {
+    for (const Point & p : poly) {
+      min_x = std::min(min_x, p.x);
+      min_y = std::min(min_y, p.y);
+      max_x = std::max(max_x, p.x);
+      max_y = std::max(max_y, p.y);
+    }
+  }
+
+  /// @brief Inclusive, so no point inside the polygon is ever rejected
+  inline bool contains(const Point & p) const
+  {
+    return p.x >= min_x && p.x <= max_x && p.y >= min_y && p.y <= max_y;
+  }
 };
 
 /// @brief 2D Pose
