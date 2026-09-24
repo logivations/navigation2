@@ -77,6 +77,24 @@ public:
     const geometry_msgs::msg::PoseStamped & start,
     const geometry_msgs::msg::PoseStamped & goal,
     std::function<bool()> cancel_checker) = 0;
+
+  /**
+   * @brief Method create the plan from a starting and ending goal.
+   * @param start The starting pose of the robot
+   * @param goal  The goal pose of the robot
+   * @param cancel_checker Function to check if the action has been canceled
+   * @param publish_failed_search Opt-in: if planning fails, publish a visualization of
+   * how far the search got. Planners without such a visualization ignore it.
+   * @return      The sequence of poses to get from start to goal, if any
+   */
+  virtual nav_msgs::msg::Path createPlan(
+    const geometry_msgs::msg::PoseStamped & start,
+    const geometry_msgs::msg::PoseStamped & goal,
+    std::function<bool()> cancel_checker,
+    bool /*publish_failed_search*/)
+  {
+    return createPlan(start, goal, cancel_checker);
+  }
 };
 
 }  // namespace nav2_core

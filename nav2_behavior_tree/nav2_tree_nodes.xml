@@ -100,6 +100,7 @@
       <input_port name="start">Use as the planner start pose instead of the current robot pose, if use_start is not false (i.e. not provided or set to true)</input_port>
       <input_port name="use_start">For using or not using (i.e. ignoring) the provided start pose</input_port>
       <input_port name="planner_id">Mapped name to the planner plugin type to use</input_port>
+      <input_port name="publish_failed_search">Opt-in: if planning fails, the planner publishes how far the search got</input_port>
       <input_port name="server_name">Server name</input_port>
       <input_port name="server_timeout">Server timeout</input_port>
       <output_port name="path">Path created by ComputePathToPose node</output_port>

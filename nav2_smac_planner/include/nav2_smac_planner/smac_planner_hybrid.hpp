@@ -90,6 +90,21 @@ public:
     const geometry_msgs::msg::PoseStamped & goal,
     std::function<bool()> cancel_checker)  override;
 
+  /**
+   * @brief Creating a plan from start and goal poses
+   * @param start Start pose
+   * @param goal Goal pose
+   * @param cancel_checker Function to check if the task has been canceled
+   * @param publish_failed_search Opt-in: if the search fails, log and publish how far it
+   * got (planner_server/failed_explored_area, failed_closest_path)
+   * @return nav2_msgs::Path of the generated path
+   */
+  nav_msgs::msg::Path createPlan(
+    const geometry_msgs::msg::PoseStamped & start,
+    const geometry_msgs::msg::PoseStamped & goal,
+    std::function<bool()> cancel_checker,
+    bool publish_failed_search) override;
+
 protected:
   /**
    * @brief Validate incoming parameter updates before applying them.

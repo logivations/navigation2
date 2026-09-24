@@ -561,7 +561,8 @@ PlannerServer::computePlan()
         return action_server_pose_->is_cancel_requested();
       };
 
-    result->path = getPlan(start, goal_pose, goal->planner_id, cancel_checker);
+    result->path = getPlan(
+      start, goal_pose, goal->planner_id, cancel_checker, goal->publish_failed_search);
 
     if (!validatePath<ActionThroughPoses>(goal_pose, result->path, goal->planner_id)) {
       throw nav2_core::NoValidPathCouldBeFound(goal->planner_id + " generated a empty path");
@@ -631,7 +632,8 @@ PlannerServer::getPlan(
   const geometry_msgs::msg::PoseStamped & start,
   const geometry_msgs::msg::PoseStamped & goal,
   const std::string & planner_id,
-  std::function<bool()> cancel_checker)
+  std::function<bool()> cancel_checker,
+  bool publish_failed_search)
 {
   RCLCPP_DEBUG(
     get_logger(), "Attempting to a find path from (%.2f, %.2f) to "
@@ -639,14 +641,15 @@ PlannerServer::getPlan(
     goal.pose.position.x, goal.pose.position.y);
 
   if (planners_.find(planner_id) != planners_.end()) {
-    return planners_[planner_id]->createPlan(start, goal, cancel_checker);
+    return planners_[planner_id]->createPlan(start, goal, cancel_checker, publish_failed_search);
   } else {
     if (planners_.size() == 1 && planner_id.empty()) {
       RCLCPP_WARN_ONCE(
         get_logger(), "No planners specified in action call. "
         "Server will use only plugin %s in server."
         " This warning will appear once.", planner_ids_concat_.c_str());
-      return planners_[planners_.begin()->first]->createPlan(start, goal, cancel_checker);
+      return planners_[planners_.begin()->first]->createPlan(
+        start, goal, cancel_checker, publish_failed_search);
     } else {
       RCLCPP_ERROR(
         get_logger(), "planner %s is not a valid planner. "

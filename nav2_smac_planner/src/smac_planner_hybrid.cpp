@@ -124,8 +124,9 @@ void SmacPlannerHybrid::configure(
   _lookup_table_size = node->declare_or_get_parameter(name + ".lookup_table_size", 20.0);
 
   _debug_visualizations = node->declare_or_get_parameter(name + ".debug_visualizations", false);
-  // Unlike debug_visualizations this costs nothing on successful plans: the explored area is
-  // read from the search graph after the failure
+  // Master switch for the per-request publish_failed_search opt-in. Unlike
+  // debug_visualizations this costs nothing on successful plans: the explored area is read
+  // from the search graph after the failure
   _publish_failed_search =
     node->declare_or_get_parameter(name + ".publish_failed_search", true);
 
@@ -398,6 +399,15 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
   const geometry_msgs::msg::PoseStamped & goal,
   std::function<bool()> cancel_checker)
 {
+  return createPlan(start, goal, cancel_checker, false);
+}
+
+nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
+  const geometry_msgs::msg::PoseStamped & start,
+  const geometry_msgs::msg::PoseStamped & goal,
+  std::function<bool()> cancel_checker,
+  bool publish_failed_search)
+{
   std::lock_guard<std::mutex> lock_reinit(_mutex);
   steady_clock::time_point a = steady_clock::now();
 
@@ -540,7 +550,9 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
       throw nav2_core::StartOccupied("Start occupied");
     }
 
-    if (_publish_failed_search) {
+    // Only on request: callers that expect failures (e.g. trying many approach poses)
+    // do not care why a search failed
+    if (_publish_failed_search && publish_failed_search) {
       publishFailedSearch(
         costmap, mx_goal, my_goal,
         duration_cast<duration<double>>(steady_clock::now() - a).count());

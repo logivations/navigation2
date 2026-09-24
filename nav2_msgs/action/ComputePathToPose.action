@@ -3,6 +3,7 @@ geometry_msgs/PoseStamped goal
 geometry_msgs/PoseStamped start
 string planner_id
 bool use_start # If false, use current robot pose as path start, if true, use start above instead
+bool publish_failed_search # Opt-in: if the search fails, publish how far it got (planner_server/failed_explored_area, failed_closest_path), if the planner supports it
 ---
 #result definition
 

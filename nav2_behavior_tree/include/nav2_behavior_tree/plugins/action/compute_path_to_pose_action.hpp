@@ -99,6 +99,9 @@ public:
         BT::InputPort<std::string>(
           "planner_id", "",
           "Mapped name to the planner plugin type to use"),
+        BT::InputPort<bool>(
+          "publish_failed_search", false,
+          "Opt-in: if planning fails, the planner publishes how far the search got"),
         BT::OutputPort<nav_msgs::msg::Path>("path", "Path created by ComputePathToPose node"),
         BT::OutputPort<ActionResult::_error_code_type>(
           "error_code_id", "The compute path to pose error code"),

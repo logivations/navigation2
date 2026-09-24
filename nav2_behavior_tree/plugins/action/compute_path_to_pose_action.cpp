@@ -32,6 +32,8 @@ void ComputePathToPoseAction::on_tick()
 {
   getInput("goal", goal_.goal);
   getInput("planner_id", goal_.planner_id);
+  goal_.publish_failed_search = false;
+  getInput("publish_failed_search", goal_.publish_failed_search);
 
   // if "use_start" is provided try to enforce it (true or false), but we cannot enforce true if
   // start is not provided
