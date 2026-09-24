@@ -110,6 +110,18 @@ protected:
    */
   void updateParametersCallback(const std::vector<rclcpp::Parameter> & parameters);
 
+  /**
+   * @brief After a failed search: log how far it got and publish the explored area plus
+   * the path to the explored pose closest to the goal
+   * @param costmap Costmap the search ran on (downsampled, if enabled)
+   * @param mx_goal Goal x in map cells (unused in find free space mode)
+   * @param my_goal Goal y in map cells (unused in find free space mode)
+   * @param search_duration Seconds spent in the search
+   */
+  void publishFailedSearch(
+    const nav2_costmap_2d::Costmap2D * costmap, const float & mx_goal, const float & my_goal,
+    const double & search_duration);
+
   std::unique_ptr<AStarAlgorithm<NodeHybrid>> _a_star;
   GridCollisionChecker _collision_checker;
   std::unique_ptr<Smoother> _smoother;
@@ -136,6 +148,7 @@ protected:
   // Optional asymmetric right-turn radius. 0.0 = symmetric (use _minimum_turning_radius_global_coords).
   double _minimum_turning_radius_right_global_coords;
   bool _debug_visualizations;
+  bool _publish_failed_search;
   std::string _motion_model_for_search;
   MotionModel _motion_model;
   GoalHeadingMode _goal_heading_mode;
@@ -149,6 +162,8 @@ protected:
     _smoothed_footprints_publisher;
   nav2::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr
     _expansions_publisher;
+  nav2::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr _failed_explored_area_publisher;
+  nav2::Publisher<nav_msgs::msg::Path>::SharedPtr _failed_closest_path_publisher;
   std::mutex _mutex;
   nav2::LifecycleNode::WeakPtr _node;
 

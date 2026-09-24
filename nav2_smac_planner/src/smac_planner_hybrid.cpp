@@ -18,6 +18,7 @@
 #include <vector>
 #include <algorithm>
 #include <limits>
+#include <cmath>
 
 #include "nav2_smac_planner/smac_planner_hybrid.hpp"
 
@@ -123,6 +124,10 @@ void SmacPlannerHybrid::configure(
   _lookup_table_size = node->declare_or_get_parameter(name + ".lookup_table_size", 20.0);
 
   _debug_visualizations = node->declare_or_get_parameter(name + ".debug_visualizations", false);
+  // Unlike debug_visualizations this costs nothing on successful plans: the explored area is
+  // read from the search graph after the failure
+  _publish_failed_search =
+    node->declare_or_get_parameter(name + ".publish_failed_search", true);
 
   _motion_model_for_search =
     node->declare_or_get_parameter(name + ".motion_model_for_search", std::string("DUBIN"));
@@ -271,6 +276,14 @@ void SmacPlannerHybrid::configure(
 
   _raw_plan_publisher = node->create_publisher<nav_msgs::msg::Path>("unsmoothed_plan");
 
+  if (_publish_failed_search) {
+    // Next to the planner server's own planner_server/failed_* topics
+    _failed_explored_area_publisher = node->create_publisher<nav_msgs::msg::OccupancyGrid>(
+      "planner_server/failed_explored_area");
+    _failed_closest_path_publisher = node->create_publisher<nav_msgs::msg::Path>(
+      "planner_server/failed_closest_path");
+  }
+
   if (_debug_visualizations) {
     _expansions_publisher = node->create_publisher<geometry_msgs::msg::PoseArray>("expansions");
     _planned_footprints_publisher = node->create_publisher<visualization_msgs::msg::MarkerArray>(
@@ -295,6 +308,10 @@ void SmacPlannerHybrid::activate()
     _logger, "Activating plugin %s of type SmacPlannerHybrid",
     _name.c_str());
   _raw_plan_publisher->on_activate();
+  if (_publish_failed_search) {
+    _failed_explored_area_publisher->on_activate();
+    _failed_closest_path_publisher->on_activate();
+  }
   if (_debug_visualizations) {
     _expansions_publisher->on_activate();
     _planned_footprints_publisher->on_activate();
@@ -330,6 +347,10 @@ void SmacPlannerHybrid::deactivate()
     _logger, "Deactivating plugin %s of type SmacPlannerHybrid",
     _name.c_str());
   _raw_plan_publisher->on_deactivate();
+  if (_publish_failed_search) {
+    _failed_explored_area_publisher->on_deactivate();
+    _failed_closest_path_publisher->on_deactivate();
+  }
   if (_debug_visualizations) {
     _expansions_publisher->on_deactivate();
     _planned_footprints_publisher->on_deactivate();
@@ -363,6 +384,8 @@ void SmacPlannerHybrid::cleanup()
   }
   _no_waiting_zone.cleanup();
   _raw_plan_publisher.reset();
+  _failed_explored_area_publisher.reset();
+  _failed_closest_path_publisher.reset();
   if (_debug_visualizations) {
     _expansions_publisher.reset();
     _planned_footprints_publisher.reset();
@@ -517,6 +540,12 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
       throw nav2_core::StartOccupied("Start occupied");
     }
 
+    if (_publish_failed_search) {
+      publishFailedSearch(
+        costmap, mx_goal, my_goal,
+        duration_cast<duration<double>>(steady_clock::now() - a).count());
+    }
+
     if (num_iterations < _a_star->getMaxIterations()) {
       if (_find_free_space_mode) {
         throw nav2_core::NoValidPathCouldBeFound(
@@ -620,6 +649,114 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
   }
 
   return plan;
+}
+
+void SmacPlannerHybrid::publishFailedSearch(
+  const nav2_costmap_2d::Costmap2D * costmap, const float & mx_goal, const float & my_goal,
+  const double & search_duration)
+{
+  // Pass 1: bounding box of the explored cells and the explored pose closest to the goal
+  unsigned int min_x = std::numeric_limits<unsigned int>::max(), min_y = min_x;
+  unsigned int max_x = 0, max_y = 0;
+  size_t num_poses = 0;
+  NodeHybrid * closest = nullptr;
+  float closest_dist_sq = std::numeric_limits<float>::max();
+  _a_star->forEachVisitedNode(
+    [&](NodeHybrid * node) {
+      const unsigned int x = static_cast<unsigned int>(node->pose.x);
+      const unsigned int y = static_cast<unsigned int>(node->pose.y);
+      min_x = std::min(min_x, x);
+      min_y = std::min(min_y, y);
+      max_x = std::max(max_x, x);
+      max_y = std::max(max_y, y);
+      num_poses++;
+      const float dx = node->pose.x - mx_goal;
+      const float dy = node->pose.y - my_goal;
+      if (dx * dx + dy * dy < closest_dist_sq) {
+        closest_dist_sq = dx * dx + dy * dy;
+        closest = node;
+      }
+    });
+  if (num_poses == 0) {
+    return;
+  }
+
+  // Pass 2: number of headings the search reached in each explored cell
+  const unsigned int width = max_x - min_x + 1;
+  const unsigned int height = max_y - min_y + 1;
+  std::vector<unsigned int> headings(static_cast<size_t>(width) * height, 0);
+  _a_star->forEachVisitedNode(
+    [&](NodeHybrid * node) {
+      headings[(static_cast<size_t>(node->pose.y) - min_y) * width +
+      (static_cast<size_t>(node->pose.x) - min_x)]++;
+    });
+  const size_t num_cells = static_cast<size_t>(
+    std::count_if(headings.begin(), headings.end(), [](unsigned int n) {return n > 0;}));
+
+  const double resolution = costmap->getResolution();
+  if (_find_free_space_mode) {
+    RCLCPP_WARN(
+      _logger, "%s: search explored %zu poses in %zu cells (%.1f m^2) within %.3f s",
+      _name.c_str(), num_poses, num_cells, num_cells * resolution * resolution,
+      search_duration);
+  } else {
+    const geometry_msgs::msg::Pose closest_pose =
+      getWorldCoords(closest->pose.x, closest->pose.y, costmap);
+    RCLCPP_WARN(
+      _logger, "%s: search explored %zu poses in %zu cells (%.1f m^2) within %.3f s, "
+      "closest pose (%.2f, %.2f) is %.2f m from the goal",
+      _name.c_str(), num_poses, num_cells, num_cells * resolution * resolution,
+      search_duration, closest_pose.position.x, closest_pose.position.y,
+      std::sqrt(closest_dist_sq) * resolution);
+  }
+
+  const auto now = _clock->now();
+  if (_failed_explored_area_publisher->get_subscription_count() > 0) {
+    // 0 = not reached (transparent in the costmap color scheme), 1 = reached in every
+    // heading up to 98 = reached in a single heading only, so cells the robot passes but
+    // cannot turn in stand out
+    auto grid = std::make_unique<nav_msgs::msg::OccupancyGrid>();
+    grid->header.stamp = now;
+    grid->header.frame_id = _global_frame;
+    grid->info.map_load_time = now;
+    grid->info.resolution = static_cast<float>(resolution);
+    grid->info.width = width;
+    grid->info.height = height;
+    grid->info.origin.position.x = costmap->getOriginX() + min_x * resolution;
+    grid->info.origin.position.y = costmap->getOriginY() + min_y * resolution;
+    grid->info.origin.orientation.w = 1.0;
+    grid->data.resize(headings.size());
+    for (size_t i = 0; i < headings.size(); ++i) {
+      if (headings[i] == 0) {
+        grid->data[i] = 0;
+        continue;
+      }
+      const double share =
+        std::min(1.0, static_cast<double>(headings[i]) / _angle_quantizations);
+      grid->data[i] = static_cast<int8_t>(1 + std::lround(97.0 * (1.0 - share)));
+    }
+    _failed_explored_area_publisher->publish(std::move(grid));
+  }
+
+  if (_failed_closest_path_publisher->get_subscription_count() > 0) {
+    // Start -> explored pose closest to the goal; empty in find free space mode, which
+    // ignores the goal, so a stale path of an earlier failure does not linger
+    auto path_msg = std::make_unique<nav_msgs::msg::Path>();
+    path_msg->header.stamp = now;
+    path_msg->header.frame_id = _global_frame;
+    NodeHybrid::CoordinateVector path;
+    if (!_find_free_space_mode && closest->backtracePath(path)) {
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header = path_msg->header;
+      path_msg->poses.reserve(path.size());
+      for (int i = path.size() - 1; i >= 0; --i) {
+        pose.pose = getWorldCoords(path[i].x, path[i].y, costmap);
+        pose.pose.orientation = getWorldOrientation(path[i].theta);
+        path_msg->poses.push_back(pose);
+      }
+    }
+    _failed_closest_path_publisher->publish(std::move(path_msg));
+  }
 }
 
 rcl_interfaces::msg::SetParametersResult SmacPlannerHybrid::validateParameterUpdatesCallback(

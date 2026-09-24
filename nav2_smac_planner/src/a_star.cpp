@@ -682,6 +682,16 @@ typename AStarAlgorithm<NodeT>::NodeContext * AStarAlgorithm<NodeT>::getContext(
   return _shared_ctx.get();
 }
 
+template<typename NodeT>
+void AStarAlgorithm<NodeT>::forEachVisitedNode(const std::function<void(NodePtr)> & visitor)
+{
+  for (auto & entry : _graph) {
+    if (entry.second.wasVisited()) {
+      visitor(&entry.second);
+    }
+  }
+}
+
 // Instantiate algorithm for the supported template types
 template class AStarAlgorithm<Node2D>;
 template class AStarAlgorithm<NodeHybrid>;
