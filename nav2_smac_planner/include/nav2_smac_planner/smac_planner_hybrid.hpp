@@ -141,12 +141,20 @@ protected:
     std::vector<float> cost_to_go;
     unsigned int cost_to_go_size_x{0};
     float start_cost_to_go{0.0f};
-    // Explored pose closest to the goal: lowest cost_to_go, or euclidean without it
+    // Explored pose closest to the goal: lowest cost_to_go + partial_path_search_cost_weight *
+    // search cost to reach it [m] (unset without cost_to_go)
     NodeHybrid * closest{nullptr};
     float closest_goal_distance{0.0f};  // euclidean, in cells
 
     unsigned int headingsAt(const float & mx, const float & my) const;
-    float costToGoAt(const float & mx, const float & my) const;
+    unsigned int cost_to_go_size_y{0};
+    // Footprint center relative to the robot pose, in cells: progress is judged where the
+    // robot is, not at its reference point (base_link sits near the rear on a forklift, so
+    // reversing all the way would otherwise look closer)
+    float center_x{0.0f}, center_y{0.0f};
+    // cost_to_go index / value at the footprint center of a pose (theta in radians)
+    size_t centerIndex(const float & mx, const float & my, const float & theta) const;
+    float costToGoAtCenter(const float & mx, const float & my, const float & theta) const;
   };
 
   /**
@@ -154,23 +162,26 @@ protected:
    * @param costmap Costmap the search ran on (downsampled, if enabled)
    * @param mx_start Start x in map cells
    * @param my_start Start y in map cells
+   * @param start_theta Start heading [rad]
    * @param mx_goal Goal x in map cells (unused in find free space mode)
    * @param my_goal Goal y in map cells (unused in find free space mode)
    * @return What the search reached
    */
   FailedSearch analyzeFailedSearch(
     const nav2_costmap_2d::Costmap2D * costmap, const float & mx_start, const float & my_start,
-    const float & mx_goal, const float & my_goal);
+    const float & start_theta, const float & mx_goal, const float & my_goal);
 
   /**
    * @brief Distance field to the goal around blocked space (Dijkstra, 8-connected, on the
    * costmap downsampled by 2). Blocked cells (inscribed, lethal, unknown) stay passable at
    * partial_path_blocked_cost_factor times the distance, so a closed blockage still has a
-   * "near" and a "far" side. Stops once the start and every explored cell are settled.
+   * "near" and a "far" side. Stops once the footprint centers of the start and of every
+   * explored pose are settled.
    */
   void computeCostToGo(
     const nav2_costmap_2d::Costmap2D * costmap, const float & mx_start, const float & my_start,
-    const float & mx_goal, const float & my_goal, FailedSearch & search);
+    const float & start_theta, const float & mx_goal, const float & my_goal,
+    FailedSearch & search);
 
   /**
    * @brief Log how far a failed search got, publish the explored area and the path to the
@@ -185,9 +196,12 @@ protected:
 
   /**
    * @brief The reachable part of the way: the path to the explored pose closest to the goal,
-   * only its first driving direction unless reversing is allowed, stopped partial_path_backoff
-   * short of its end and in a cell the search reached in at least
-   * partial_path_min_end_headings headings (not a spot the robot only just fits in)
+   * ending driving forward (without final reverse segments and final segments shorter than
+   * partial_path_min_final_segment, maneuvers at the blockage; none if it only reverses),
+   * stopped partial_path_backoff short of its end, where the path
+   * turned less than partial_path_max_end_turn over the last meter (not on the arc the search
+   * twists the robot through next to the blockage) and in a cell the search reached in at
+   * least partial_path_min_end_headings headings (not a spot the robot only just fits in)
    * @param costmap Costmap the search ran on (downsampled, if enabled)
    * @param search What the search reached
    * @param partial_plan Output
@@ -227,7 +241,9 @@ protected:
   double _partial_path_backoff;
   int _partial_path_min_end_headings;
   double _partial_path_blocked_cost_factor;
-  bool _partial_path_allow_reversing;
+  double _partial_path_min_final_segment;
+  double _partial_path_search_cost_weight;
+  double _partial_path_max_end_turn;
   std::string _motion_model_for_search;
   MotionModel _motion_model;
   GoalHeadingMode _goal_heading_mode;

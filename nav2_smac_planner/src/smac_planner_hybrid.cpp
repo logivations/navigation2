@@ -22,6 +22,7 @@
 #include <queue>
 #include <utility>
 
+#include "angles/angles.h"
 #include "nav2_smac_planner/smac_planner_hybrid.hpp"
 
 // #define BENCHMARK_TESTING
@@ -138,8 +139,12 @@ void SmacPlannerHybrid::configure(
     node->declare_or_get_parameter(name + ".partial_path_min_end_headings", 3);
   _partial_path_blocked_cost_factor =
     node->declare_or_get_parameter(name + ".partial_path_blocked_cost_factor", 20.0);
-  _partial_path_allow_reversing =
-    node->declare_or_get_parameter(name + ".partial_path_allow_reversing", false);
+  _partial_path_min_final_segment =
+    node->declare_or_get_parameter(name + ".partial_path_min_final_segment", 3.0);
+  _partial_path_search_cost_weight =
+    node->declare_or_get_parameter(name + ".partial_path_search_cost_weight", 0.1);
+  _partial_path_max_end_turn =
+    node->declare_or_get_parameter(name + ".partial_path_max_end_turn", 0.35);
 
   _motion_model_for_search =
     node->declare_or_get_parameter(name + ".motion_model_for_search", std::string("DUBIN"));
@@ -578,7 +583,8 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
     bool has_partial_plan = false;
     if (publish || compute_partial_path) {
       const FailedSearch search = analyzeFailedSearch(
-        costmap, mx_start, my_start, mx_goal, my_goal);
+        costmap, mx_start, my_start, start_orientation_bin_int * _angle_bin_size,
+        mx_goal, my_goal);
       if (publish) {
         publishFailedSearch(
           costmap, search, duration_cast<duration<double>>(steady_clock::now() - a).count());
@@ -721,15 +727,29 @@ unsigned int SmacPlannerHybrid::FailedSearch::headingsAt(
   return headings[static_cast<size_t>(y - min_y) * width + (x - min_x)];
 }
 
-float SmacPlannerHybrid::FailedSearch::costToGoAt(const float & mx, const float & my) const
+size_t SmacPlannerHybrid::FailedSearch::centerIndex(
+  const float & mx, const float & my, const float & theta) const
 {
-  return cost_to_go[static_cast<size_t>(my / 2.0f) * cost_to_go_size_x +
-           static_cast<size_t>(mx / 2.0f)];
+  const float cos_theta = std::cos(theta);
+  const float sin_theta = std::sin(theta);
+  const float x = std::clamp(
+    mx + cos_theta * center_x - sin_theta * center_y, 0.0f,
+    static_cast<float>(2 * cost_to_go_size_x) - 1.0f);
+  const float y = std::clamp(
+    my + sin_theta * center_x + cos_theta * center_y, 0.0f,
+    static_cast<float>(2 * cost_to_go_size_y) - 1.0f);
+  return static_cast<size_t>(y / 2.0f) * cost_to_go_size_x + static_cast<size_t>(x / 2.0f);
+}
+
+float SmacPlannerHybrid::FailedSearch::costToGoAtCenter(
+  const float & mx, const float & my, const float & theta) const
+{
+  return cost_to_go[centerIndex(mx, my, theta)];
 }
 
 SmacPlannerHybrid::FailedSearch SmacPlannerHybrid::analyzeFailedSearch(
   const nav2_costmap_2d::Costmap2D * costmap, const float & mx_start, const float & my_start,
-  const float & mx_goal, const float & my_goal)
+  const float & start_theta, const float & mx_goal, const float & my_goal)
 {
   FailedSearch search;
 
@@ -767,14 +787,44 @@ SmacPlannerHybrid::FailedSearch SmacPlannerHybrid::analyzeFailedSearch(
   }
 
   // Pass 3: the explored pose closest to the goal, around blocked space rather than as the
-  // crow flies (that can be a pocket behind a rack next to the goal)
-  computeCostToGo(costmap, mx_start, my_start, mx_goal, my_goal, search);
-  float closest_cost = std::numeric_limits<float>::max();
+  // crow flies (that can be a pocket behind a rack next to the goal), traded off a little
+  // against how expensive the search's way there is (length weighted with the reverse, turn
+  // and cost penalties): otherwise e.g. a pose reached by reversing all the way wins because
+  // the short rear overhang gets base_link a bit closer to the blockage
+  if (!_costmap_ros->getUseRadius()) {
+    const auto footprint = _costmap_ros->getRobotFootprint();
+    for (const auto & point : footprint) {
+      search.center_x += static_cast<float>(point.x / footprint.size() / costmap->getResolution());
+      search.center_y += static_cast<float>(point.y / footprint.size() / costmap->getResolution());
+    }
+  }
+  computeCostToGo(costmap, mx_start, my_start, start_theta, mx_goal, my_goal, search);
+  const float search_cost_weight =
+    static_cast<float>(_partial_path_search_cost_weight * costmap->getResolution());
+  // Only poses the search arrived at driving forward: the partial path has to end driving
+  // forward (see computePartialPlan), all others only if there is none of those
+  const auto arrived_forward = [&](NodeHybrid * node) {
+      if (!node->parent) {
+        return true;
+      }
+      const float theta = node->pose.theta * _angle_bin_size;
+      return (node->pose.x - node->parent->pose.x) * std::cos(theta) +
+             (node->pose.y - node->parent->pose.y) * std::sin(theta) >= 0.0f;
+    };
+  float best_score = std::numeric_limits<float>::max();
+  bool best_forward = false;
   _a_star->forEachVisitedNode(
     [&](NodeHybrid * node) {
-      const float cost = search.costToGoAt(node->pose.x, node->pose.y);
-      if (cost < closest_cost) {
-        closest_cost = cost;
+      const bool forward = arrived_forward(node);
+      if (best_forward && !forward) {
+        return;
+      }
+      const float score =
+      search.costToGoAtCenter(node->pose.x, node->pose.y, node->pose.theta * _angle_bin_size) +
+      search_cost_weight * node->getAccumulatedCost();
+      if (score < best_score || (forward && !best_forward)) {
+        best_score = score;
+        best_forward = forward;
         search.closest = node;
       }
     });
@@ -785,7 +835,8 @@ SmacPlannerHybrid::FailedSearch SmacPlannerHybrid::analyzeFailedSearch(
 
 void SmacPlannerHybrid::computeCostToGo(
   const nav2_costmap_2d::Costmap2D * costmap, const float & mx_start, const float & my_start,
-  const float & mx_goal, const float & my_goal, FailedSearch & search)
+  const float & start_theta, const float & mx_goal, const float & my_goal,
+  FailedSearch & search)
 {
   const unsigned int costmap_size_x = costmap->getSizeInCellsX();
   const unsigned int costmap_size_y = costmap->getSizeInCellsY();
@@ -793,6 +844,7 @@ void SmacPlannerHybrid::computeCostToGo(
   const unsigned int size_y = (costmap_size_y + 1) / 2;
   const size_t size = static_cast<size_t>(size_x) * size_y;
   search.cost_to_go_size_x = size_x;
+  search.cost_to_go_size_y = size_y;
 
   // Travel cost per meter of each cell: 1, or the blocked factor if even the least costly of
   // its 2x2 costmap cells puts the robot center into collision
@@ -816,18 +868,20 @@ void SmacPlannerHybrid::computeCostToGo(
       return static_cast<size_t>(my / 2.0f) * size_x + static_cast<size_t>(mx / 2.0f);
     };
 
-  // Cells whose cost is needed: the start and every explored cell
+  // Cells whose cost is needed: the footprint centers of the start and every explored pose
   std::vector<uint8_t> needed(size, 0);
   size_t num_needed = 0;
-  const auto mark = [&](const float & mx, const float & my) {
-      const size_t i = index(mx, my);
+  const auto mark = [&](const size_t & i) {
       if (!needed[i]) {
         needed[i] = 1;
         num_needed++;
       }
     };
-  mark(mx_start, my_start);
-  _a_star->forEachVisitedNode([&](NodeHybrid * node) {mark(node->pose.x, node->pose.y);});
+  mark(search.centerIndex(mx_start, my_start, start_theta));
+  _a_star->forEachVisitedNode(
+    [&](NodeHybrid * node) {
+      mark(search.centerIndex(node->pose.x, node->pose.y, node->pose.theta * _angle_bin_size));
+    });
 
   // Dijkstra from the goal until all of them are settled
   const float step = 2.0f * static_cast<float>(costmap->getResolution());
@@ -874,7 +928,7 @@ void SmacPlannerHybrid::computeCostToGo(
     }
   }
 
-  search.start_cost_to_go = search.costToGoAt(mx_start, my_start);
+  search.start_cost_to_go = search.costToGoAtCenter(mx_start, my_start, start_theta);
 }
 
 void SmacPlannerHybrid::publishFailedSearch(
@@ -965,30 +1019,56 @@ bool SmacPlannerHybrid::computePartialPlan(
   }
   std::reverse(path.begin(), path.end());  // start -> closest pose
 
-  // Only the first driving direction: waiting at the end of a K-turn or of a reverse move
-  // into a pocket leaves the robot badly placed for whatever comes next
-  size_t end = path.size() - 1;
-  if (!_partial_path_allow_reversing) {
-    for (size_t i = 1; i < path.size(); ++i) {
-      const float dx = path[i].x - path[i - 1].x;
-      const float dy = path[i].y - path[i - 1].y;
-      if (dx * std::cos(path[i].theta) + dy * std::sin(path[i].theta) < 0.0f) {
-        end = i - 1;
-        break;
-      }
+  // Driving-direction segments: segment k starts at cusps[k] (cusps[0] = 0)
+  const double resolution = costmap->getResolution();
+  std::vector<double> length(path.size(), 0.0);
+  std::vector<size_t> cusps;
+  std::vector<bool> forward_segment;
+  for (size_t i = 1; i < path.size(); ++i) {
+    const float dx = path[i].x - path[i - 1].x;
+    const float dy = path[i].y - path[i - 1].y;
+    length[i] = length[i - 1] + std::hypot(dx, dy) * resolution;
+    const bool forward = dx * std::cos(path[i].theta) + dy * std::sin(path[i].theta) >= 0.0f;
+    if (forward_segment.empty() || forward != forward_segment.back()) {
+      cusps.push_back(i - 1);
+      forward_segment.push_back(forward);
     }
+  }
+
+  // Arrive driving forward, facing the blockage: drop a final reverse segment (e.g. a U-turn
+  // in a bay and reversing the last meters, which gets base_link closer because of the short
+  // rear overhang) and a short final segment, the search wriggling into the choke point (e.g.
+  // reverse 2.8 m after 18 m forward). Reversing out of a spot first is part of the way.
+  size_t end = path.size() - 1;
+  while (forward_segment.size() > 1 &&
+    (!forward_segment.back() ||
+    length[end] - length[cusps.back()] < _partial_path_min_final_segment))
+  {
+    end = cusps.back();
+    cusps.pop_back();
+    forward_segment.pop_back();
+  }
+  if (forward_segment.empty() || !forward_segment.back()) {
+    return false;
   }
 
   // Stop short of the blockage: at the end of the search the footprint only just fits next
   // to it
-  const double resolution = costmap->getResolution();
-  std::vector<double> length(end + 1, 0.0);
-  for (size_t i = 1; i <= end; ++i) {
-    length[i] = length[i - 1] +
-      std::hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y) * resolution;
-  }
   size_t last = end;
   while (last > 0 && length[end] - length[last] < _partial_path_backoff) {
+    last--;
+  }
+  // ... not in the middle of a turn: next to the blockage the search twists the robot to
+  // squeeze a little further (e.g. a 90 deg arc before a final reverse), and ending on that
+  // arc makes the controller turn the robot to the end heading
+  const auto turn_before = [&](const size_t & i) {
+      size_t j = i;
+      while (j > 0 && length[i] - length[j] < 1.0) {
+        j--;
+      }
+      return std::fabs(angles::shortest_angular_distance(path[j].theta, path[i].theta));
+    };
+  while (last > 0 && turn_before(last) > _partial_path_max_end_turn) {
     last--;
   }
   // ... in a cell the robot can still turn in a bit
@@ -1002,7 +1082,8 @@ bool SmacPlannerHybrid::computePartialPlan(
     return false;
   }
 
-  const float end_cost_to_go = search.costToGoAt(path[last].x, path[last].y);
+  const float end_cost_to_go =
+    search.costToGoAtCenter(path[last].x, path[last].y, path[last].theta);
   if (end_cost_to_go >= search.start_cost_to_go) {
     return false;
   }
