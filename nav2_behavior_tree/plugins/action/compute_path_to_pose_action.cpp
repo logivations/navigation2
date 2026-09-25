@@ -34,6 +34,8 @@ void ComputePathToPoseAction::on_tick()
   getInput("planner_id", goal_.planner_id);
   goal_.publish_failed_search = false;
   getInput("publish_failed_search", goal_.publish_failed_search);
+  goal_.return_partial_path = false;
+  getInput("return_partial_path", goal_.return_partial_path);
 
   // if "use_start" is provided try to enforce it (true or false), but we cannot enforce true if
   // start is not provided
@@ -59,6 +61,7 @@ void ComputePathToPoseAction::on_tick()
 BT::NodeStatus ComputePathToPoseAction::on_success()
 {
   setOutput("path", result_.result->path);
+  setPartialPathOutputs();
   // Set empty error code, action was successful
   setOutput("error_code_id", ActionResult::NONE);
   setOutput("error_msg", "");
@@ -69,6 +72,7 @@ BT::NodeStatus ComputePathToPoseAction::on_aborted()
 {
   nav_msgs::msg::Path empty_path;
   setOutput("path", empty_path);
+  setPartialPathOutputs(result_.result.get());
   setOutput("error_code_id", result_.result->error_code);
   setOutput("error_msg", result_.result->error_msg);
   return BT::NodeStatus::FAILURE;
@@ -78,10 +82,26 @@ BT::NodeStatus ComputePathToPoseAction::on_cancelled()
 {
   nav_msgs::msg::Path empty_path;
   setOutput("path", empty_path);
+  setPartialPathOutputs();
   // Set empty error code, action was cancelled
   setOutput("error_code_id", ActionResult::NONE);
   setOutput("error_msg", "");
   return BT::NodeStatus::SUCCESS;
+}
+
+void ComputePathToPoseAction::setPartialPathOutputs(const Action::Result * result)
+{
+  if (result) {
+    setOutput("partial_path", result->partial_path);
+    setOutput(
+      "partial_path_start_cost_to_go", static_cast<double>(result->partial_path_start_cost_to_go));
+    setOutput(
+      "partial_path_end_cost_to_go", static_cast<double>(result->partial_path_end_cost_to_go));
+  } else {
+    setOutput("partial_path", nav_msgs::msg::Path());
+    setOutput("partial_path_start_cost_to_go", 0.0);
+    setOutput("partial_path_end_cost_to_go", 0.0);
+  }
 }
 
 void ComputePathToPoseAction::on_timeout()
@@ -94,6 +114,7 @@ void ComputePathToPoseAction::halt()
 {
   nav_msgs::msg::Path empty_path;
   setOutput("path", empty_path);
+  setPartialPathOutputs();
   // DO NOT reset "error_code_id" output port, we want to read it later
   // DO NOT reset "error_msg" output port, we want to read it later
   BtActionNode::halt();

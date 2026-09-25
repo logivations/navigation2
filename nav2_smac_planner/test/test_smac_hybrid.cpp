@@ -376,6 +376,109 @@ TEST(SmacTest, test_smac_se2_reconfigure)
   EXPECT_EQ(nodeSE2->get_parameter("test.downsampling_factor").as_int(), 2);
 }
 
+// Corridor y 2..4 m along x, closed by a wall at x 12..12.5 m, goal behind the wall: the
+// search exhausts the corridor, the partial path runs down it and stops short of the wall
+TEST(SmacTest, test_smac_se2_partial_path)
+{
+  nav2::LifecycleNode::SharedPtr node =
+    std::make_shared<nav2::LifecycleNode>("SmacSE2PartialPathTest");
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros =
+    std::make_shared<nav2_costmap_2d::Costmap2DROS>("global_costmap");
+  costmap_ros->on_configure(rclcpp_lifecycle::State());
+  node->configure();
+  node->activate();
+
+  auto costmap = costmap_ros->getCostmap();
+  costmap->resizeMap(200, 60, 0.1, 0.0, 0.0);
+  const auto paint = [&](double min_x, double max_x, double min_y, double max_y,
+      unsigned char cost) {
+      for (unsigned int j = 0; j < costmap->getSizeInCellsY(); ++j) {
+        for (unsigned int i = 0; i < costmap->getSizeInCellsX(); ++i) {
+          double wx, wy;
+          costmap->mapToWorld(i, j, wx, wy);
+          if (wx >= min_x && wx <= max_x && wy >= min_y && wy <= max_y) {
+            costmap->setCost(i, j, cost);
+          }
+        }
+      }
+    };
+  paint(0.0, 20.0, 0.0, 20.0, nav2_costmap_2d::LETHAL_OBSTACLE);
+  paint(0.0, 20.0, 2.0, 4.0, nav2_costmap_2d::FREE_SPACE);
+  paint(12.0, 12.5, 0.0, 20.0, nav2_costmap_2d::LETHAL_OBSTACLE);
+
+  auto planner = std::make_unique<HybridWrap>();
+  planner->configure(node, "test", nullptr, costmap_ros);
+  planner->activate();
+
+  auto dummy_cancel_checker = []() {
+      return false;
+    };
+  geometry_msgs::msg::PoseStamped start, goal;
+  start.header.frame_id = goal.header.frame_id = "map";
+  start.pose.position.x = 1.0;
+  start.pose.position.y = 3.0;
+  start.pose.orientation.w = 1.0;
+  goal.pose.position.x = 18.0;
+  goal.pose.position.y = 3.0;
+  goal.pose.orientation.w = 1.0;
+
+  nav2_core::PlanRequestOptions options;
+  options.compute_partial_path = true;
+  bool partial_thrown = false;
+  try {
+    planner->createPlan(start, goal, dummy_cancel_checker, options);
+  } catch (const nav2_core::NoValidPathWithPartialPlan & ex) {
+    partial_thrown = true;
+    const auto & partial = ex.partialPlan();
+    ASSERT_GE(partial.path.poses.size(), 2u);
+    EXPECT_NEAR(partial.path.poses.front().pose.position.x, 1.0, 0.2);
+    // the search ends just in front of the wall (x 12), the partial path 1.5 m of path
+    // length before that (the path weaves a little, so up to ~1.5 m in x)
+    const double end_x = partial.path.poses.back().pose.position.x;
+    EXPECT_GT(end_x, 9.5);
+    EXPECT_LT(end_x, 11.0);
+    EXPECT_NEAR(partial.path.poses.back().pose.position.y, 3.0, 0.8);
+    // distances to the goal around blocked space: through the wall at the start and end
+    EXPECT_NEAR(partial.start_cost_to_go - partial.end_cost_to_go, end_x - 1.0, 0.8);
+    EXPECT_GT(partial.end_cost_to_go, 18.0 - end_x);
+  } catch (const std::exception & ex) {
+    ADD_FAILURE() << "unexpected exception: " << ex.what();
+  }
+  EXPECT_TRUE(partial_thrown);
+
+  // not requested: plain "no valid path"
+  bool plain_thrown = false;
+  try {
+    planner->createPlan(start, goal, dummy_cancel_checker, nav2_core::PlanRequestOptions());
+  } catch (const nav2_core::NoValidPathWithPartialPlan &) {
+    ADD_FAILURE() << "partial plan returned without being requested";
+  } catch (const nav2_core::NoValidPathCouldBeFound &) {
+    plain_thrown = true;
+  }
+  EXPECT_TRUE(plain_thrown);
+
+  // wall closer than partial_path_backoff: nothing worth returning
+  start.pose.position.x = 11.0;
+  plain_thrown = false;
+  try {
+    planner->createPlan(start, goal, dummy_cancel_checker, options);
+  } catch (const nav2_core::NoValidPathWithPartialPlan &) {
+    ADD_FAILURE() << "partial plan returned although the wall is within the backoff";
+  } catch (const nav2_core::NoValidPathCouldBeFound &) {
+    plain_thrown = true;
+  }
+  EXPECT_TRUE(plain_thrown);
+
+  planner->deactivate();
+  planner->cleanup();
+  planner.reset();
+  costmap_ros->on_cleanup(rclcpp_lifecycle::State());
+  node->deactivate();
+  node->cleanup();
+  costmap_ros.reset();
+  node.reset();
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

@@ -72,7 +72,7 @@ public:
    * @param goal goal request
    * @param planner_id The planner to plan with
    * @param cancel_checker A function to check if the action has been canceled
-   * @param publish_failed_search Opt-in: the planner publishes how far a failed search got
+   * @param options Opt-in extras for a failed search
    * @return Path
    */
   nav_msgs::msg::Path getPlan(
@@ -80,7 +80,7 @@ public:
     const geometry_msgs::msg::PoseStamped & goal,
     const std::string & planner_id,
     std::function<bool()> cancel_checker,
-    bool publish_failed_search = false);
+    const nav2_core::PlanRequestOptions & options = nav2_core::PlanRequestOptions());
 
 protected:
   /**

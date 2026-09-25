@@ -39,6 +39,9 @@
 #include <stdexcept>
 #include <string>
 #include <memory>
+#include <utility>
+
+#include "nav_msgs/msg/path.hpp"
 
 namespace nav2_core
 {
@@ -90,6 +93,34 @@ class NoValidPathCouldBeFound : public PlannerException
 public:
   explicit NoValidPathCouldBeFound(const std::string & description)
   : PlannerException(description) {}
+};
+
+/**
+ * @brief The reachable part of the way to a goal the planner found no path to
+ * (opt-in, see PlanRequestOptions::compute_partial_path)
+ */
+struct PartialPlan
+{
+  // Start -> the reachable pose closest to the goal, stopped short of the blockage
+  nav_msgs::msg::Path path;
+  // Distance to the goal around blocked space [m], from the start and from the end of path
+  double start_cost_to_go{0.0};
+  double end_cost_to_go{0.0};
+};
+
+/**
+ * @brief NoValidPathCouldBeFound that carries the reachable part of the way
+ */
+class NoValidPathWithPartialPlan : public NoValidPathCouldBeFound
+{
+public:
+  NoValidPathWithPartialPlan(const std::string & description, PartialPlan partial_plan)
+  : NoValidPathCouldBeFound(description), partial_plan_(std::move(partial_plan)) {}
+
+  const PartialPlan & partialPlan() const {return partial_plan_;}
+
+private:
+  PartialPlan partial_plan_;
 };
 
 class PlannerTimedOut : public PlannerException

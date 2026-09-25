@@ -26,6 +26,7 @@
 #include "nav2_smac_planner/costmap_downsampler.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav2_core/global_planner.hpp"
+#include "nav2_core/planner_exceptions.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "nav2_costmap_2d/costmap_2d_ros.hpp"
 #include "nav2_costmap_2d/costmap_2d.hpp"
@@ -95,15 +96,16 @@ public:
    * @param start Start pose
    * @param goal Goal pose
    * @param cancel_checker Function to check if the task has been canceled
-   * @param publish_failed_search Opt-in: if the search fails, log and publish how far it
-   * got (planner_server/failed_explored_area, failed_closest_path)
+   * @param options Opt-in extras if the search fails: log and publish how far it got
+   * (planner_server/failed_explored_area, failed_closest_path), throw
+   * NoValidPathWithPartialPlan with the reachable part of the way
    * @return nav2_msgs::Path of the generated path
    */
   nav_msgs::msg::Path createPlan(
     const geometry_msgs::msg::PoseStamped & start,
     const geometry_msgs::msg::PoseStamped & goal,
     std::function<bool()> cancel_checker,
-    bool publish_failed_search) override;
+    const nav2_core::PlanRequestOptions & options) override;
 
 protected:
   /**
@@ -126,16 +128,74 @@ protected:
   void updateParametersCallback(const std::vector<rclcpp::Parameter> & parameters);
 
   /**
-   * @brief After a failed search: log how far it got and publish the explored area plus
-   * the path to the explored pose closest to the goal
+   * @brief What a failed search reached
+   */
+  struct FailedSearch
+  {
+    size_t num_poses{0};
+    // Bounding box of the explored cells and the number of headings reached in each cell
+    unsigned int min_x{0}, min_y{0}, width{0}, height{0};
+    std::vector<unsigned int> headings;
+    // Distance to the goal around blocked space [m] on the costmap downsampled by 2,
+    // empty in find free space mode
+    std::vector<float> cost_to_go;
+    unsigned int cost_to_go_size_x{0};
+    float start_cost_to_go{0.0f};
+    // Explored pose closest to the goal: lowest cost_to_go, or euclidean without it
+    NodeHybrid * closest{nullptr};
+    float closest_goal_distance{0.0f};  // euclidean, in cells
+
+    unsigned int headingsAt(const float & mx, const float & my) const;
+    float costToGoAt(const float & mx, const float & my) const;
+  };
+
+  /**
+   * @brief Inspect the search graph after a failed search
    * @param costmap Costmap the search ran on (downsampled, if enabled)
+   * @param mx_start Start x in map cells
+   * @param my_start Start y in map cells
    * @param mx_goal Goal x in map cells (unused in find free space mode)
    * @param my_goal Goal y in map cells (unused in find free space mode)
+   * @return What the search reached
+   */
+  FailedSearch analyzeFailedSearch(
+    const nav2_costmap_2d::Costmap2D * costmap, const float & mx_start, const float & my_start,
+    const float & mx_goal, const float & my_goal);
+
+  /**
+   * @brief Distance field to the goal around blocked space (Dijkstra, 8-connected, on the
+   * costmap downsampled by 2). Blocked cells (inscribed, lethal, unknown) stay passable at
+   * partial_path_blocked_cost_factor times the distance, so a closed blockage still has a
+   * "near" and a "far" side. Stops once the start and every explored cell are settled.
+   */
+  void computeCostToGo(
+    const nav2_costmap_2d::Costmap2D * costmap, const float & mx_start, const float & my_start,
+    const float & mx_goal, const float & my_goal, FailedSearch & search);
+
+  /**
+   * @brief Log how far a failed search got, publish the explored area and the path to the
+   * explored pose closest to the goal
+   * @param costmap Costmap the search ran on (downsampled, if enabled)
+   * @param search What the search reached
    * @param search_duration Seconds spent in the search
    */
   void publishFailedSearch(
-    const nav2_costmap_2d::Costmap2D * costmap, const float & mx_goal, const float & my_goal,
+    const nav2_costmap_2d::Costmap2D * costmap, const FailedSearch & search,
     const double & search_duration);
+
+  /**
+   * @brief The reachable part of the way: the path to the explored pose closest to the goal,
+   * only its first driving direction unless reversing is allowed, stopped partial_path_backoff
+   * short of its end and in a cell the search reached in at least
+   * partial_path_min_end_headings headings (not a spot the robot only just fits in)
+   * @param costmap Costmap the search ran on (downsampled, if enabled)
+   * @param search What the search reached
+   * @param partial_plan Output
+   * @return False if nothing reachable is closer to the goal than the start
+   */
+  bool computePartialPlan(
+    const nav2_costmap_2d::Costmap2D * costmap, const FailedSearch & search,
+    nav2_core::PartialPlan & partial_plan);
 
   std::unique_ptr<AStarAlgorithm<NodeHybrid>> _a_star;
   GridCollisionChecker _collision_checker;
@@ -164,6 +224,10 @@ protected:
   double _minimum_turning_radius_right_global_coords;
   bool _debug_visualizations;
   bool _publish_failed_search;
+  double _partial_path_backoff;
+  int _partial_path_min_end_headings;
+  double _partial_path_blocked_cost_factor;
+  bool _partial_path_allow_reversing;
   std::string _motion_model_for_search;
   MotionModel _motion_model;
   GoalHeadingMode _goal_heading_mode;
@@ -179,6 +243,7 @@ protected:
     _expansions_publisher;
   nav2::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr _failed_explored_area_publisher;
   nav2::Publisher<nav_msgs::msg::Path>::SharedPtr _failed_closest_path_publisher;
+  nav2::Publisher<nav_msgs::msg::Path>::SharedPtr _failed_partial_path_publisher;
   std::mutex _mutex;
   nav2::LifecycleNode::WeakPtr _node;
 
