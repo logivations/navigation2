@@ -57,6 +57,7 @@ void HybridMotionTable::initDubin(
   travel_distance_reward = 1.0f - search_info.retrospective_penalty;
   downsample_obstacle_heuristic = search_info.downsample_obstacle_heuristic;
   use_quadratic_cost_penalty = search_info.use_quadratic_cost_penalty;
+  soft_footprint_penalty = search_info.soft_footprint_penalty;
 
   // Resolve per-side radii. A right radius of 0 means "symmetric — use left for both".
   const float radius_left = search_info.minimum_turning_radius;
@@ -210,6 +211,7 @@ void HybridMotionTable::initReedsShepp(
   travel_distance_reward = 1.0f - search_info.retrospective_penalty;
   downsample_obstacle_heuristic = search_info.downsample_obstacle_heuristic;
   use_quadratic_cost_penalty = search_info.use_quadratic_cost_penalty;
+  soft_footprint_penalty = search_info.soft_footprint_penalty;
 
   // Resolve per-side radii. A right radius of 0 means "symmetric — use left for both".
   const float radius_left = search_info.minimum_turning_radius;
@@ -430,6 +432,7 @@ void NodeHybrid::reset()
   pose.y = 0.0f;
   pose.theta = 0.0f;
   _is_node_valid = false;
+  _soft_footprint_violation = false;
 }
 
 bool NodeHybrid::isNodeValid(
@@ -444,6 +447,7 @@ bool NodeHybrid::isNodeValid(
   _is_node_valid = !collision_checker->inCollision(
     this->pose.x, this->pose.y, this->pose.theta /*bin number*/, traverse_unknown);
   _cell_cost = collision_checker->getCost();
+  _soft_footprint_violation = _is_node_valid && collision_checker->softFootprintViolation();
   return _is_node_valid;
 }
 
@@ -492,6 +496,11 @@ float NodeHybrid::getTraversalCost(const NodePtr & child)
   {
     // reverse direction
     travel_cost *= _ctx->motion_table.reverse_penalty;
+  }
+
+  if (child->_soft_footprint_violation && _ctx->motion_table.soft_footprint_penalty > 1.0f) {
+    // the soft-padded footprint touches an obstacle: allowed, but only if nothing better
+    travel_cost *= _ctx->motion_table.soft_footprint_penalty;
   }
 
   return travel_cost;

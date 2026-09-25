@@ -56,6 +56,15 @@ struct SearchInfo
   bool allow_primitive_interpolation{false};
   bool downsample_obstacle_heuristic{true};
   bool use_quadratic_cost_penalty{false};
+  // Soft footprint padding (SE2 footprints only): a pose whose footprint, grown by these
+  // amounts (m, base_link frame: +x front, -x rear, +-y sides), touches a lethal cell stays
+  // valid but the step into it costs soft_footprint_penalty times more. Keeps the swept
+  // footprint away from obstacle corners without closing passages the real footprint fits
+  // through. Disabled with all paddings 0 or a penalty <= 1.
+  float soft_footprint_padding_front{0.0};
+  float soft_footprint_padding_rear{0.0};
+  float soft_footprint_padding_side{0.0};
+  float soft_footprint_penalty{1.0};
 };
 
 /**

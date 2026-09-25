@@ -69,6 +69,21 @@ public:
     const double & possible_collision_cost);
 
   /**
+   * @brief Set the soft footprint padding (see SearchInfo), before or after setFootprint.
+   * All zero disables it.
+   * @param front Extension of the footprint's front (x > 0) vertices in m
+   * @param rear Extension of the footprint's rear (x <= 0) vertices in m
+   * @param side Extension of the footprint's side vertices in m
+   */
+  void setSoftFootprintPadding(const float front, const float rear, const float side);
+
+  /**
+   * @brief Whether the pose of the last inCollision() call was collision free but its
+   * soft-padded footprint touches a lethal cell
+   */
+  bool softFootprintViolation() const {return soft_violation_;}
+
+  /**
    * @brief Check if in collision with costmap and footprint at pose
    * @param x X coordinate of pose to check against
    * @param y Y coordinate of pose to check against
@@ -123,6 +138,16 @@ public:
   bool outsideRange(const unsigned int & max, const float & value);
 
 protected:
+  /**
+   * @brief Precompute the oriented soft-padded footprints and their shortcut cost
+   */
+  void updateSoftFootprint();
+
+  /**
+   * @brief Whether the soft-padded footprint at a pose touches a lethal cell
+   */
+  bool softFootprintHitsLethal(const double & wx, const double & wy, const float & angle_bin);
+
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
   std::vector<nav2_costmap_2d::Footprint> oriented_footprints_;
   nav2_costmap_2d::Footprint unoriented_footprint_;
@@ -130,6 +155,14 @@ protected:
   bool footprint_is_radius_{false};
   std::vector<float> angles_;
   float possible_collision_cost_{-1};
+  // soft footprint padding
+  float soft_padding_front_{0.0f};
+  float soft_padding_rear_{0.0f};
+  float soft_padding_side_{0.0f};
+  bool soft_padding_enabled_{false};
+  bool soft_violation_{false};
+  float possible_soft_collision_cost_{-1};
+  std::vector<nav2_costmap_2d::Footprint> oriented_padded_footprints_;
   rclcpp::Logger logger_{rclcpp::get_logger("SmacPlannerCollisionChecker")};
   rclcpp::Clock::SharedPtr clock_;
 };

@@ -72,6 +72,26 @@ inline geometry_msgs::msg::Quaternion getWorldOrientation(
 * @return double circumscribed cost, any higher than this and need to do full footprint collision checking
 * since some element of the robot could be in collision
 */
+/**
+* @brief Find the inflation cost of cells at a given distance from an obstacle
+* @param costmap Costmap to use (its inflation layer)
+* @param radius Distance in meters
+* @return the cost, or -1.0 without an inflation layer, 0.0 if the inflation radius is smaller
+*/
+inline double findCostAtRadius(
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap, const double radius)
+{
+  const auto inflation_layer = nav2_costmap_2d::InflationLayerInterface::getInflationLayer(costmap);
+  if (inflation_layer == nullptr) {
+    return -1.0;
+  }
+  if (inflation_layer->getInflationRadius() < radius) {
+    return 0.0;
+  }
+  return static_cast<double>(
+    inflation_layer->computeCost(radius / costmap->getCostmap()->getResolution()));
+}
+
 inline double findCircumscribedCost(std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap)
 {
   double result = -1.0;

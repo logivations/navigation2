@@ -111,6 +111,14 @@ void SmacPlannerHybrid::configure(
     node->declare_or_get_parameter(name + ".analytic_expansion_max_cost_override", false);
   _search_info.use_quadratic_cost_penalty =
     node->declare_or_get_parameter(name + ".use_quadratic_cost_penalty", false);
+  _search_info.soft_footprint_padding_front = static_cast<float>(
+    node->declare_or_get_parameter(name + ".soft_footprint_padding_front", 0.0));
+  _search_info.soft_footprint_padding_rear = static_cast<float>(
+    node->declare_or_get_parameter(name + ".soft_footprint_padding_rear", 0.0));
+  _search_info.soft_footprint_padding_side = static_cast<float>(
+    node->declare_or_get_parameter(name + ".soft_footprint_padding_side", 0.0));
+  _search_info.soft_footprint_penalty = static_cast<float>(
+    node->declare_or_get_parameter(name + ".soft_footprint_penalty", 1.0));
   _search_info.downsample_obstacle_heuristic =
     node->declare_or_get_parameter(name + ".downsample_obstacle_heuristic", true);
 
@@ -235,6 +243,10 @@ void SmacPlannerHybrid::configure(
 
   // Initialize collision checker
   _collision_checker = GridCollisionChecker(_costmap_ros, _angle_quantizations, node);
+  _collision_checker.setSoftFootprintPadding(
+    _search_info.soft_footprint_padding_front,
+    _search_info.soft_footprint_padding_rear,
+    _search_info.soft_footprint_padding_side);
   _collision_checker.setFootprint(
     _costmap_ros->getRobotFootprint(),
     _costmap_ros->getUseRadius(),
@@ -774,6 +786,18 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
       } else if (param_name == _name + ".non_straight_penalty") {
         reinit_a_star = true;
         _search_info.non_straight_penalty = static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".soft_footprint_padding_front") {
+        reinit_collision_checker = true;
+        _search_info.soft_footprint_padding_front = static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".soft_footprint_padding_rear") {
+        reinit_collision_checker = true;
+        _search_info.soft_footprint_padding_rear = static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".soft_footprint_padding_side") {
+        reinit_collision_checker = true;
+        _search_info.soft_footprint_padding_side = static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".soft_footprint_penalty") {
+        reinit_a_star = true;
+        _search_info.soft_footprint_penalty = static_cast<float>(parameter.as_double());
       } else if (param_name == _name + ".cost_penalty") {
         reinit_a_star = true;
         _search_info.cost_penalty = static_cast<float>(parameter.as_double());
@@ -936,6 +960,10 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
     // Re-Initialize collision checker
     if (reinit_collision_checker) {
       _collision_checker = GridCollisionChecker(_costmap_ros, _angle_quantizations, node);
+      _collision_checker.setSoftFootprintPadding(
+        _search_info.soft_footprint_padding_front,
+        _search_info.soft_footprint_padding_rear,
+        _search_info.soft_footprint_padding_side);
       _collision_checker.setFootprint(
         _costmap_ros->getRobotFootprint(),
         _costmap_ros->getUseRadius(),
