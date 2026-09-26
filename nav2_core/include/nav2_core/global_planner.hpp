@@ -27,6 +27,17 @@ namespace nav2_core
 {
 
 /**
+ * @brief Per-request extras of createPlan, only used when a search fails
+ */
+struct PlanRequestOptions
+{
+  // Publish how far the search got (e.g. the explored area)
+  bool publish_failed_search{false};
+  // Throw NoValidPathWithPartialPlan with the reachable part of the way to the goal
+  bool compute_partial_path{false};
+};
+
+/**
  * @class GlobalPlanner
  * @brief Abstract interface for global planners to adhere to with pluginlib
  */
@@ -77,6 +88,23 @@ public:
     const geometry_msgs::msg::PoseStamped & start,
     const geometry_msgs::msg::PoseStamped & goal,
     std::function<bool()> cancel_checker) = 0;
+
+  /**
+   * @brief Method create the plan from a starting and ending goal.
+   * @param start The starting pose of the robot
+   * @param goal  The goal pose of the robot
+   * @param cancel_checker Function to check if the action has been canceled
+   * @param options Opt-in extras for a failed search, planners without them ignore them
+   * @return      The sequence of poses to get from start to goal, if any
+   */
+  virtual nav_msgs::msg::Path createPlan(
+    const geometry_msgs::msg::PoseStamped & start,
+    const geometry_msgs::msg::PoseStamped & goal,
+    std::function<bool()> cancel_checker,
+    const PlanRequestOptions & /*options*/)
+  {
+    return createPlan(start, goal, cancel_checker);
+  }
 };
 
 }  // namespace nav2_core

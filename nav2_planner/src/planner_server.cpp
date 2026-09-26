@@ -561,7 +561,10 @@ PlannerServer::computePlan()
         return action_server_pose_->is_cancel_requested();
       };
 
-    result->path = getPlan(start, goal_pose, goal->planner_id, cancel_checker);
+    nav2_core::PlanRequestOptions options;
+    options.publish_failed_search = goal->publish_failed_search;
+    options.compute_partial_path = goal->return_partial_path;
+    result->path = getPlan(start, goal_pose, goal->planner_id, cancel_checker, options);
 
     if (!validatePath<ActionThroughPoses>(goal_pose, result->path, goal->planner_id)) {
       throw nav2_core::NoValidPathCouldBeFound(goal->planner_id + " generated a empty path");
@@ -598,6 +601,14 @@ PlannerServer::computePlan()
   } catch (nav2_core::NoValidPathCouldBeFound & ex) {
     exceptionWarning(start, goal->goal, goal->planner_id, ex, result->error_msg);
     result->error_code = ActionToPoseResult::NO_VALID_PATH;
+    const auto * partial = dynamic_cast<const nav2_core::NoValidPathWithPartialPlan *>(&ex);
+    if (partial) {
+      result->partial_path = partial->partialPlan().path;
+      result->partial_path_start_cost_to_go =
+        static_cast<float>(partial->partialPlan().start_cost_to_go);
+      result->partial_path_end_cost_to_go =
+        static_cast<float>(partial->partialPlan().end_cost_to_go);
+    }
     action_server_pose_->terminate_current(result);
   } catch (nav2_core::PlannerTimedOut & ex) {
     exceptionWarning(start, goal->goal, goal->planner_id, ex, result->error_msg);
@@ -631,7 +642,8 @@ PlannerServer::getPlan(
   const geometry_msgs::msg::PoseStamped & start,
   const geometry_msgs::msg::PoseStamped & goal,
   const std::string & planner_id,
-  std::function<bool()> cancel_checker)
+  std::function<bool()> cancel_checker,
+  const nav2_core::PlanRequestOptions & options)
 {
   RCLCPP_DEBUG(
     get_logger(), "Attempting to a find path from (%.2f, %.2f) to "
@@ -639,14 +651,15 @@ PlannerServer::getPlan(
     goal.pose.position.x, goal.pose.position.y);
 
   if (planners_.find(planner_id) != planners_.end()) {
-    return planners_[planner_id]->createPlan(start, goal, cancel_checker);
+    return planners_[planner_id]->createPlan(start, goal, cancel_checker, options);
   } else {
     if (planners_.size() == 1 && planner_id.empty()) {
       RCLCPP_WARN_ONCE(
         get_logger(), "No planners specified in action call. "
         "Server will use only plugin %s in server."
         " This warning will appear once.", planner_ids_concat_.c_str());
-      return planners_[planners_.begin()->first]->createPlan(start, goal, cancel_checker);
+      return planners_[planners_.begin()->first]->createPlan(
+        start, goal, cancel_checker, options);
     } else {
       RCLCPP_ERROR(
         get_logger(), "planner %s is not a valid planner. "

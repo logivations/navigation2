@@ -62,6 +62,11 @@ public:
   BT::NodeStatus on_aborted() override;
 
   /**
+   * @brief Set the partial path outputs, empty unless a failed search returned one
+   */
+  void setPartialPathOutputs(const Action::Result * result = nullptr);
+
+  /**
    * @brief Function to perform some user-defined operation upon cancellation of the action
    */
   BT::NodeStatus on_cancelled() override;
@@ -99,7 +104,23 @@ public:
         BT::InputPort<std::string>(
           "planner_id", "",
           "Mapped name to the planner plugin type to use"),
+        BT::InputPort<bool>(
+          "publish_failed_search", false,
+          "Opt-in: if planning fails, the planner publishes how far the search got"),
+        BT::InputPort<bool>(
+          "return_partial_path", false,
+          "Opt-in: if no path is found, output the reachable part of the way (partial_path)"),
         BT::OutputPort<nav_msgs::msg::Path>("path", "Path created by ComputePathToPose node"),
+        BT::OutputPort<nav_msgs::msg::Path>(
+          "partial_path",
+          "Only if no path was found and return_partial_path: start -> the reachable pose "
+          "closest to the goal, stopped short of the blockage; empty otherwise"),
+        BT::OutputPort<double>(
+          "partial_path_start_cost_to_go",
+          "Distance to the goal around blocked space from the start of partial_path [m]"),
+        BT::OutputPort<double>(
+          "partial_path_end_cost_to_go",
+          "Distance to the goal around blocked space from the end of partial_path [m]"),
         BT::OutputPort<ActionResult::_error_code_type>(
           "error_code_id", "The compute path to pose error code"),
         BT::OutputPort<std::string>(

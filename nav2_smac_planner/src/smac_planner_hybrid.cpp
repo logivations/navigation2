@@ -18,7 +18,11 @@
 #include <vector>
 #include <algorithm>
 #include <limits>
+#include <cmath>
+#include <queue>
+#include <utility>
 
+#include "angles/angles.h"
 #include "nav2_smac_planner/smac_planner_hybrid.hpp"
 
 // #define BENCHMARK_TESTING
@@ -131,6 +135,24 @@ void SmacPlannerHybrid::configure(
   _lookup_table_size = node->declare_or_get_parameter(name + ".lookup_table_size", 20.0);
 
   _debug_visualizations = node->declare_or_get_parameter(name + ".debug_visualizations", false);
+  // Master switch for the per-request publish_failed_search opt-in. Unlike
+  // debug_visualizations this costs nothing on successful plans: the explored area is read
+  // from the search graph after the failure
+  _publish_failed_search =
+    node->declare_or_get_parameter(name + ".publish_failed_search", true);
+  // Reachable part of the way for requests with compute_partial_path, see computePartialPlan
+  _partial_path_backoff =
+    node->declare_or_get_parameter(name + ".partial_path_backoff", 1.5);
+  _partial_path_min_end_headings =
+    node->declare_or_get_parameter(name + ".partial_path_min_end_headings", 3);
+  _partial_path_blocked_cost_factor =
+    node->declare_or_get_parameter(name + ".partial_path_blocked_cost_factor", 20.0);
+  _partial_path_min_final_segment =
+    node->declare_or_get_parameter(name + ".partial_path_min_final_segment", 3.0);
+  _partial_path_search_cost_weight =
+    node->declare_or_get_parameter(name + ".partial_path_search_cost_weight", 0.1);
+  _partial_path_max_end_turn =
+    node->declare_or_get_parameter(name + ".partial_path_max_end_turn", 0.35);
 
   _motion_model_for_search =
     node->declare_or_get_parameter(name + ".motion_model_for_search", std::string("DUBIN"));
@@ -283,6 +305,16 @@ void SmacPlannerHybrid::configure(
 
   _raw_plan_publisher = node->create_publisher<nav_msgs::msg::Path>("unsmoothed_plan");
 
+  if (_publish_failed_search) {
+    // Next to the planner server's own planner_server/failed_* topics
+    _failed_explored_area_publisher = node->create_publisher<nav_msgs::msg::OccupancyGrid>(
+      "planner_server/failed_explored_area");
+    _failed_closest_path_publisher = node->create_publisher<nav_msgs::msg::Path>(
+      "planner_server/failed_closest_path");
+    _failed_partial_path_publisher = node->create_publisher<nav_msgs::msg::Path>(
+      "planner_server/failed_partial_path");
+  }
+
   if (_debug_visualizations) {
     _expansions_publisher = node->create_publisher<geometry_msgs::msg::PoseArray>("expansions");
     _planned_footprints_publisher = node->create_publisher<visualization_msgs::msg::MarkerArray>(
@@ -307,6 +339,11 @@ void SmacPlannerHybrid::activate()
     _logger, "Activating plugin %s of type SmacPlannerHybrid",
     _name.c_str());
   _raw_plan_publisher->on_activate();
+  if (_publish_failed_search) {
+    _failed_explored_area_publisher->on_activate();
+    _failed_closest_path_publisher->on_activate();
+    _failed_partial_path_publisher->on_activate();
+  }
   if (_debug_visualizations) {
     _expansions_publisher->on_activate();
     _planned_footprints_publisher->on_activate();
@@ -342,6 +379,11 @@ void SmacPlannerHybrid::deactivate()
     _logger, "Deactivating plugin %s of type SmacPlannerHybrid",
     _name.c_str());
   _raw_plan_publisher->on_deactivate();
+  if (_publish_failed_search) {
+    _failed_explored_area_publisher->on_deactivate();
+    _failed_closest_path_publisher->on_deactivate();
+    _failed_partial_path_publisher->on_deactivate();
+  }
   if (_debug_visualizations) {
     _expansions_publisher->on_deactivate();
     _planned_footprints_publisher->on_deactivate();
@@ -375,6 +417,9 @@ void SmacPlannerHybrid::cleanup()
   }
   _no_waiting_zone.cleanup();
   _raw_plan_publisher.reset();
+  _failed_explored_area_publisher.reset();
+  _failed_closest_path_publisher.reset();
+  _failed_partial_path_publisher.reset();
   if (_debug_visualizations) {
     _expansions_publisher.reset();
     _planned_footprints_publisher.reset();
@@ -386,6 +431,15 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
   const geometry_msgs::msg::PoseStamped & start,
   const geometry_msgs::msg::PoseStamped & goal,
   std::function<bool()> cancel_checker)
+{
+  return createPlan(start, goal, cancel_checker, nav2_core::PlanRequestOptions());
+}
+
+nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
+  const geometry_msgs::msg::PoseStamped & start,
+  const geometry_msgs::msg::PoseStamped & goal,
+  std::function<bool()> cancel_checker,
+  const nav2_core::PlanRequestOptions & options)
 {
   std::lock_guard<std::mutex> lock_reinit(_mutex);
   steady_clock::time_point a = steady_clock::now();
@@ -529,10 +583,47 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
       throw nav2_core::StartOccupied("Start occupied");
     }
 
-    if (num_iterations < _a_star->getMaxIterations()) {
+    // Only on request: callers that expect failures (e.g. trying many approach poses)
+    // do not care why a search failed
+    const bool search_exhausted = num_iterations < _a_star->getMaxIterations();
+    const bool publish = _publish_failed_search && options.publish_failed_search;
+    // Only when the search exhausted the reachable space: after max iterations the
+    // explored pose closest to the goal is just where the search budget ran out
+    const bool compute_partial_path =
+      options.compute_partial_path && search_exhausted && !_find_free_space_mode;
+    nav2_core::PartialPlan partial_plan;
+    bool has_partial_plan = false;
+    if (publish || compute_partial_path) {
+      const FailedSearch search = analyzeFailedSearch(
+        costmap, mx_start, my_start, start_orientation_bin_int * _angle_bin_size,
+        mx_goal, my_goal);
+      if (publish) {
+        publishFailedSearch(
+          costmap, search, duration_cast<duration<double>>(steady_clock::now() - a).count());
+      }
+      if (compute_partial_path) {
+        has_partial_plan = computePartialPlan(costmap, search, partial_plan);
+        partial_plan.path.header = plan.header;
+        for (auto & partial_pose : partial_plan.path.poses) {
+          partial_pose.header = plan.header;
+        }
+        if (_failed_partial_path_publisher &&
+          _failed_partial_path_publisher->get_subscription_count() > 0)
+        {
+          // Also when there is none, so a stale one does not linger
+          _failed_partial_path_publisher->publish(
+            std::make_unique<nav_msgs::msg::Path>(partial_plan.path));
+        }
+      }
+    }
+
+    if (search_exhausted) {
       if (_find_free_space_mode) {
         throw nav2_core::NoValidPathCouldBeFound(
                 "no reachable pose outside the no-waiting zone found");
+      }
+      if (has_partial_plan) {
+        throw nav2_core::NoValidPathWithPartialPlan("no valid path found", partial_plan);
       }
       throw nav2_core::NoValidPathCouldBeFound("no valid path found");
     } else {
@@ -632,6 +723,401 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
   }
 
   return plan;
+}
+
+unsigned int SmacPlannerHybrid::FailedSearch::headingsAt(
+  const float & mx, const float & my) const
+{
+  if (mx < 0.0f || my < 0.0f) {
+    return 0;
+  }
+  const unsigned int x = static_cast<unsigned int>(mx);
+  const unsigned int y = static_cast<unsigned int>(my);
+  if (x < min_x || y < min_y || x >= min_x + width || y >= min_y + height) {
+    return 0;
+  }
+  return headings[static_cast<size_t>(y - min_y) * width + (x - min_x)];
+}
+
+size_t SmacPlannerHybrid::FailedSearch::centerIndex(
+  const float & mx, const float & my, const float & theta) const
+{
+  const float cos_theta = std::cos(theta);
+  const float sin_theta = std::sin(theta);
+  const float x = std::clamp(
+    mx + cos_theta * center_x - sin_theta * center_y, 0.0f,
+    static_cast<float>(2 * cost_to_go_size_x) - 1.0f);
+  const float y = std::clamp(
+    my + sin_theta * center_x + cos_theta * center_y, 0.0f,
+    static_cast<float>(2 * cost_to_go_size_y) - 1.0f);
+  return static_cast<size_t>(y / 2.0f) * cost_to_go_size_x + static_cast<size_t>(x / 2.0f);
+}
+
+float SmacPlannerHybrid::FailedSearch::costToGoAtCenter(
+  const float & mx, const float & my, const float & theta) const
+{
+  return cost_to_go[centerIndex(mx, my, theta)];
+}
+
+SmacPlannerHybrid::FailedSearch SmacPlannerHybrid::analyzeFailedSearch(
+  const nav2_costmap_2d::Costmap2D * costmap, const float & mx_start, const float & my_start,
+  const float & start_theta, const float & mx_goal, const float & my_goal)
+{
+  FailedSearch search;
+
+  // Pass 1: bounding box of the explored cells
+  unsigned int min_x = std::numeric_limits<unsigned int>::max(), min_y = min_x;
+  unsigned int max_x = 0, max_y = 0;
+  _a_star->forEachVisitedNode(
+    [&](NodeHybrid * node) {
+      const unsigned int x = static_cast<unsigned int>(node->pose.x);
+      const unsigned int y = static_cast<unsigned int>(node->pose.y);
+      min_x = std::min(min_x, x);
+      min_y = std::min(min_y, y);
+      max_x = std::max(max_x, x);
+      max_y = std::max(max_y, y);
+      search.num_poses++;
+    });
+  if (search.num_poses == 0) {
+    return search;
+  }
+
+  // Pass 2: number of headings the search reached in each explored cell
+  search.min_x = min_x;
+  search.min_y = min_y;
+  search.width = max_x - min_x + 1;
+  search.height = max_y - min_y + 1;
+  search.headings.assign(static_cast<size_t>(search.width) * search.height, 0);
+  _a_star->forEachVisitedNode(
+    [&](NodeHybrid * node) {
+      search.headings[(static_cast<size_t>(node->pose.y) - min_y) * search.width +
+      (static_cast<size_t>(node->pose.x) - min_x)]++;
+    });
+
+  if (_find_free_space_mode) {
+    return search;
+  }
+
+  // Pass 3: the explored pose closest to the goal, around blocked space rather than as the
+  // crow flies (that can be a pocket behind a rack next to the goal), traded off a little
+  // against how expensive the search's way there is (length weighted with the reverse, turn
+  // and cost penalties): otherwise e.g. a pose reached by reversing all the way wins because
+  // the short rear overhang gets base_link a bit closer to the blockage
+  if (!_costmap_ros->getUseRadius()) {
+    const auto footprint = _costmap_ros->getRobotFootprint();
+    for (const auto & point : footprint) {
+      search.center_x += static_cast<float>(point.x / footprint.size() / costmap->getResolution());
+      search.center_y += static_cast<float>(point.y / footprint.size() / costmap->getResolution());
+    }
+  }
+  computeCostToGo(costmap, mx_start, my_start, start_theta, mx_goal, my_goal, search);
+  const float search_cost_weight =
+    static_cast<float>(_partial_path_search_cost_weight * costmap->getResolution());
+  // Only poses the search arrived at driving forward: the partial path has to end driving
+  // forward (see computePartialPlan), all others only if there is none of those
+  const auto arrived_forward = [&](NodeHybrid * node) {
+      if (!node->parent) {
+        return true;
+      }
+      const float theta = node->pose.theta * _angle_bin_size;
+      return (node->pose.x - node->parent->pose.x) * std::cos(theta) +
+             (node->pose.y - node->parent->pose.y) * std::sin(theta) >= 0.0f;
+    };
+  float best_score = std::numeric_limits<float>::max();
+  bool best_forward = false;
+  _a_star->forEachVisitedNode(
+    [&](NodeHybrid * node) {
+      const bool forward = arrived_forward(node);
+      if (best_forward && !forward) {
+        return;
+      }
+      const float score =
+      search.costToGoAtCenter(node->pose.x, node->pose.y, node->pose.theta * _angle_bin_size) +
+      search_cost_weight * node->getAccumulatedCost();
+      if (score < best_score || (forward && !best_forward)) {
+        best_score = score;
+        best_forward = forward;
+        search.closest = node;
+      }
+    });
+  search.closest_goal_distance =
+    std::hypot(search.closest->pose.x - mx_goal, search.closest->pose.y - my_goal);
+  return search;
+}
+
+void SmacPlannerHybrid::computeCostToGo(
+  const nav2_costmap_2d::Costmap2D * costmap, const float & mx_start, const float & my_start,
+  const float & start_theta, const float & mx_goal, const float & my_goal,
+  FailedSearch & search)
+{
+  const unsigned int costmap_size_x = costmap->getSizeInCellsX();
+  const unsigned int costmap_size_y = costmap->getSizeInCellsY();
+  const unsigned int size_x = (costmap_size_x + 1) / 2;
+  const unsigned int size_y = (costmap_size_y + 1) / 2;
+  const size_t size = static_cast<size_t>(size_x) * size_y;
+  search.cost_to_go_size_x = size_x;
+  search.cost_to_go_size_y = size_y;
+
+  // Travel cost per meter of each cell: 1, or the blocked factor if even the least costly of
+  // its 2x2 costmap cells puts the robot center into collision
+  const float blocked_factor = static_cast<float>(_partial_path_blocked_cost_factor);
+  std::vector<float> factor(size, 1.0f);
+  for (unsigned int y = 0; y < size_y; ++y) {
+    for (unsigned int x = 0; x < size_x; ++x) {
+      unsigned char min_cost = nav2_costmap_2d::NO_INFORMATION;
+      for (unsigned int j = 2 * y; j < std::min(2 * y + 2, costmap_size_y); ++j) {
+        for (unsigned int i = 2 * x; i < std::min(2 * x + 2, costmap_size_x); ++i) {
+          min_cost = std::min(min_cost, costmap->getCost(i, j));
+        }
+      }
+      if (min_cost >= nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE) {
+        factor[static_cast<size_t>(y) * size_x + x] = blocked_factor;
+      }
+    }
+  }
+
+  const auto index = [size_x](const float & mx, const float & my) {
+      return static_cast<size_t>(my / 2.0f) * size_x + static_cast<size_t>(mx / 2.0f);
+    };
+
+  // Cells whose cost is needed: the footprint centers of the start and every explored pose
+  std::vector<uint8_t> needed(size, 0);
+  size_t num_needed = 0;
+  const auto mark = [&](const size_t & i) {
+      if (!needed[i]) {
+        needed[i] = 1;
+        num_needed++;
+      }
+    };
+  mark(search.centerIndex(mx_start, my_start, start_theta));
+  _a_star->forEachVisitedNode(
+    [&](NodeHybrid * node) {
+      mark(search.centerIndex(node->pose.x, node->pose.y, node->pose.theta * _angle_bin_size));
+    });
+
+  // Dijkstra from the goal until all of them are settled
+  const float step = 2.0f * static_cast<float>(costmap->getResolution());
+  const float diagonal_step = step * std::sqrt(2.0f);
+  std::vector<float> & cost = search.cost_to_go;
+  cost.assign(size, std::numeric_limits<float>::max());
+  std::vector<uint8_t> closed(size, 0);
+  using QueueEntry = std::pair<float, size_t>;
+  std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> queue;
+  const size_t goal_index = index(mx_goal, my_goal);
+  cost[goal_index] = 0.0f;
+  queue.emplace(0.0f, goal_index);
+  while (!queue.empty() && num_needed > 0) {
+    const auto [current_cost, current] = queue.top();
+    queue.pop();
+    if (closed[current]) {
+      continue;
+    }
+    closed[current] = 1;
+    if (needed[current]) {
+      num_needed--;
+    }
+    const int cx = static_cast<int>(current % size_x);
+    const int cy = static_cast<int>(current / size_x);
+    for (int ny = cy - 1; ny <= cy + 1; ++ny) {
+      for (int nx = cx - 1; nx <= cx + 1; ++nx) {
+        if ((nx == cx && ny == cy) || nx < 0 || ny < 0 ||
+          nx >= static_cast<int>(size_x) || ny >= static_cast<int>(size_y))
+        {
+          continue;
+        }
+        const size_t neighbor = static_cast<size_t>(ny) * size_x + static_cast<size_t>(nx);
+        if (closed[neighbor]) {
+          continue;
+        }
+        const float length = (nx != cx && ny != cy) ? diagonal_step : step;
+        const float new_cost =
+          current_cost + length * 0.5f * (factor[current] + factor[neighbor]);
+        if (new_cost < cost[neighbor]) {
+          cost[neighbor] = new_cost;
+          queue.emplace(new_cost, neighbor);
+        }
+      }
+    }
+  }
+
+  search.start_cost_to_go = search.costToGoAtCenter(mx_start, my_start, start_theta);
+}
+
+void SmacPlannerHybrid::publishFailedSearch(
+  const nav2_costmap_2d::Costmap2D * costmap, const FailedSearch & search,
+  const double & search_duration)
+{
+  if (search.num_poses == 0) {
+    return;
+  }
+  const size_t num_cells = static_cast<size_t>(
+    std::count_if(
+      search.headings.begin(), search.headings.end(), [](unsigned int n) {return n > 0;}));
+
+  const double resolution = costmap->getResolution();
+  if (_find_free_space_mode) {
+    RCLCPP_WARN(
+      _logger, "%s: search explored %zu poses in %zu cells (%.1f m^2) within %.3f s",
+      _name.c_str(), search.num_poses, num_cells, num_cells * resolution * resolution,
+      search_duration);
+  } else {
+    const geometry_msgs::msg::Pose closest_pose =
+      getWorldCoords(search.closest->pose.x, search.closest->pose.y, costmap);
+    RCLCPP_WARN(
+      _logger, "%s: search explored %zu poses in %zu cells (%.1f m^2) within %.3f s, "
+      "closest pose (%.2f, %.2f) is %.2f m from the goal",
+      _name.c_str(), search.num_poses, num_cells, num_cells * resolution * resolution,
+      search_duration, closest_pose.position.x, closest_pose.position.y,
+      search.closest_goal_distance * resolution);
+  }
+
+  const auto now = _clock->now();
+  if (_failed_explored_area_publisher->get_subscription_count() > 0) {
+    // 0 = not reached (transparent in the costmap color scheme), 1 = reached in every
+    // heading up to 98 = reached in a single heading only, so cells the robot passes but
+    // cannot turn in stand out
+    auto grid = std::make_unique<nav_msgs::msg::OccupancyGrid>();
+    grid->header.stamp = now;
+    grid->header.frame_id = _global_frame;
+    grid->info.map_load_time = now;
+    grid->info.resolution = static_cast<float>(resolution);
+    grid->info.width = search.width;
+    grid->info.height = search.height;
+    grid->info.origin.position.x = costmap->getOriginX() + search.min_x * resolution;
+    grid->info.origin.position.y = costmap->getOriginY() + search.min_y * resolution;
+    grid->info.origin.orientation.w = 1.0;
+    grid->data.resize(search.headings.size());
+    for (size_t i = 0; i < search.headings.size(); ++i) {
+      if (search.headings[i] == 0) {
+        grid->data[i] = 0;
+        continue;
+      }
+      const double share =
+        std::min(1.0, static_cast<double>(search.headings[i]) / _angle_quantizations);
+      grid->data[i] = static_cast<int8_t>(1 + std::lround(97.0 * (1.0 - share)));
+    }
+    _failed_explored_area_publisher->publish(std::move(grid));
+  }
+
+  if (_failed_closest_path_publisher->get_subscription_count() > 0) {
+    // Start -> explored pose closest to the goal; empty in find free space mode, which
+    // ignores the goal, so a stale path of an earlier failure does not linger
+    auto path_msg = std::make_unique<nav_msgs::msg::Path>();
+    path_msg->header.stamp = now;
+    path_msg->header.frame_id = _global_frame;
+    NodeHybrid::CoordinateVector path;
+    if (!_find_free_space_mode && search.closest->backtracePath(path)) {
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header = path_msg->header;
+      path_msg->poses.reserve(path.size());
+      for (int i = path.size() - 1; i >= 0; --i) {
+        pose.pose = getWorldCoords(path[i].x, path[i].y, costmap);
+        pose.pose.orientation = getWorldOrientation(path[i].theta);
+        path_msg->poses.push_back(pose);
+      }
+    }
+    _failed_closest_path_publisher->publish(std::move(path_msg));
+  }
+}
+
+bool SmacPlannerHybrid::computePartialPlan(
+  const nav2_costmap_2d::Costmap2D * costmap, const FailedSearch & search,
+  nav2_core::PartialPlan & partial_plan)
+{
+  NodeHybrid::CoordinateVector path;
+  if (!search.closest || search.cost_to_go.empty() || !search.closest->backtracePath(path)) {
+    // Nothing explored beyond the start
+    return false;
+  }
+  std::reverse(path.begin(), path.end());  // start -> closest pose
+
+  // Driving-direction segments: segment k starts at cusps[k] (cusps[0] = 0)
+  const double resolution = costmap->getResolution();
+  std::vector<double> length(path.size(), 0.0);
+  std::vector<size_t> cusps;
+  std::vector<bool> forward_segment;
+  for (size_t i = 1; i < path.size(); ++i) {
+    const float dx = path[i].x - path[i - 1].x;
+    const float dy = path[i].y - path[i - 1].y;
+    length[i] = length[i - 1] + std::hypot(dx, dy) * resolution;
+    const bool forward = dx * std::cos(path[i].theta) + dy * std::sin(path[i].theta) >= 0.0f;
+    if (forward_segment.empty() || forward != forward_segment.back()) {
+      cusps.push_back(i - 1);
+      forward_segment.push_back(forward);
+    }
+  }
+
+  // Arrive driving forward, facing the blockage: drop a final reverse segment (e.g. a U-turn
+  // in a bay and reversing the last meters, which gets base_link closer because of the short
+  // rear overhang) and a short final segment, the search wriggling into the choke point (e.g.
+  // reverse 2.8 m after 18 m forward). Reversing out of a spot first is part of the way.
+  size_t end = path.size() - 1;
+  while (forward_segment.size() > 1 &&
+    (!forward_segment.back() ||
+    length[end] - length[cusps.back()] < _partial_path_min_final_segment))
+  {
+    end = cusps.back();
+    cusps.pop_back();
+    forward_segment.pop_back();
+  }
+  if (forward_segment.empty() || !forward_segment.back()) {
+    return false;
+  }
+
+  // Stop short of the blockage: at the end of the search the footprint only just fits next
+  // to it
+  size_t last = end;
+  while (last > 0 && length[end] - length[last] < _partial_path_backoff) {
+    last--;
+  }
+  // ... not in the middle of a turn: next to the blockage the search twists the robot to
+  // squeeze a little further (e.g. a 90 deg arc before a final reverse), and ending on that
+  // arc makes the controller turn the robot to the end heading
+  const auto turn_before = [&](const size_t & i) {
+      size_t j = i;
+      while (j > 0 && length[i] - length[j] < 1.0) {
+        j--;
+      }
+      return std::fabs(angles::shortest_angular_distance(path[j].theta, path[i].theta));
+    };
+  while (last > 0 && turn_before(last) > _partial_path_max_end_turn) {
+    last--;
+  }
+  // ... in a cell the robot can still turn in a bit
+  while (last > 0 &&
+    search.headingsAt(path[last].x, path[last].y) <
+    static_cast<unsigned int>(_partial_path_min_end_headings))
+  {
+    last--;
+  }
+  if (last == 0) {
+    return false;
+  }
+
+  const float end_cost_to_go =
+    search.costToGoAtCenter(path[last].x, path[last].y, path[last].theta);
+  if (end_cost_to_go >= search.start_cost_to_go) {
+    return false;
+  }
+
+  partial_plan.path.poses.clear();
+  partial_plan.path.poses.reserve(last + 1);
+  geometry_msgs::msg::PoseStamped pose;
+  for (size_t i = 0; i <= last; ++i) {
+    pose.pose = getWorldCoords(path[i].x, path[i].y, costmap);
+    pose.pose.orientation = getWorldOrientation(path[i].theta);
+    partial_plan.path.poses.push_back(pose);
+  }
+  partial_plan.start_cost_to_go = search.start_cost_to_go;
+  partial_plan.end_cost_to_go = end_cost_to_go;
+
+  RCLCPP_WARN(
+    _logger, "%s: partial path of %.2f m to (%.2f, %.2f), %.2f m short of the explored "
+    "pose closest to the goal; distance to the goal %.2f m -> %.2f m",
+    _name.c_str(), length[last], partial_plan.path.poses.back().pose.position.x,
+    partial_plan.path.poses.back().pose.position.y, length[end] - length[last],
+    partial_plan.start_cost_to_go, partial_plan.end_cost_to_go);
+  return true;
 }
 
 rcl_interfaces::msg::SetParametersResult SmacPlannerHybrid::validateParameterUpdatesCallback(

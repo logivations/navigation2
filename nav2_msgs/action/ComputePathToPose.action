@@ -3,6 +3,8 @@ geometry_msgs/PoseStamped goal
 geometry_msgs/PoseStamped start
 string planner_id
 bool use_start # If false, use current robot pose as path start, if true, use start above instead
+bool publish_failed_search # Opt-in: if the search fails, publish how far it got (planner_server/failed_explored_area, failed_closest_path), if the planner supports it
+bool return_partial_path # Opt-in: on NO_VALID_PATH, return the reachable part of the way (partial_path), if the planner supports it
 ---
 #result definition
 
@@ -23,5 +25,11 @@ nav_msgs/Path path
 builtin_interfaces/Duration planning_time
 uint16 error_code
 string error_msg
+# Only on NO_VALID_PATH with return_partial_path: start -> the reachable pose closest to the
+# goal, stopped short of the blockage; empty if nothing is reachable closer to the goal
+nav_msgs/Path partial_path
+# Distance to the goal around blocked space [m] from the start and from the end of partial_path
+float32 partial_path_start_cost_to_go
+float32 partial_path_end_cost_to_go
 ---
 #feedback definition

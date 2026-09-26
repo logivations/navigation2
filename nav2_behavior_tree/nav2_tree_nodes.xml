@@ -100,9 +100,14 @@
       <input_port name="start">Use as the planner start pose instead of the current robot pose, if use_start is not false (i.e. not provided or set to true)</input_port>
       <input_port name="use_start">For using or not using (i.e. ignoring) the provided start pose</input_port>
       <input_port name="planner_id">Mapped name to the planner plugin type to use</input_port>
+      <input_port name="publish_failed_search">Opt-in: if planning fails, the planner publishes how far the search got</input_port>
+      <input_port name="return_partial_path">Opt-in: if no path is found, output the reachable part of the way (partial_path)</input_port>
       <input_port name="server_name">Server name</input_port>
       <input_port name="server_timeout">Server timeout</input_port>
       <output_port name="path">Path created by ComputePathToPose node</output_port>
+      <output_port name="partial_path">Only if no path was found and return_partial_path: start -> the reachable pose closest to the goal, stopped short of the blockage; empty otherwise</output_port>
+      <output_port name="partial_path_start_cost_to_go">Distance to the goal around blocked space from the start of partial_path [m]</output_port>
+      <output_port name="partial_path_end_cost_to_go">Distance to the goal around blocked space from the end of partial_path [m]</output_port>
       <output_port name="error_code_id">"Compute path to pose error code"</output_port>
       <output_port name="error_msg">"Compute path to pose error message"</output_port>
     </Action>

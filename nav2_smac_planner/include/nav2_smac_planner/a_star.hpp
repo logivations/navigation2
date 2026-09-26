@@ -239,6 +239,14 @@ public:
    */
   NodeContext * getContext();
 
+  /**
+   * @brief Call visitor for every node expanded by the last createPath. The search graph
+   * is only cleared by the next setCollisionChecker, so a failed search can still be
+   * inspected after createPath returned
+   * @param visitor Called with each visited node
+   */
+  void forEachVisitedNode(const std::function<void(NodePtr)> & visitor);
+
 protected:
   /**
    * @brief Get pointer to next goal in open set
