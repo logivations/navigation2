@@ -18,6 +18,9 @@
 #include <exception>
 #include <utility>
 #include <functional>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "tf2_ros/create_timer_ros.hpp"
 
@@ -311,16 +314,18 @@ void CollisionDetector::process()
   // Current timestamp for all inner routines prolongation
   rclcpp::Time curr_time = this->now();
 
-  // Points array collected from different data sources in a robot base frame
-  std::vector<Point> collision_points;
+  // Points collected from each data source in a robot base frame, keyed by source name
+  // so that every polygon counts only the sources in its sources_names
+  std::unordered_map<std::string, std::vector<Point>> sources_collision_points_map;
 
   std::unique_ptr<nav2_msgs::msg::CollisionDetectorState> state_msg =
     std::make_unique<nav2_msgs::msg::CollisionDetectorState>();
 
-  // Fill collision_points array from different data sources
+  // Fill collision points arrays from different data sources
   for (std::shared_ptr<Source> source : sources_) {
+    std::vector<Point> & source_points = sources_collision_points_map[source->getSourceName()];
     if (source->getEnabled()) {
-      if (!source->getData(curr_time, collision_points) &&
+      if (!source->getData(curr_time, source_points) &&
         source->getSourceTimeout().seconds() != 0.0)
       {
         RCLCPP_WARN(
@@ -350,12 +355,14 @@ void CollisionDetector::process()
     marker.lifetime = rclcpp::Duration(0, 0);
     marker.frame_locked = true;
 
-    for (const auto & point : collision_points) {
-      geometry_msgs::msg::Point p;
-      p.x = point.x;
-      p.y = point.y;
-      p.z = 0.0;
-      marker.points.push_back(p);
+    for (const auto & source_points : sources_collision_points_map) {
+      for (const auto & point : source_points.second) {
+        geometry_msgs::msg::Point p;
+        p.x = point.x;
+        p.y = point.y;
+        p.z = 0.0;
+        marker.points.push_back(p);
+      }
     }
     marker_array->markers.push_back(marker);
     collision_points_marker_pub_->publish(std::move(marker_array));
@@ -366,7 +373,7 @@ void CollisionDetector::process()
       continue;
     }
     state_msg->polygons.push_back(polygon->getName());
-    state_msg->detections.push_back(polygon->isTriggered(collision_points));
+    state_msg->detections.push_back(polygon->isTriggered(sources_collision_points_map));
   }
 
   state_pub_->publish(std::move(state_msg));
