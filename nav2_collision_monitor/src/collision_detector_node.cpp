@@ -323,9 +323,11 @@ void CollisionDetector::process()
 
   // Fill collision points arrays from different data sources
   for (std::shared_ptr<Source> source : sources_) {
-    std::vector<Point> & source_points = sources_collision_points_map[source->getSourceName()];
+    auto iter = sources_collision_points_map.insert(
+      {source->getSourceName(), std::vector<Point>()});
+
     if (source->getEnabled()) {
-      if (!source->getData(curr_time, source_points) &&
+      if (!source->getData(curr_time, iter.first->second) &&
         source->getSourceTimeout().seconds() != 0.0)
       {
         RCLCPP_WARN(
