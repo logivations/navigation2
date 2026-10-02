@@ -805,6 +805,41 @@ TEST_F(Tester, testPolygonSourceDetection)
   cd_->stop();
 }
 
+TEST_F(Tester, testPolygonCountsOnlyItsSources)
+{
+  rclcpp::Time curr_time = cd_->now();
+
+  // Set Collision Detector parameters.
+  setCommonParameters();
+  // Both regions contain the obstacle of the polygon source, but ScanOnlyRegion
+  // must not count it (an AMR footprint must not trigger a lidar-only check)
+  addPolygon("ScanOnlyRegion", CIRCLE, 3.0, "none");
+  cd_->declare_parameter(
+    "ScanOnlyRegion.sources_names", rclcpp::ParameterValue(std::vector<std::string>{SCAN_NAME}));
+  addPolygon("AllSourcesRegion", CIRCLE, 3.0, "none");
+  addSource(SCAN_NAME, SCAN);
+  addSource(POLYGON_NAME, POLYGON_SOURCE);
+  setVectors({"ScanOnlyRegion", "AllSourcesRegion"}, {SCAN_NAME, POLYGON_NAME});
+
+  // Start Collision Detector node
+  cd_->start();
+
+  // Share TF
+  sendTransforms(curr_time);
+
+  // Obstacle only in the polygon source
+  publishPolygon(2.5, curr_time);
+
+  ASSERT_TRUE(waitData(std::hypot(2.5, 1.0), 500ms, curr_time));
+  ASSERT_TRUE(waitState(300ms));
+  ASSERT_EQ(state_msg_->detections.size(), 2u);
+  ASSERT_EQ(state_msg_->detections[0], false);
+  ASSERT_EQ(state_msg_->detections[1], true);
+
+  // Stop Collision Detector node
+  cd_->stop();
+}
+
 TEST_F(Tester, testCostmapDetection)
 {
   rclcpp::Time curr_time = cd_->now();
