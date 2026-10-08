@@ -10,6 +10,11 @@ target_link_libraries(test_json_utils
   ${geometry_msgs_TARGETS}
 )
 
+nav2_add_gtest(test_ros_topic_logger test_ros_topic_logger.cpp)
+target_link_libraries(test_ros_topic_logger
+  ${library_name}
+)
+
 function(plugin_add_test target filename plugin)
   nav2_add_gtest(${target} ${filename})
   target_link_libraries(${target}
