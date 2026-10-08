@@ -23,6 +23,7 @@
 
 #include "behaviortree_cpp/loggers/abstract_logger.h"
 #include "rclcpp/rclcpp.hpp"
+#include "nav2_ros_common/lifecycle_node.hpp"
 #include "nav2_msgs/msg/behavior_tree_log.hpp"
 #include "nav2_msgs/msg/behavior_tree_status_change.hpp"
 #include "tf2/time.hpp"
