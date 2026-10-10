@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 #include <limits>
+#include <thread>
 
 #include "gtest/gtest.h"
 #include "rclcpp/rclcpp.hpp"
@@ -41,12 +42,22 @@ public:
   void cleanup(const rclcpp_lifecycle::State & state) {this->on_cleanup(state);}
   void shutdown(const rclcpp_lifecycle::State & state) {this->on_shutdown(state);}
 
-  bool hasCommandMsg() {return last_command_time_.nanoseconds() != 0;}
-  geometry_msgs::msg::TwistStamped lastCommandMsg() {return command_;}
 
   void sendCommandMsg(geometry_msgs::msg::TwistStamped::SharedPtr msg)
   {
     inputCommandStampedCallback(msg);
+  }
+
+  // The fork passes the smoothing frequency explicitly; the constraint tests below use the
+  // configured one (default 20 Hz)
+  double findEtaConstraint(double v_curr, double v_cmd, double accel, double decel)
+  {
+    return VelocitySmoother::findEtaConstraint(v_curr, v_cmd, accel, decel, smoothing_frequency_);
+  }
+  double applyConstraints(double v_curr, double v_cmd, double accel, double decel, double eta)
+  {
+    return VelocitySmoother::applyConstraints(
+      v_curr, v_cmd, accel, decel, eta, smoothing_frequency_);
   }
 };
 
@@ -640,13 +651,76 @@ TEST(VelocitySmootherTest, testCommandCallback)
   pub->on_activate();
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(smoother->get_node_base_interface());
+  std::vector<double> linear_vels;
+  auto subscription = nav2_util::TwistSubscriber(
+    smoother,
+    "cmd_vel_smoothed",
+    [&](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
+      linear_vels.push_back(msg->linear.x);
+    }, [&](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
+      linear_vels.push_back(msg->twist.linear.x);
+    });
   auto msg = std::make_unique<geometry_msgs::msg::TwistStamped>();
   msg->twist.linear.x = 100.0;
   pub->publish(std::move(msg));
-  executor.spin_some();
+  auto start = smoother->now();
+  while (linear_vels.empty() && smoother->now() - start < 1s) {
+    executor.spin_some();
+  }
 
-  EXPECT_TRUE(smoother->hasCommandMsg());
-  EXPECT_EQ(smoother->lastCommandMsg().twist.linear.x, 100.0);
+  // The received command is smoothed and clamped to max_velocity (default 0.5)
+  ASSERT_FALSE(linear_vels.empty());
+  EXPECT_EQ(linear_vels.front(), 0.5);
+}
+
+TEST(VelocitySmootherTest, testIncomingCommandIsSmoothedImmediately)
+{
+  // Every incoming command is smoothed and published right away, without waiting for the timer.
+  // Regression (amr47 2026-10-10): the input callback smoothed before storing the new command,
+  // so the smoother always published the controller's previous command, one cycle late.
+  auto smoother =
+    std::make_shared<VelSmootherShim>();
+  // 1 Hz timer: it cannot fire during this test, so every output comes from the input callback
+  smoother->declare_parameter("smoothing_frequency", rclcpp::ParameterValue(1.0));
+  rclcpp_lifecycle::State state;
+  smoother->configure(state);
+  smoother->activate(state);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(smoother->get_node_base_interface());
+  std::vector<double> linear_vels;
+  auto subscription = nav2_util::TwistSubscriber(
+    smoother,
+    "cmd_vel_smoothed",
+    [&](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
+      linear_vels.push_back(msg->linear.x);
+    }, [&](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
+      linear_vels.push_back(msg->twist.linear.x);
+    });
+
+  auto send_and_receive = [&](double linear_x) {
+      const size_t before = linear_vels.size();
+      auto cmd = std::make_shared<geometry_msgs::msg::TwistStamped>();
+      cmd->header.stamp = smoother->now();
+      cmd->twist.linear.x = linear_x;
+      smoother->sendCommandMsg(cmd);
+      auto start = smoother->now();
+      while (linear_vels.size() == before && smoother->now() - start < 0.3s) {
+        executor.spin_some();
+      }
+      return linear_vels.size() > before;
+    };
+
+  // The first command goes out immediately
+  ASSERT_TRUE(send_and_receive(0.3));
+  EXPECT_NEAR(linear_vels.back(), 0.3, 1e-6);
+
+  // One controller cycle later a stop: the output decelerates towards it (max_decel -2.5)
+  // instead of repeating the previous 0.3
+  std::this_thread::sleep_for(50ms);
+  ASSERT_TRUE(send_and_receive(0.0));
+  EXPECT_LT(linear_vels.back(), 0.25);
+  EXPECT_GE(linear_vels.back(), 0.0);
 }
 
 TEST(VelocitySmootherTest, testClosedLoopSub)

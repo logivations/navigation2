@@ -248,17 +248,19 @@ void VelocitySmoother::inputCommandStampedCallback(
     RCLCPP_ERROR(get_logger(), "Velocity message contains NaNs or Infs! Ignoring as invalid!");
     return;
   }
-  // now we don't wait for the timer
-  // and call smootherTimer function directly if the command is received
-  smootherTimer(true);
-
-  command_ = *msg;
-  if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) {
-    last_command_time_ = now();
-  } else {
-    last_command_time_ = msg->header.stamp;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    command_ = *msg;
+    if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) {
+      last_command_time_ = now();
+    } else {
+      last_command_time_ = msg->header.stamp;
+    }
+    received_first_command_ = true;
   }
-  received_first_command_ = true;
+  // Don't wait for the timer: smooth and publish the command that just arrived. This must come
+  // after storing it, otherwise every output is the previous command, one input cycle late.
+  smootherTimer(true);
 }
 
 void VelocitySmoother::inputCommandCallback(
