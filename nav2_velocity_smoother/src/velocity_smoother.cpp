@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <string>
@@ -71,17 +73,24 @@ VelocitySmoother::on_configure(const rclcpp_lifecycle::State & state)
   odom_smoother_ = std::make_unique<nav2_util::OdomSmoother>(node, odom_duration_, odom_topic_);
   deadband_velocities_ = node->declare_or_get_parameter(
     "deadband_velocity", std::vector<double>{0.0, 0.0, 0.0});
+  soft_stop_decels_ = node->declare_or_get_parameter(
+    "soft_stop_decel", std::vector<double>{});
+  soft_stop_max_distance_ = node->declare_or_get_parameter("soft_stop_max_distance", 0.2);
   double velocity_timeout_dbl = node->declare_or_get_parameter("velocity_timeout", 1.0);
   velocity_timeout_ = rclcpp::Duration::from_seconds(velocity_timeout_dbl);
 
   // Check if parameters are properly set
   size_t size = max_velocities_.size();
   is_6dof_ = (size == 6);
+  if (soft_stop_decels_.empty()) {
+    soft_stop_decels_.assign(size, 0.0);
+  }
 
   if ((size != 3 && size != 6) ||
     min_velocities_.size() != size ||
     max_accels_.size() != size ||
     max_decels_.size() != size ||
+    soft_stop_decels_.size() != size ||
     deadband_velocities_.size() != size)
   {
     RCLCPP_ERROR(
@@ -93,7 +102,7 @@ VelocitySmoother::on_configure(const rclcpp_lifecycle::State & state)
   }
 
   for (unsigned int i = 0; i != size; i++) {
-    if (max_decels_[i] > 0.0) {
+    if (max_decels_[i] > 0.0 || soft_stop_decels_[i] > 0.0) {
       RCLCPP_ERROR(
         get_logger(),
         "Positive values set of deceleration! These should be negative to slow down!");
@@ -251,6 +260,7 @@ void VelocitySmoother::inputCommandStampedCallback(
   {
     std::lock_guard<std::mutex> lock(mutex_);
     command_ = *msg;
+    command_is_stop_request_ = msg->twist == geometry_msgs::msg::Twist();
     if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) {
       last_command_time_ = now();
     } else {
@@ -355,6 +365,8 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
       stopped_ = true;
       return;
     }
+    // Nothing received (controller gone): stop with max_decel. A soft stop that is still
+    // running, because the last command received was a stop request, continues.
     command_ = geometry_msgs::msg::TwistStamped();
     command_.header.stamp = now();
   }
@@ -384,6 +396,8 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
   } else {
     current_ = odom_smoother_->getTwistStamped();
   }
+
+  const std::vector<double> decels = updateSoftStop(current_.twist);
 
   // Apply absolute velocity restrictions to the command
   if(!is_6dof_) {
@@ -427,55 +441,55 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     double curr_eta = -1.0;
     if (!is_6dof_) {
       curr_eta = findEtaConstraint(
-        current_.twist.linear.x, command_.twist.linear.x, max_accels_[0], max_decels_[0], dynamic_smoothing_frequency);
+        current_.twist.linear.x, command_.twist.linear.x, max_accels_[0], decels[0], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
 
       curr_eta = findEtaConstraint(
-        current_.twist.linear.y, command_.twist.linear.y, max_accels_[1], max_decels_[1], dynamic_smoothing_frequency);
+        current_.twist.linear.y, command_.twist.linear.y, max_accels_[1], decels[1], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
 
       curr_eta = findEtaConstraint(
-        current_.twist.angular.z, command_.twist.angular.z, max_accels_[2], max_decels_[2], dynamic_smoothing_frequency);
+        current_.twist.angular.z, command_.twist.angular.z, max_accels_[2], decels[2], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
     } else {
       curr_eta = findEtaConstraint(
-        current_.twist.linear.x, command_.twist.linear.x, max_accels_[0], max_decels_[0], dynamic_smoothing_frequency);
+        current_.twist.linear.x, command_.twist.linear.x, max_accels_[0], decels[0], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
 
       curr_eta = findEtaConstraint(
-        current_.twist.linear.y, command_.twist.linear.y, max_accels_[1], max_decels_[1], dynamic_smoothing_frequency);
+        current_.twist.linear.y, command_.twist.linear.y, max_accels_[1], decels[1], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
 
       curr_eta = findEtaConstraint(
-        current_.twist.linear.z, command_.twist.linear.z, max_accels_[2], max_decels_[2], dynamic_smoothing_frequency);
+        current_.twist.linear.z, command_.twist.linear.z, max_accels_[2], decels[2], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
 
       curr_eta = findEtaConstraint(
-        current_.twist.angular.x, command_.twist.angular.x, max_accels_[3], max_decels_[3], dynamic_smoothing_frequency);
+        current_.twist.angular.x, command_.twist.angular.x, max_accels_[3], decels[3], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
 
       curr_eta = findEtaConstraint(
-        current_.twist.angular.y, command_.twist.angular.y, max_accels_[4], max_decels_[4], dynamic_smoothing_frequency);
+        current_.twist.angular.y, command_.twist.angular.y, max_accels_[4], decels[4], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
 
       curr_eta = findEtaConstraint(
-        current_.twist.angular.z, command_.twist.angular.z, max_accels_[5], max_decels_[5], dynamic_smoothing_frequency);
+        current_.twist.angular.z, command_.twist.angular.z, max_accels_[5], decels[5], dynamic_smoothing_frequency);
       if (curr_eta > 0.0 && std::fabs(1.0 - curr_eta) > std::fabs(1.0 - eta)) {
         eta = curr_eta;
       }
@@ -484,24 +498,24 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
 
   if (!is_6dof_) {
     cmd_vel->twist.linear.x = applyConstraints(
-      current_.twist.linear.x, command_.twist.linear.x, max_accels_[0], max_decels_[0], eta, dynamic_smoothing_frequency);
+      current_.twist.linear.x, command_.twist.linear.x, max_accels_[0], decels[0], eta, dynamic_smoothing_frequency);
     cmd_vel->twist.linear.y = applyConstraints(
-      current_.twist.linear.y, command_.twist.linear.y, max_accels_[1], max_decels_[1], eta, dynamic_smoothing_frequency);
+      current_.twist.linear.y, command_.twist.linear.y, max_accels_[1], decels[1], eta, dynamic_smoothing_frequency);
     cmd_vel->twist.angular.z = applyConstraints(
-      current_.twist.angular.z, command_.twist.angular.z, max_accels_[2], max_decels_[2], eta, dynamic_smoothing_frequency);
+      current_.twist.angular.z, command_.twist.angular.z, max_accels_[2], decels[2], eta, dynamic_smoothing_frequency);
   } else {
     cmd_vel->twist.linear.x = applyConstraints(
-      current_.twist.linear.x, command_.twist.linear.x, max_accels_[0], max_decels_[0], eta, dynamic_smoothing_frequency);
+      current_.twist.linear.x, command_.twist.linear.x, max_accels_[0], decels[0], eta, dynamic_smoothing_frequency);
     cmd_vel->twist.linear.y = applyConstraints(
-      current_.twist.linear.y, command_.twist.linear.y, max_accels_[1], max_decels_[1], eta, dynamic_smoothing_frequency);
+      current_.twist.linear.y, command_.twist.linear.y, max_accels_[1], decels[1], eta, dynamic_smoothing_frequency);
     cmd_vel->twist.linear.z = applyConstraints(
-      current_.twist.linear.z, command_.twist.linear.z, max_accels_[2], max_decels_[2], eta, dynamic_smoothing_frequency);
+      current_.twist.linear.z, command_.twist.linear.z, max_accels_[2], decels[2], eta, dynamic_smoothing_frequency);
     cmd_vel->twist.angular.x = applyConstraints(
-      current_.twist.angular.x, command_.twist.angular.x, max_accels_[3], max_decels_[3], eta, dynamic_smoothing_frequency);
+      current_.twist.angular.x, command_.twist.angular.x, max_accels_[3], decels[3], eta, dynamic_smoothing_frequency);
     cmd_vel->twist.angular.y = applyConstraints(
-      current_.twist.angular.y, command_.twist.angular.y, max_accels_[4], max_decels_[4], eta, dynamic_smoothing_frequency);
+      current_.twist.angular.y, command_.twist.angular.y, max_accels_[4], decels[4], eta, dynamic_smoothing_frequency);
     cmd_vel->twist.angular.z = applyConstraints(
-      current_.twist.angular.z, command_.twist.angular.z, max_accels_[5], max_decels_[5], eta, dynamic_smoothing_frequency);
+      current_.twist.angular.z, command_.twist.angular.z, max_accels_[5], decels[5], eta, dynamic_smoothing_frequency);
   }
 
 
@@ -584,7 +598,9 @@ rcl_interfaces::msg::SetParametersResult VelocitySmoother::validateParameterUpda
             break;
           }
         }
-      } else if (param_name == "min_velocity" || param_name == "max_decel") {
+      } else if (param_name == "min_velocity" || param_name == "max_decel" ||
+        param_name == "soft_stop_decel")
+      {
         for (auto val : parameter.as_double_array()) {
           if (val > 0.0) {
             RCLCPP_WARN(
@@ -641,6 +657,8 @@ void VelocitySmoother::updateParametersCallback(const std::vector<rclcpp::Parame
         smoothertimer_treshold_ = 1.0 / smoothing_frequency_;
       } else if (param_name == "velocity_timeout") {
         velocity_timeout_ = rclcpp::Duration::from_seconds(parameter.as_double());
+      } else if (param_name == "soft_stop_max_distance") {
+        soft_stop_max_distance_ = parameter.as_double();
       } else if (param_name == "odom_duration") {
         odom_duration_ = parameter.as_double();
         odom_smoother_ =
@@ -656,6 +674,8 @@ void VelocitySmoother::updateParametersCallback(const std::vector<rclcpp::Parame
         max_accels_ = parameter.as_double_array();
       } else if (param_name == "max_decel") {
         max_decels_ = parameter.as_double_array();
+      } else if (param_name == "soft_stop_decel") {
+        soft_stop_decels_ = parameter.as_double_array();
       } else if (param_name == "deadband_velocity") {
         deadband_velocities_ = parameter.as_double_array();
       }
@@ -684,6 +704,68 @@ void VelocitySmoother::updateParametersCallback(const std::vector<rclcpp::Parame
 double VelocitySmoother::calculate_smoothing_frequency()
 {
   return 1.0 / (now() - last_smoothed_time_).seconds();
+}
+
+std::vector<double> VelocitySmoother::updateSoftStop(const geometry_msgs::msg::Twist & current)
+{
+  const std::vector<double> v_curr = is_6dof_ ?
+    std::vector<double>{current.linear.x, current.linear.y, current.linear.z,
+    current.angular.x, current.angular.y, current.angular.z} :
+    std::vector<double>{current.linear.x, current.linear.y, current.angular.z};
+  const std::vector<double> v_cmd = is_6dof_ ?
+    std::vector<double>{command_.twist.linear.x, command_.twist.linear.y, command_.twist.linear.z,
+    command_.twist.angular.x, command_.twist.angular.y, command_.twist.angular.z} :
+    std::vector<double>{command_.twist.linear.x, command_.twist.linear.y, command_.twist.angular.z};
+  const size_t n_linear = is_6dof_ ? 3 : 2;
+  constexpr double kMoving = 1e-3;
+
+  bool moving = false;
+  for (size_t i = 0; i != v_curr.size(); i++) {
+    moving = moving || std::fabs(v_curr[i]) > kMoving;
+  }
+  const bool enabled = std::any_of(
+    soft_stop_decels_.begin(), soft_stop_decels_.end(), [](double d) {return d < 0.0;});
+
+  if (!enabled || !moving) {
+    soft_stop_active_ = false;
+  } else if (command_is_stop_request_) {
+    if (!soft_stop_active_) {
+      // Latch the deceleration for the whole stop: recomputing it from the falling speed
+      // would lower it and let the roll-out exceed soft_stop_max_distance
+      soft_stop_latched_decels_ = max_decels_;
+      double speed_sq = 0.0;
+      for (size_t i = 0; i != n_linear; i++) {
+        speed_sq += v_curr[i] * v_curr[i];
+      }
+      for (size_t i = 0; i != v_curr.size(); i++) {
+        if (soft_stop_decels_[i] >= 0.0) {
+          continue;
+        }
+        double decel = soft_stop_decels_[i];
+        if (i < n_linear && soft_stop_max_distance_ > 0.0) {
+          decel = std::min(decel, -speed_sq / (2.0 * soft_stop_max_distance_));
+        }
+        soft_stop_latched_decels_[i] = std::max(max_decels_[i], decel);
+      }
+      soft_stop_active_ = true;
+      RCLCPP_INFO(
+        get_logger(), "Soft stop from %.3f m/s, %.3f rad/s with %.2f m/s^2",
+        v_curr[0], v_curr.back(), -soft_stop_latched_decels_[0]);
+    }
+  } else if (soft_stop_active_) {
+    // The next motion command (e.g. the following controller of a hand-over) ends the soft stop
+    // once it no longer asks to slow down: while it is slower in the same direction, or reverses
+    // an axis that still moves the other way, that axis keeps braking softly (latched, so the
+    // roll-out stays bounded), then max_accel/max_decel apply again
+    bool slowing_down = false;
+    for (size_t i = 0; i != n_linear; i++) {
+      slowing_down = slowing_down ||
+        (std::fabs(v_curr[i]) > kMoving &&
+        (v_curr[i] * v_cmd[i] < 0.0 || std::fabs(v_cmd[i]) < std::fabs(v_curr[i])));
+    }
+    soft_stop_active_ = slowing_down;
+  }
+  return soft_stop_active_ ? soft_stop_latched_decels_ : max_decels_;
 }
 
 
