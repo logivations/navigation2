@@ -723,6 +723,98 @@ TEST(VelocitySmootherTest, testIncomingCommandIsSmoothedImmediately)
   EXPECT_GE(linear_vels.back(), 0.0);
 }
 
+// Soft stop fixture: 20 Hz timer, open loop, soft_stop_decel 0.3 m/s^2 on x
+struct SoftStopSmoother
+{
+  explicit SoftStopSmoother(double max_vel)
+  : smoother(std::make_shared<VelSmootherShim>())
+  {
+    smoother->declare_parameter(
+      "max_velocity", rclcpp::ParameterValue(std::vector<double>{max_vel, 0.0, 2.5}));
+    smoother->declare_parameter(
+      "min_velocity", rclcpp::ParameterValue(std::vector<double>{-max_vel, 0.0, -2.5}));
+    smoother->declare_parameter(
+      "soft_stop_decel", rclcpp::ParameterValue(std::vector<double>{-0.3, 0.0, 0.0}));
+    rclcpp_lifecycle::State state;
+    smoother->configure(state);
+    smoother->activate(state);
+    executor.add_node(smoother->get_node_base_interface());
+    subscription = std::make_unique<nav2_util::TwistSubscriber>(
+      smoother, "cmd_vel_smoothed",
+      [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {vels.push_back(msg->linear.x);},
+      [this](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
+        vels.push_back(msg->twist.linear.x);
+      });
+  }
+  void send(double linear_x)
+  {
+    auto cmd = std::make_shared<geometry_msgs::msg::TwistStamped>();
+    cmd->header.stamp = smoother->now();
+    cmd->twist.linear.x = linear_x;
+    smoother->sendCommandMsg(cmd);
+  }
+  void spin(rclcpp::Duration duration)
+  {
+    auto start = smoother->now();
+    while (smoother->now() - start < duration) {
+      executor.spin_some();
+      std::this_thread::sleep_for(5ms);
+    }
+  }
+  // Drive at linear_x like a controller (one command per 50 ms)
+  void drive(double linear_x, rclcpp::Duration duration)
+  {
+    auto start = smoother->now();
+    while (smoother->now() - start < duration) {
+      send(linear_x);
+      spin(rclcpp::Duration(50ms));
+    }
+  }
+  std::shared_ptr<VelSmootherShim> smoother;
+  rclcpp::executors::SingleThreadedExecutor executor;
+  std::unique_ptr<nav2_util::TwistSubscriber> subscription;
+  std::vector<double> vels;
+};
+
+TEST(VelocitySmootherTest, testSoftStopOnStopRequestAndHandOver)
+{
+  // Regression (amr47 2026-10-10 21:11): the controller's single zero at a goal hand-over was
+  // ramped at max_decel (here -2.5, 0.3 m/s gone in 0.12 s), a hard stop with the wheel at full
+  // lock; the next controller then reversed while the AMR still rolled forward.
+  SoftStopSmoother s(0.5);
+  s.drive(0.3, rclcpp::Duration(500ms));
+  ASSERT_NEAR(s.vels.back(), 0.3, 1e-6);
+
+  // Stop request: 0.3 m/s^2 -> still about 0.15 m/s after 0.5 s
+  s.send(0.0);
+  s.spin(rclcpp::Duration(500ms));
+  EXPECT_GT(s.vels.back(), 0.1);
+  EXPECT_LT(s.vels.back(), 0.2);
+
+  // The next controller reverses while the AMR still moves forward: no jump, it keeps braking
+  // softly through zero and only then accelerates backwards with max_accel
+  const double before_reverse = s.vels.back();
+  s.send(-0.3);
+  s.spin(rclcpp::Duration(100ms));
+  EXPECT_GT(s.vels.back(), before_reverse - 0.06);
+  EXPECT_GT(s.vels.back(), 0.0);
+  s.drive(-0.3, rclcpp::Duration(1000ms));
+  EXPECT_NEAR(s.vels.back(), -0.3, 1e-6);
+}
+
+TEST(VelocitySmootherTest, testSoftStopRollOutIsCapped)
+{
+  // A stop request at speed (e.g. a BT halt at 1 m/s) must not roll out metres: the soft
+  // deceleration is raised to keep the roll-out within soft_stop_max_distance (0.2 m:
+  // 2.5 m/s^2 here), never above max_decel
+  SoftStopSmoother s(1.5);
+  s.drive(1.0, rclcpp::Duration(700ms));
+  ASSERT_NEAR(s.vels.back(), 1.0, 1e-6);
+  s.send(0.0);
+  s.spin(rclcpp::Duration(600ms));
+  EXPECT_NEAR(s.vels.back(), 0.0, 1e-6);
+}
+
 TEST(VelocitySmootherTest, testClosedLoopSub)
 {
   auto smoother =
