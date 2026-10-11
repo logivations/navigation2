@@ -24,6 +24,7 @@
 #include "nav2_ros_common/node_utils.hpp"
 #include "nav2_ros_common/lifecycle_node.hpp"
 #include "nav2_behavior_tree/bt_utils.hpp"
+#include "nav2_behavior_tree/bt_shared_interfaces.hpp"
 #include "nav2_behavior_tree/json_utils.hpp"
 #include "nav2_ros_common/service_client.hpp"
 
@@ -108,9 +109,13 @@ public:
     if (service_new != service_name_ || !service_client_) {
       service_name_ = service_new;
       node_ = config().blackboard->template get<nav2::LifecycleNode::SharedPtr>("node");
-      service_client_ =
-        node_->create_client<ServiceT>(
-        service_name_, true /*creates and spins an internal executor*/);
+      // Shared with the other BT nodes of node_ that call this service (see
+      // getSharedInterface()): each call waits on its own future
+      service_client_ = getSharedInterface<nav2::ServiceClient<ServiceT>>(
+        node_->get_node_base_interface(), service_name_, [this]() {
+          return node_->create_client<ServiceT>(
+            service_name_, true /*creates and spins an internal executor*/);
+        });
     }
   }
 
