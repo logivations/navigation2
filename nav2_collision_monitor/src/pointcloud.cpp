@@ -109,9 +109,7 @@ bool PointCloud::getData(
   // Ignore data from the source if it is not being published yet or
   // not published for a long time
   if (data_ == nullptr) {
-    RCLCPP_WARN_THROTTLE(
-      logger_, *clock_, 2000,
-      "[%s]: No pointcloud data received yet (data_ is null)", source_name_.c_str());
+    warnNoDataYet("pointcloud");
     return false;
   }
   if (!sourceValid(data_->header.stamp, curr_time)) {

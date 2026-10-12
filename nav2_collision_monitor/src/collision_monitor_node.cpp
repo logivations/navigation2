@@ -499,9 +499,8 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
       {source->getSourceName(), std::vector<Point>()});
 
     if (source->getEnabled()) {
-      if (!source->getData(curr_time, iter.first->second) &&
-        source->getSourceTimeout().seconds() != 0.0)
-      {
+      const bool got_data = source->getData(curr_time, iter.first->second);
+      if (!got_data && source->getSourceTimeout().seconds() != 0.0) {
         RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 2000,
           "[%s]: Source getData() failed (no data / stale / TF error) — triggering STOP",
@@ -514,8 +513,10 @@ void CollisionMonitor::process(const Velocity & cmd_vel_in, const std_msgs::msg:
         robot_action.req_vel.tw = 0.0;
         break;
       }
-      if (iter.first->second.empty()) {
-        RCLCPP_WARN_THROTTLE(
+      // No points is the normal state of most sources (no obstacle in range, no forklift, no
+      // slow zone in the layout), not worth a warning
+      if (got_data && iter.first->second.empty()) {
+        RCLCPP_DEBUG_THROTTLE(
           get_logger(), *get_clock(), 2000,
           "[%s]: Source enabled and getData() succeeded but returned 0 points",
           source->getSourceName().c_str());
