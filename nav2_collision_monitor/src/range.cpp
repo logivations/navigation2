@@ -74,9 +74,7 @@ bool Range::getData(
   // Ignore data from the source if it is not being published yet or
   // not being published for a long time
   if (data_ == nullptr) {
-    RCLCPP_WARN_THROTTLE(
-      logger_, *clock_, 2000,
-      "[%s]: No range data received yet (data_ is null)", source_name_.c_str());
+    warnNoDataYet("range");
     return false;
   }
   if (!sourceValid(data_->header.stamp, curr_time)) {

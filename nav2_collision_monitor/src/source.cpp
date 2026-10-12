@@ -57,6 +57,10 @@ bool Source::configure()
 {
   auto node = node_.lock();
 
+  // The owning node's logger: one process can hold several monitors (slow_driving_zone_monitor,
+  // collision_monitor, collision_detector) whose sources would otherwise all log as
+  // "collision_monitor"
+  logger_ = node->get_logger();
   clock_ = node->get_clock();
 
   // Add callback for dynamic parameters
@@ -108,6 +112,20 @@ bool Source::sourceValid(
   }
 
   return true;
+}
+
+void Source::warnNoDataYet(const char * data_type)
+{
+  // Once per source: never having received data is a static condition (a sensor that is not
+  // there, or a placeholder topic nothing publishes on), so repeating it only floods the log, and
+  // a throttled call site shared by all sources would show just one of them
+  if (no_data_warned_) {
+    return;
+  }
+  no_data_warned_ = true;
+  RCLCPP_WARN(
+    logger_, "[%s]: No %s data received yet (logged once per source)", source_name_.c_str(),
+    data_type);
 }
 
 bool Source::getEnabled() const
