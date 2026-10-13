@@ -121,6 +121,12 @@ void SmacPlannerHybrid::configure(
     node->declare_or_get_parameter(name + ".soft_footprint_padding_rear", 0.0));
   _search_info.soft_footprint_padding_side = static_cast<float>(
     node->declare_or_get_parameter(name + ".soft_footprint_padding_side", 0.0));
+  _search_info.soft_footprint_padding_turning_front = static_cast<float>(
+    node->declare_or_get_parameter(name + ".soft_footprint_padding_turning_front", 0.0));
+  _search_info.soft_footprint_padding_turning_rear = static_cast<float>(
+    node->declare_or_get_parameter(name + ".soft_footprint_padding_turning_rear", 0.0));
+  _search_info.soft_footprint_padding_turning_side = static_cast<float>(
+    node->declare_or_get_parameter(name + ".soft_footprint_padding_turning_side", 0.0));
   _search_info.soft_footprint_penalty = static_cast<float>(
     node->declare_or_get_parameter(name + ".soft_footprint_penalty", 1.0));
   _search_info.downsample_obstacle_heuristic =
@@ -130,6 +136,9 @@ void SmacPlannerHybrid::configure(
     node->declare_or_get_parameter(name + ".analytic_expansion_max_length", 3.0);
   _search_info.analytic_expansion_max_length =
     analytic_expansion_max_length_m / _costmap->getResolution();
+  _cusp_penalty_m = node->declare_or_get_parameter(name + ".cusp_penalty", 0.0);
+  _search_info.cusp_penalty =
+    static_cast<float>(_cusp_penalty_m / (_costmap->getResolution() * _downsampling_factor));
 
   _max_planning_time = node->declare_or_get_parameter(name + ".max_planning_time", 5.0);
   _lookup_table_size = node->declare_or_get_parameter(name + ".lookup_table_size", 20.0);
@@ -268,7 +277,10 @@ void SmacPlannerHybrid::configure(
   _collision_checker.setSoftFootprintPadding(
     _search_info.soft_footprint_padding_front,
     _search_info.soft_footprint_padding_rear,
-    _search_info.soft_footprint_padding_side);
+    _search_info.soft_footprint_padding_side,
+    _search_info.soft_footprint_padding_turning_front,
+    _search_info.soft_footprint_padding_turning_rear,
+    _search_info.soft_footprint_padding_turning_side);
   _collision_checker.setFootprint(
     _costmap_ros->getRobotFootprint(),
     _costmap_ros->getUseRadius(),
@@ -1281,6 +1293,18 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
       } else if (param_name == _name + ".soft_footprint_padding_side") {
         reinit_collision_checker = true;
         _search_info.soft_footprint_padding_side = static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".soft_footprint_padding_turning_front") {
+        reinit_collision_checker = true;
+        _search_info.soft_footprint_padding_turning_front =
+          static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".soft_footprint_padding_turning_rear") {
+        reinit_collision_checker = true;
+        _search_info.soft_footprint_padding_turning_rear =
+          static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".soft_footprint_padding_turning_side") {
+        reinit_collision_checker = true;
+        _search_info.soft_footprint_padding_turning_side =
+          static_cast<float>(parameter.as_double());
       } else if (param_name == _name + ".soft_footprint_penalty") {
         reinit_a_star = true;
         _search_info.soft_footprint_penalty = static_cast<float>(parameter.as_double());
@@ -1290,6 +1314,11 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
       } else if (param_name == _name + ".analytic_expansion_ratio") {
         reinit_a_star = true;
         _search_info.analytic_expansion_ratio = static_cast<float>(parameter.as_double());
+      } else if (param_name == _name + ".cusp_penalty") {
+        reinit_a_star = true;
+        _cusp_penalty_m = parameter.as_double();
+        _search_info.cusp_penalty = static_cast<float>(
+          _cusp_penalty_m / (_costmap->getResolution() * _downsampling_factor));
       } else if (param_name == _name + ".analytic_expansion_max_length") {
         reinit_a_star = true;
         _search_info.analytic_expansion_max_length =
@@ -1449,7 +1478,10 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
       _collision_checker.setSoftFootprintPadding(
         _search_info.soft_footprint_padding_front,
         _search_info.soft_footprint_padding_rear,
-        _search_info.soft_footprint_padding_side);
+        _search_info.soft_footprint_padding_side,
+        _search_info.soft_footprint_padding_turning_front,
+        _search_info.soft_footprint_padding_turning_rear,
+        _search_info.soft_footprint_padding_turning_side);
       _collision_checker.setFootprint(
         _costmap_ros->getRobotFootprint(),
         _costmap_ros->getUseRadius(),

@@ -74,14 +74,25 @@ public:
    * @param front Extension of the footprint's front (x > 0) vertices in m
    * @param rear Extension of the footprint's rear (x <= 0) vertices in m
    * @param side Extension of the footprint's side vertices in m
+   * @param turning_front Front extension for turning motions in m (at least front)
+   * @param turning_rear Rear extension for turning motions in m (at least rear)
+   * @param turning_side Side extension for turning motions in m (at least side)
    */
-  void setSoftFootprintPadding(const float front, const float rear, const float side);
+  void setSoftFootprintPadding(
+    const float front, const float rear, const float side,
+    const float turning_front = 0.0f, const float turning_rear = 0.0f,
+    const float turning_side = 0.0f);
 
   /**
    * @brief Whether the pose of the last inCollision() call was collision free but its
    * soft-padded footprint touches a lethal cell
    */
   bool softFootprintViolation() const {return soft_violation_;}
+
+  /**
+   * @brief Like softFootprintViolation(), for the footprint padded for turning motions
+   */
+  bool softTurningFootprintViolation() const {return soft_turning_violation_;}
 
   /**
    * @brief Check if in collision with costmap and footprint at pose
@@ -146,7 +157,22 @@ protected:
   /**
    * @brief Whether the soft-padded footprint at a pose touches a lethal cell
    */
-  bool softFootprintHitsLethal(const double & wx, const double & wy, const float & angle_bin);
+  bool softFootprintHitsLethal(
+    const double & wx, const double & wy, const float & angle_bin,
+    const std::vector<nav2_costmap_2d::Footprint> & oriented_padded_footprints);
+
+  /**
+   * @brief Oriented footprints grown by the given padding and the center cost below which
+   * none of them can touch a lethal cell (-1 without an inflation layer)
+   */
+  float buildPaddedFootprints(
+    const float front, const float rear, const float side,
+    std::vector<nav2_costmap_2d::Footprint> & oriented_padded_footprints);
+
+  /**
+   * @brief Set soft_violation_ / soft_turning_violation_ for a collision free pose
+   */
+  void updateSoftViolations(const float & x, const float & y, const float & angle_bin);
 
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
   std::vector<nav2_costmap_2d::Footprint> oriented_footprints_;
@@ -163,6 +189,13 @@ protected:
   bool soft_violation_{false};
   float possible_soft_collision_cost_{-1};
   std::vector<nav2_costmap_2d::Footprint> oriented_padded_footprints_;
+  float soft_padding_turning_front_{0.0f};
+  float soft_padding_turning_rear_{0.0f};
+  float soft_padding_turning_side_{0.0f};
+  bool soft_turning_padding_enabled_{false};
+  bool soft_turning_violation_{false};
+  float possible_soft_turning_collision_cost_{-1};
+  std::vector<nav2_costmap_2d::Footprint> oriented_turning_padded_footprints_;
   rclcpp::Logger logger_{rclcpp::get_logger("SmacPlannerCollisionChecker")};
   rclcpp::Clock::SharedPtr clock_;
 };

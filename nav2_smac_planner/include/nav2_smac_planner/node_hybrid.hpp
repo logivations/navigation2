@@ -122,6 +122,7 @@ struct HybridMotionTable
   bool downsample_obstacle_heuristic;
   bool use_quadratic_cost_penalty;
   float soft_footprint_penalty{1.0};
+  float cusp_penalty{0.0};
   bool allow_primitive_interpolation;
   ompl::base::StateSpacePtr state_space;
   std::vector<std::vector<double>> delta_xs;
@@ -385,6 +386,7 @@ private:
   TurnDirection _turn_dir;
   bool _is_node_valid{false};
   bool _soft_footprint_violation{false};
+  bool _soft_turning_footprint_violation{false};
   NodeContext * _ctx = nullptr;
 };
 

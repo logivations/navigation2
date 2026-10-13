@@ -204,6 +204,12 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
     return AnalyticExpansionNodes();
   }
 
+  // a priced cusp must come from the search (NodeHybrid::getTraversalCost), an accepted
+  // expansion would end it without paying for the one in the Reeds-Shepp path
+  if (_search_info.cusp_penalty > 0.0f && direction_changes > 0) {
+    return AnalyticExpansionNodes();
+  }
+
   unsigned int num_intervals = static_cast<unsigned int>(std::floor(d / sqrt_2));
 
   AnalyticExpansionNodes possible_nodes;

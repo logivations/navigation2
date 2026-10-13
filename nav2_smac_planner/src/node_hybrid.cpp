@@ -58,6 +58,7 @@ void HybridMotionTable::initDubin(
   downsample_obstacle_heuristic = search_info.downsample_obstacle_heuristic;
   use_quadratic_cost_penalty = search_info.use_quadratic_cost_penalty;
   soft_footprint_penalty = search_info.soft_footprint_penalty;
+  cusp_penalty = search_info.cusp_penalty;
 
   // Resolve per-side radii. A right radius of 0 means "symmetric — use left for both".
   const float radius_left = search_info.minimum_turning_radius;
@@ -212,6 +213,7 @@ void HybridMotionTable::initReedsShepp(
   downsample_obstacle_heuristic = search_info.downsample_obstacle_heuristic;
   use_quadratic_cost_penalty = search_info.use_quadratic_cost_penalty;
   soft_footprint_penalty = search_info.soft_footprint_penalty;
+  cusp_penalty = search_info.cusp_penalty;
 
   // Resolve per-side radii. A right radius of 0 means "symmetric — use left for both".
   const float radius_left = search_info.minimum_turning_radius;
@@ -433,6 +435,7 @@ void NodeHybrid::reset()
   pose.theta = 0.0f;
   _is_node_valid = false;
   _soft_footprint_violation = false;
+  _soft_turning_footprint_violation = false;
 }
 
 bool NodeHybrid::isNodeValid(
@@ -448,8 +451,19 @@ bool NodeHybrid::isNodeValid(
     this->pose.x, this->pose.y, this->pose.theta /*bin number*/, traverse_unknown);
   _cell_cost = collision_checker->getCost();
   _soft_footprint_violation = _is_node_valid && collision_checker->softFootprintViolation();
+  _soft_turning_footprint_violation =
+    _is_node_valid && collision_checker->softTurningFootprintViolation();
   return _is_node_valid;
 }
+
+namespace
+{
+bool isReverse(const TurnDirection & direction)
+{
+  return direction == TurnDirection::REVERSE || direction == TurnDirection::REV_LEFT ||
+         direction == TurnDirection::REV_RIGHT;
+}
+}  // namespace
 
 float NodeHybrid::getTraversalCost(const NodePtr & child)
 {
@@ -498,7 +512,19 @@ float NodeHybrid::getTraversalCost(const NodePtr & child)
     travel_cost *= _ctx->motion_table.reverse_penalty;
   }
 
-  if (child->_soft_footprint_violation && _ctx->motion_table.soft_footprint_penalty > 1.0f) {
+  if (_ctx->motion_table.cusp_penalty > 0.0f &&
+    getMotionPrimitiveIndex() != std::numeric_limits<unsigned int>::max() &&
+    isReverse(getTurnDirection()) != isReverse(child_turn_dir))
+  {
+    // switching between forward and reverse: the AMR stops and the wheel swings around
+    travel_cost += _ctx->motion_table.cusp_penalty;
+  }
+
+  const bool turning = child_turn_dir != TurnDirection::FORWARD &&
+    child_turn_dir != TurnDirection::REVERSE;
+  const bool soft_violation = child->_soft_footprint_violation ||
+    (turning && child->_soft_turning_footprint_violation);
+  if (soft_violation && _ctx->motion_table.soft_footprint_penalty > 1.0f) {
     // the soft-padded footprint touches an obstacle: allowed, but only if nothing better
     travel_cost *= _ctx->motion_table.soft_footprint_penalty;
   }

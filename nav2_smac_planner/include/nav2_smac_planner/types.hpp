@@ -64,7 +64,22 @@ struct SearchInfo
   float soft_footprint_padding_front{0.0};
   float soft_footprint_padding_rear{0.0};
   float soft_footprint_padding_side{0.0};
+  // Soft padding for turning motions only (m; each used where larger than the padding
+  // above): a turn whose footprint grown by these touches a lethal cell costs
+  // soft_footprint_penalty times more. While the AMR turns, the collision monitor's stop
+  // fields reach further around it than while it drives straight: a turn-around in a gap
+  // the footprint just fits gets the AMR stopped, driving straight through it does not.
+  float soft_footprint_padding_turning_front{0.0};
+  float soft_footprint_padding_turning_rear{0.0};
+  float soft_footprint_padding_turning_side{0.0};
   float soft_footprint_penalty{1.0};
+  // Cost of a change between driving forward and reversing (a cusp), in costmap cells
+  // (the parameter is in metres of straight travel). Hybrid A* otherwise prices only
+  // the extra reverse distance, so a turn-around costs about as much as the arc lengths
+  // and a planner turns around anywhere a 3-point turn fits instead of reversing a few
+  // metres. With a penalty > 0, analytic expansions that contain a cusp are not
+  // accepted: they would bypass the price, so cusps only come from the search.
+  float cusp_penalty{0.0};
 };
 
 /**

@@ -107,38 +107,54 @@ void GridCollisionChecker::setFootprint(
 }
 
 void GridCollisionChecker::setSoftFootprintPadding(
-  const float front, const float rear, const float side)
+  const float front, const float rear, const float side,
+  const float turning_front, const float turning_rear, const float turning_side)
 {
   soft_padding_front_ = std::max(front, 0.0f);
   soft_padding_rear_ = std::max(rear, 0.0f);
   soft_padding_side_ = std::max(side, 0.0f);
+  soft_padding_turning_front_ = std::max(turning_front, soft_padding_front_);
+  soft_padding_turning_rear_ = std::max(turning_rear, soft_padding_rear_);
+  soft_padding_turning_side_ = std::max(turning_side, soft_padding_side_);
   updateSoftFootprint();
 }
 
 void GridCollisionChecker::updateSoftFootprint()
 {
   oriented_padded_footprints_.clear();
+  oriented_turning_padded_footprints_.clear();
   soft_padding_enabled_ = !unoriented_footprint_.empty() &&
     (soft_padding_front_ > 0.0f || soft_padding_rear_ > 0.0f || soft_padding_side_ > 0.0f);
-  if (!soft_padding_enabled_) {
-    return;
+  soft_turning_padding_enabled_ = !unoriented_footprint_.empty() &&
+    (soft_padding_turning_front_ > soft_padding_front_ ||
+    soft_padding_turning_rear_ > soft_padding_rear_ ||
+    soft_padding_turning_side_ > soft_padding_side_);
+  if (soft_padding_enabled_) {
+    possible_soft_collision_cost_ = buildPaddedFootprints(
+      soft_padding_front_, soft_padding_rear_, soft_padding_side_, oriented_padded_footprints_);
   }
+  if (soft_turning_padding_enabled_) {
+    possible_soft_turning_collision_cost_ = buildPaddedFootprints(
+      soft_padding_turning_front_, soft_padding_turning_rear_, soft_padding_turning_side_,
+      oriented_turning_padded_footprints_);
+  }
+}
 
+float GridCollisionChecker::buildPaddedFootprints(
+  const float front, const float rear, const float side,
+  std::vector<nav2_costmap_2d::Footprint> & oriented_padded_footprints)
+{
   // grow every vertex away from base_link along x (front / rear) and y (sides)
   nav2_costmap_2d::Footprint padded = unoriented_footprint_;
   double circumscribed_radius = 0.0;
   for (auto & pt : padded) {
-    pt.x += pt.x > 0.0 ? soft_padding_front_ : -soft_padding_rear_;
-    pt.y += pt.y > 0.0 ? soft_padding_side_ : (pt.y < 0.0 ? -soft_padding_side_ : 0.0);
+    pt.x += pt.x > 0.0 ? front : -rear;
+    pt.y += pt.y > 0.0 ? side : (pt.y < 0.0 ? -side : 0.0);
     circumscribed_radius = std::max(circumscribed_radius, std::hypot(pt.x, pt.y));
   }
 
-  // below this center cost, no lethal cell can be within the padded footprint
-  possible_soft_collision_cost_ = costmap_ros_ ?
-    static_cast<float>(findCostAtRadius(costmap_ros_, circumscribed_radius)) : -1.0f;
-
   geometry_msgs::msg::Point new_pt;
-  oriented_padded_footprints_.reserve(angles_.size());
+  oriented_padded_footprints.reserve(angles_.size());
   for (unsigned int i = 0; i != angles_.size(); i++) {
     const double sin_th = sin(angles_[i]);
     const double cos_th = cos(angles_[i]);
@@ -149,15 +165,44 @@ void GridCollisionChecker::updateSoftFootprint()
       new_pt.y = pt.x * sin_th + pt.y * cos_th;
       oriented.push_back(new_pt);
     }
-    oriented_padded_footprints_.push_back(oriented);
+    oriented_padded_footprints.push_back(oriented);
   }
+
+  // below this center cost, no lethal cell can be within the padded footprint
+  return costmap_ros_ ?
+         static_cast<float>(findCostAtRadius(costmap_ros_, circumscribed_radius)) : -1.0f;
+}
+
+void GridCollisionChecker::updateSoftViolations(
+  const float & x, const float & y, const float & angle_bin)
+{
+  // the padded footprints can only touch a lethal cell above their shortcut costs
+  auto may_touch = [this](const float possible_cost) {
+      return !(center_cost_ < possible_cost && possible_cost > 0.0f);
+    };
+  const bool check_soft = soft_padding_enabled_ && may_touch(possible_soft_collision_cost_);
+  const bool check_turning = soft_turning_padding_enabled_ &&
+    may_touch(possible_soft_turning_collision_cost_);
+  if (!check_soft && !check_turning) {
+    return;
+  }
+  double wx, wy;
+  costmap_->mapToWorld(static_cast<double>(x), static_cast<double>(y), wx, wy);
+  if (check_soft) {
+    soft_violation_ = softFootprintHitsLethal(wx, wy, angle_bin, oriented_padded_footprints_);
+  }
+  // the turning footprint contains the soft one
+  soft_turning_violation_ = soft_violation_ ||
+    (check_turning &&
+    softFootprintHitsLethal(wx, wy, angle_bin, oriented_turning_padded_footprints_));
 }
 
 bool GridCollisionChecker::softFootprintHitsLethal(
-  const double & wx, const double & wy, const float & angle_bin)
+  const double & wx, const double & wy, const float & angle_bin,
+  const std::vector<nav2_costmap_2d::Footprint> & oriented_padded_footprints)
 {
   const nav2_costmap_2d::Footprint & oriented =
-    oriented_padded_footprints_[static_cast<unsigned int>(angle_bin)];
+    oriented_padded_footprints[static_cast<unsigned int>(angle_bin)];
   nav2_costmap_2d::Footprint current;
   current.reserve(oriented.size());
   geometry_msgs::msg::Point new_pt;
@@ -187,20 +232,13 @@ bool GridCollisionChecker::inCollision(
   center_cost_ = static_cast<float>(costmap_->getCost(
       static_cast<unsigned int>(x + 0.5f), static_cast<unsigned int>(y + 0.5f)));
   soft_violation_ = false;
+  soft_turning_violation_ = false;
 
   if (!footprint_is_radius_) {
-    // the soft-padded footprint can only touch a lethal cell above its shortcut cost
-    const bool check_soft = soft_padding_enabled_ &&
-      !(center_cost_ < possible_soft_collision_cost_ && possible_soft_collision_cost_ > 0.0f);
-
     // if footprint, then we check for the footprint's points, but first see
     // if the robot is even potentially in an inscribed collision
     if (center_cost_ < possible_collision_cost_ && possible_collision_cost_ > 0.0f) {
-      if (check_soft) {
-        double wx, wy;
-        costmap_->mapToWorld(static_cast<double>(x), static_cast<double>(y), wx, wy);
-        soft_violation_ = softFootprintHitsLethal(wx, wy, angle_bin);
-      }
+      updateSoftViolations(x, y, angle_bin);
       return false;
     }
 
@@ -237,8 +275,8 @@ bool GridCollisionChecker::inCollision(
 
     // if occupied or unknown and not to traverse unknown space
     const bool collision = footprint_cost >= OCCUPIED_COST;
-    if (!collision && check_soft) {
-      soft_violation_ = softFootprintHitsLethal(wx, wy, angle_bin);
+    if (!collision) {
+      updateSoftViolations(x, y, angle_bin);
     }
     return collision;
   } else {
