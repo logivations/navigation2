@@ -726,31 +726,38 @@ TEST(VelocitySmootherTest, testIncomingCommandIsSmoothedImmediately)
 // Soft stop fixture: 20 Hz timer, open loop, soft_stop_decel 0.3 m/s^2 on x
 struct SoftStopSmoother
 {
-  explicit SoftStopSmoother(double max_vel)
+  explicit SoftStopSmoother(
+    double max_vel, bool scale_velocities = false, double angular_decel = 0.0)
   : smoother(std::make_shared<VelSmootherShim>())
   {
+    smoother->declare_parameter("scale_velocities", rclcpp::ParameterValue(scale_velocities));
     smoother->declare_parameter(
       "max_velocity", rclcpp::ParameterValue(std::vector<double>{max_vel, 0.0, 2.5}));
     smoother->declare_parameter(
       "min_velocity", rclcpp::ParameterValue(std::vector<double>{-max_vel, 0.0, -2.5}));
     smoother->declare_parameter(
-      "soft_stop_decel", rclcpp::ParameterValue(std::vector<double>{-0.3, 0.0, 0.0}));
+      "soft_stop_decel", rclcpp::ParameterValue(std::vector<double>{-0.3, 0.0, angular_decel}));
     rclcpp_lifecycle::State state;
     smoother->configure(state);
     smoother->activate(state);
     executor.add_node(smoother->get_node_base_interface());
     subscription = std::make_unique<nav2_util::TwistSubscriber>(
       smoother, "cmd_vel_smoothed",
-      [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {vels.push_back(msg->linear.x);},
+      [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
+        vels.push_back(msg->linear.x);
+        angular_vels.push_back(msg->angular.z);
+      },
       [this](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
         vels.push_back(msg->twist.linear.x);
+        angular_vels.push_back(msg->twist.angular.z);
       });
   }
-  void send(double linear_x)
+  void send(double linear_x, double angular_z = 0.0)
   {
     auto cmd = std::make_shared<geometry_msgs::msg::TwistStamped>();
     cmd->header.stamp = smoother->now();
     cmd->twist.linear.x = linear_x;
+    cmd->twist.angular.z = angular_z;
     smoother->sendCommandMsg(cmd);
   }
   void spin(rclcpp::Duration duration)
@@ -762,11 +769,11 @@ struct SoftStopSmoother
     }
   }
   // Drive at linear_x like a controller (one command per 50 ms)
-  void drive(double linear_x, rclcpp::Duration duration)
+  void drive(double linear_x, rclcpp::Duration duration, double angular_z = 0.0)
   {
     auto start = smoother->now();
     while (smoother->now() - start < duration) {
-      send(linear_x);
+      send(linear_x, angular_z);
       spin(rclcpp::Duration(50ms));
     }
   }
@@ -774,6 +781,7 @@ struct SoftStopSmoother
   rclcpp::executors::SingleThreadedExecutor executor;
   std::unique_ptr<nav2_util::TwistSubscriber> subscription;
   std::vector<double> vels;
+  std::vector<double> angular_vels;
 };
 
 TEST(VelocitySmootherTest, testSoftStopOnStopRequestAndHandOver)
@@ -813,6 +821,36 @@ TEST(VelocitySmootherTest, testSoftStopRollOutIsCapped)
   s.send(0.0);
   s.spin(rclcpp::Duration(600ms));
   EXPECT_NEAR(s.vels.back(), 0.0, 1e-6);
+}
+
+TEST(VelocitySmootherTest, testSoftStopRollOutIsCappedWhileTurning)
+{
+  // Regression (t2a nightly 2026-10-18): with scale_velocities the 0.3 rad/s^2 turn set the
+  // pace of the whole stop, and 0.75 m/s at 0.43 rad/s took 1.43 s and rolled out 0.55 m
+  // instead of standing after 0.53 s (0.2 m)
+  SoftStopSmoother s(1.5, true, -0.3);
+  s.drive(0.75, rclcpp::Duration(1500ms), 0.43);
+  ASSERT_NEAR(s.vels.back(), 0.75, 1e-6);
+  ASSERT_NEAR(s.angular_vels.back(), 0.43, 1e-6);
+  s.send(0.0);
+  s.spin(rclcpp::Duration(800ms));
+  EXPECT_NEAR(s.vels.back(), 0.0, 1e-6);
+  EXPECT_NEAR(s.angular_vels.back(), 0.0, 1e-6);
+}
+
+TEST(VelocitySmootherTest, testSoftStopKeepsSoftTurnAtLowSpeed)
+{
+  // A slow AMR turning (amr47 2026-10-11: goal accepted mid-turn) keeps the 0.3 rad/s^2 turn:
+  // its linear roll-out stays within soft_stop_max_distance anyway
+  SoftStopSmoother s(1.5, true, -0.3);
+  s.drive(0.05, rclcpp::Duration(500ms), 0.38);
+  ASSERT_NEAR(s.angular_vels.back(), 0.38, 1e-6);
+  s.send(0.0);
+  s.spin(rclcpp::Duration(500ms));
+  EXPECT_GT(s.angular_vels.back(), 0.18);
+  EXPECT_LT(s.angular_vels.back(), 0.28);
+  s.spin(rclcpp::Duration(1500ms));
+  EXPECT_NEAR(s.angular_vels.back(), 0.0, 1e-6);
 }
 
 TEST(VelocitySmootherTest, testClosedLoopSub)

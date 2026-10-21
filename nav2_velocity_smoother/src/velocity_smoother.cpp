@@ -747,6 +747,30 @@ std::vector<double> VelocitySmoother::updateSoftStop(const geometry_msgs::msg::T
         }
         soft_stop_latched_decels_[i] = std::max(max_decels_[i], decel);
       }
+      // scale_velocities slows every axis down with the most constrained one, so a turn that
+      // stands later than the linear axes stretches the linear roll-out past
+      // soft_stop_max_distance (0.75 m/s at 0.43 rad/s: x latched at 1.41 m/s^2, scaled down to
+      // 0.53 m/s^2 by the 0.3 rad/s^2 turn, 0.55 m rolled). Raise an angular deceleration only
+      // as far as the linear roll-out needs (stand within 2 * soft_stop_max_distance / speed),
+      // never above max_decel: a slow turn keeps its soft stop.
+      if (scale_velocities_ && soft_stop_max_distance_ > 0.0 && speed_sq > kMoving * kMoving) {
+        // The linear axes stand at the later of the capped time and their own latched rate
+        double max_stop_time = 2.0 * soft_stop_max_distance_ / std::sqrt(speed_sq);
+        for (size_t i = 0; i != n_linear; i++) {
+          if (soft_stop_latched_decels_[i] < 0.0) {
+            max_stop_time = std::max(
+              max_stop_time, std::fabs(v_curr[i] / soft_stop_latched_decels_[i]));
+          }
+        }
+        for (size_t i = n_linear; i != v_curr.size(); i++) {
+          if (soft_stop_latched_decels_[i] < 0.0 &&
+            std::fabs(v_curr[i] / soft_stop_latched_decels_[i]) > max_stop_time)
+          {
+            soft_stop_latched_decels_[i] = std::max(
+              max_decels_[i], -std::fabs(v_curr[i]) / max_stop_time);
+          }
+        }
+      }
       soft_stop_active_ = true;
       RCLCPP_INFO(
         get_logger(), "Soft stop from %.3f m/s, %.3f rad/s with %.2f m/s^2",
