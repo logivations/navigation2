@@ -138,6 +138,9 @@ VelocitySmoother::on_configure(const rclcpp_lifecycle::State & state)
   // Get max_delta parameters
   max_deltas_ = node->declare_or_get_parameter(
     "max_delta", std::vector<double>{0.3, 0.3, 0.3});
+  // BOUNDED_OPEN_LOOP of a tricycle: the length that turns the angular axis into a drive-wheel
+  // speed, so that the bound applies to the motion as a whole (0 = bound each axis on its own)
+  wheelbase_ = node->declare_or_get_parameter("wheelbase", 0.0);
 
 
   // Get control type
@@ -335,6 +338,40 @@ double VelocitySmoother::applyConstraints(
   return v_curr + std::clamp(eta * dv, v_component_min, v_component_max);
 }
 
+geometry_msgs::msg::Twist VelocitySmoother::boundToOdometry(
+  const geometry_msgs::msg::Twist & last, const geometry_msgs::msg::Twist & odom) const
+{
+  geometry_msgs::msg::Twist bounded = last;
+  if (wheelbase_ > 0.0 && !is_6dof_) {
+    // The last output stays within max_delta[0] of the odometry as one planar motion vector
+    // (v_x, v_y, wheelbase * w), i.e. in drive-wheel speed terms, not each axis within its own
+    // max_delta: bounding the angular axis alone changes the commanded steering angle. From
+    // standstill an arc command of -0.25 m/s / 0.59 rad/s (71 deg of steering) left here as
+    // -0.25 m/s / 0.35 rad/s (60 deg); the tricycle controller's exact mode released the
+    // traction once the wheel stood at 60 deg and the AMR drove the arc on a 0.7 m instead of
+    // a 0.4 m radius (wfal-amr3 2026-10-23 13:44 CEST, put-down onto Z 49 ended 0.09 m beside
+    // the goal). Scaling the deviation from the odometry keeps the steering angle exactly while
+    // the AMR stands and bounds the change of motion as a whole while it rolls; a reversal
+    // still ramps through the odometry velocity as before.
+    const double dx = last.linear.x - odom.linear.x;
+    const double dy = last.linear.y - odom.linear.y;
+    const double dw = wheelbase_ * (last.angular.z - odom.angular.z);
+    const double deviation = std::sqrt(dx * dx + dy * dy + dw * dw);
+    if (deviation > max_deltas_[0]) {
+      const double scale = max_deltas_[0] / deviation;
+      bounded.linear.x = odom.linear.x + scale * dx;
+      bounded.linear.y = odom.linear.y + scale * dy;
+      bounded.angular.z = odom.angular.z + scale * dw / wheelbase_;
+    }
+    return bounded;
+  }
+  bounded.linear.x = std::clamp(
+    last.linear.x, odom.linear.x - max_deltas_[0], odom.linear.x + max_deltas_[0]);
+  bounded.angular.z = std::clamp(
+    last.angular.z, odom.angular.z - max_deltas_[2], odom.angular.z + max_deltas_[2]);
+  return bounded;
+}
+
 void VelocitySmoother::smootherTimer(const bool force_execution = false)
 {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -379,20 +416,7 @@ void VelocitySmoother::smootherTimer(const bool force_execution = false)
     current_ = last_cmd_;
   } else if(bounded_open_loop_) {
     current_ = last_cmd_;
-    auto odom = odom_smoother_->getTwist();
-
-    current_.twist.linear.x = std::clamp(
-      current_.twist.linear.x,
-      odom.linear.x - max_deltas_[0],
-      odom.linear.x + max_deltas_[0]
-    );
-
-    current_.twist.angular.z = std::clamp(
-      current_.twist.angular.z,
-      odom.angular.z - max_deltas_[2],
-      odom.angular.z + max_deltas_[2]
-    );
-
+    current_.twist = boundToOdometry(last_cmd_.twist, odom_smoother_->getTwist());
   } else {
     current_ = odom_smoother_->getTwistStamped();
   }

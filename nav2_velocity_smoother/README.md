@@ -52,6 +52,8 @@ velocity_smoother:
   	smoothing_frequency: 20.0  # Rate to run smoother
   	scale_velocities: false  # scale velocities proportionally if any axis is outside of acceleration range to follow same vector, if possible
   	feedback: "OPEN_LOOP"  # Type of feedback for current speed. Open loop uses the last smoothed output. Closed loop uses robot odometry
+  	max_delta: [0.3, 0.3, 0.3]  # BOUNDED_OPEN_LOOP: the last smoothed output is bounded to the odometry +- this per axis before the acceleration limits apply
+  	wheelbase: 0.0  # BOUNDED_OPEN_LOOP: > 0 bounds (v_x, v_y, wheelbase * w) as one vector within max_delta[0] of the odometry, so the steering angle of a tricycle is kept (from standstill exactly); 0 bounds each axis on its own
   	max_velocity: [0.5, 0.0, 2.5]  # Maximum velocities, ordered [Vx, Vy, Vw]
    	min_velocity: [-0.5, 0.0, -2.5]  # Minimum velocities, ordered [Vx, Vy, Vw]
    	deadband_velocity: [0.0, 0.0, 0.0]  # A deadband of velocities below which they should be zero-ed out for sending to the robot base controller, ordered [Vx, Vy, Vw]

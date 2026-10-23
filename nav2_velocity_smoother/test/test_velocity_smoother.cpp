@@ -48,6 +48,8 @@ public:
     inputCommandStampedCallback(msg);
   }
 
+  using VelocitySmoother::boundToOdometry;
+
   // The fork passes the smoothing frequency explicitly; the constraint tests below use the
   // configured one (default 20 Hz)
   double findEtaConstraint(double v_curr, double v_cmd, double accel, double decel)
@@ -993,6 +995,141 @@ TEST(VelocitySmootherTest, testDynamicParameter)
   smoother->cleanup(state);
   smoother->shutdown(state);
   smoother.reset();
+}
+
+// BOUNDED_OPEN_LOOP with a wheelbase: the bound applies to (v, wheelbase * w) as one vector, so a
+// command that starts from standstill keeps its steering angle. Without it the angular axis
+// alone was bounded to max_delta[2] while the linear axis passed, and a tricycle's exact mode
+// released the traction at the wrong wheel angle (wfal-amr3 2026-10-23 13:44 CEST).
+TEST(VelocitySmootherTest, boundedOpenLoopKeepsTheSteeringAngleFromStandstill)
+{
+  auto smoother = std::make_shared<VelSmootherShim>();
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(smoother->get_node_base_interface());
+  smoother->declare_parameter("feedback", rclcpp::ParameterValue(std::string("OPEN_LOOP")));
+  smoother->set_parameter(rclcpp::Parameter("feedback", std::string("BOUNDED_OPEN_LOOP")));
+  smoother->declare_parameter("wheelbase", rclcpp::ParameterValue(0.0));
+  smoother->set_parameter(rclcpp::Parameter("wheelbase", 1.25));
+  smoother->declare_parameter("scale_velocities", rclcpp::ParameterValue(false));
+  smoother->set_parameter(rclcpp::Parameter("scale_velocities", true));
+  smoother->declare_parameter("max_velocity", rclcpp::ParameterValue(std::vector<double>{}));
+  smoother->set_parameter(rclcpp::Parameter("max_velocity", std::vector<double>{1.5, 0.0, 1.0}));
+  smoother->declare_parameter("min_velocity", rclcpp::ParameterValue(std::vector<double>{}));
+  smoother->set_parameter(
+    rclcpp::Parameter("min_velocity", std::vector<double>{-1.5, 0.0, -1.0}));
+  smoother->declare_parameter("max_accel", rclcpp::ParameterValue(std::vector<double>{}));
+  smoother->set_parameter(rclcpp::Parameter("max_accel", std::vector<double>{1.0, 0.0, 2.5}));
+  smoother->declare_parameter("max_decel", rclcpp::ParameterValue(std::vector<double>{}));
+  smoother->set_parameter(rclcpp::Parameter("max_decel", std::vector<double>{-2.0, 0.0, -2.5}));
+  rclcpp_lifecycle::State state;
+  smoother->configure(state);
+  smoother->activate(state);
+
+  std::vector<geometry_msgs::msg::Twist> outputs;
+  auto subscription = nav2_util::TwistSubscriber(
+    smoother,
+    "cmd_vel_smoothed",
+    [&](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
+      outputs.push_back(*msg);
+    }, [&](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg) {
+      outputs.push_back(msg->twist);
+    });
+
+  // the AMR stands still (the controller's exact mode holds the traction while the wheel turns)
+  auto odom_pub = smoother->create_publisher<nav_msgs::msg::Odometry>("odom");
+  odom_pub->on_activate();
+  nav_msgs::msg::Odometry odom_msg;
+  odom_msg.header.frame_id = "odom";
+  odom_msg.child_frame_id = "base_link";
+  for (unsigned int i = 0; i != 30; i++) {
+    odom_msg.header.stamp = smoother->now() + rclcpp::Duration::from_seconds(i * 0.01);
+    odom_pub->publish(odom_msg);
+  }
+
+  // the reverse arc of radius 0.4 m: 71 deg of steering with a 1.25 m wheelbase
+  const double v = -0.25;
+  const double w = 0.589;
+  const double steering = std::atan2(1.25 * w, v);
+  auto start = smoother->now();
+  while (smoother->now() - start < 0.6s) {
+    auto cmd = std::make_shared<geometry_msgs::msg::TwistStamped>();
+    cmd->header.stamp = smoother->now();
+    cmd->twist.linear.x = v;
+    cmd->twist.angular.z = w;
+    smoother->sendCommandMsg(cmd);
+    odom_msg.header.stamp = smoother->now();
+    odom_pub->publish(odom_msg);
+    executor.spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
+
+  ASSERT_GT(outputs.size(), 5u);
+  for (const auto & out : outputs) {
+    if (std::hypot(out.linear.x, 1.25 * out.angular.z) < 0.05) {
+      continue;  // the first steps of the ramp
+    }
+    // the steering angle of every output is the commanded one (the bound itself is checked
+    // without the timer below, its step depends on the wall time between cycles)
+    EXPECT_NEAR(std::atan2(1.25 * out.angular.z, out.linear.x), steering, 0.01)
+      << "v " << out.linear.x << " w " << out.angular.z;
+  }
+}
+
+// The bound of BOUNDED_OPEN_LOOP with a wheelbase: one vector within max_delta[0] of the
+// odometry. Standing: the command is scaled, its steering angle kept. Rolling straight with a
+// turn commanded: the change of motion is bounded. A reversal ramps through the odometry
+// velocity as without a wheelbase, which bounds each axis on its own.
+TEST(VelocitySmootherTest, boundToOdometryKeepsTheSteeringAngle)
+{
+  auto smoother = std::make_shared<VelSmootherShim>();
+  smoother->declare_parameter("feedback", rclcpp::ParameterValue(std::string("OPEN_LOOP")));
+  smoother->set_parameter(rclcpp::Parameter("feedback", std::string("BOUNDED_OPEN_LOOP")));
+  smoother->declare_parameter("wheelbase", rclcpp::ParameterValue(0.0));
+  smoother->set_parameter(rclcpp::Parameter("wheelbase", 1.25));
+  rclcpp_lifecycle::State state;
+  smoother->configure(state);
+
+  geometry_msgs::msg::Twist odom;
+  geometry_msgs::msg::Twist last;
+  last.linear.x = -0.25;
+  last.angular.z = 0.589;
+  const double steering = std::atan2(1.25 * last.angular.z, last.linear.x);
+  // standing: scaled onto the 0.3 m/s bound, the steering angle kept
+  auto bounded = smoother->boundToOdometry(last, odom);
+  EXPECT_NEAR(std::hypot(bounded.linear.x, 1.25 * bounded.angular.z), 0.3, 1e-9);
+  EXPECT_NEAR(std::atan2(1.25 * bounded.angular.z, bounded.linear.x), steering, 1e-9);
+  // within the bound: untouched
+  last.linear.x = -0.1;
+  last.angular.z = 0.2;
+  bounded = smoother->boundToOdometry(last, odom);
+  EXPECT_DOUBLE_EQ(bounded.linear.x, -0.1);
+  EXPECT_DOUBLE_EQ(bounded.angular.z, 0.2);
+  // rolling straight at 0.5 m/s, a turn of 0.6 rad/s commanded: the change (0, 0.75) is bounded
+  // to 0.3, the speed stays
+  odom.linear.x = 0.5;
+  last.linear.x = 0.5;
+  last.angular.z = 0.6;
+  bounded = smoother->boundToOdometry(last, odom);
+  EXPECT_NEAR(bounded.linear.x, 0.5, 1e-9);
+  EXPECT_NEAR(bounded.angular.z, 0.3 / 1.25, 1e-9);
+  // a reversal from 0.5 m/s: the ramp start stays 0.3 m/s from the odometry, as before
+  last.linear.x = -0.25;
+  last.angular.z = 0.0;
+  bounded = smoother->boundToOdometry(last, odom);
+  EXPECT_NEAR(bounded.linear.x, 0.2, 1e-9);
+  EXPECT_NEAR(bounded.angular.z, 0.0, 1e-9);
+
+  // without a wheelbase each axis on its own: the standstill arc command keeps its linear
+  // speed and loses its turn rate (the former behavior, 60 instead of 71 deg of steering)
+  smoother->set_parameter(rclcpp::Parameter("wheelbase", 0.0));
+  smoother->cleanup(state);
+  smoother->configure(state);
+  odom = geometry_msgs::msg::Twist();
+  last.linear.x = -0.25;
+  last.angular.z = 0.589;
+  bounded = smoother->boundToOdometry(last, odom);
+  EXPECT_DOUBLE_EQ(bounded.linear.x, -0.25);
+  EXPECT_DOUBLE_EQ(bounded.angular.z, 0.3);
 }
 
 int main(int argc, char ** argv)
