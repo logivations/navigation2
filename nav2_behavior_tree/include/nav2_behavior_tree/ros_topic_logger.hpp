@@ -17,11 +17,13 @@
 
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <utility>
 #include <string>
 
 #include "behaviortree_cpp/loggers/abstract_logger.h"
 #include "rclcpp/rclcpp.hpp"
+#include "nav2_ros_common/lifecycle_node.hpp"
 #include "nav2_msgs/msg/behavior_tree_log.hpp"
 #include "nav2_msgs/msg/behavior_tree_status_change.hpp"
 #include "tf2/time.hpp"
@@ -79,7 +81,11 @@ public:
     event.node_uid = node.UID();
     event.previous_status = toStr(prev_status, false);
     event.current_status = toStr(status, false);
-    event_log_.push_back(std::move(event));
+    {
+      // Not only the BT thread: BT::TimeoutNode halts its child on its timer thread.
+      std::lock_guard<std::mutex> lock(event_log_mutex_);
+      event_log_.push_back(std::move(event));
+    }
 
     auto prev_pad = std::string(kStatusWidth - toStr(prev_status, false).size(), ' ');
     auto curr_pad = std::string(kStatusWidth - toStr(status, false).size(), ' ');
@@ -96,12 +102,16 @@ public:
    */
   void flush() override
   {
-    if (!event_log_.empty()) {
+    std::vector<nav2_msgs::msg::BehaviorTreeStatusChange> event_log;
+    {
+      std::lock_guard<std::mutex> lock(event_log_mutex_);
+      event_log.swap(event_log_);
+    }
+    if (!event_log.empty()) {
       auto log_msg = std::make_unique<nav2_msgs::msg::BehaviorTreeLog>();
       log_msg->timestamp = clock_->now();
-      log_msg->event_log = event_log_;
+      log_msg->event_log = std::move(event_log);
       log_pub_->publish(std::move(log_msg));
-      event_log_.clear();
     }
   }
 
@@ -112,6 +122,7 @@ protected:
   rclcpp::Logger logger_{rclcpp::get_logger("bt_navigator")};
   rclcpp::Publisher<nav2_msgs::msg::BehaviorTreeLog>::SharedPtr log_pub_;
   std::vector<nav2_msgs::msg::BehaviorTreeStatusChange> event_log_;
+  std::mutex event_log_mutex_;
 };
 
 }   // namespace nav2_behavior_tree
