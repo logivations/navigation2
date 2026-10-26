@@ -77,9 +77,17 @@ struct HybridMotionTable
   /**
    * @brief Get projections of motion models
    * @param node Ptr to NodeHybrid
-   * @return A set of motion poses
+   * @return A set of motion poses, index i from projections[i]
    */
   MotionPoses getProjections(const NodeHybrid * node);
+
+  /**
+   * @brief Whether a heading bin is on the heading lattice of the goal: reachable from the
+   * goal heading by whole turning increments. True without a goal heading.
+   * @param heading Heading bin
+   * @return Whether the bin is on the goal's lattice
+   */
+  bool isOnGoalHeadingLattice(const float & heading) const;
 
   /**
    * @brief Get the angular bin to use from a raw orientation
@@ -124,6 +132,13 @@ struct HybridMotionTable
   float soft_footprint_penalty{1.0};
   float cusp_penalty{0.0};
   bool allow_primitive_interpolation;
+  bool start_primitive_interpolation{false};
+  // projections without the interpolation primitives, which follow them
+  unsigned int num_base_projections{0};
+  // the turning primitives change the heading by multiples of this many bins
+  unsigned int heading_lattice_step{1};
+  // heading bin of the goal of the current search, -1 for none (free space search, any heading)
+  int goal_heading_bin{-1};
   ompl::base::StateSpacePtr state_space;
   std::vector<std::vector<double>> delta_xs;
   std::vector<std::vector<double>> delta_ys;

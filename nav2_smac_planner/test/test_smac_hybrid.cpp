@@ -479,6 +479,63 @@ TEST(SmacTest, test_smac_se2_partial_path)
   node.reset();
 }
 
+// AMR standing 17 deg off the aisle (sim 2026-10-26, bin 35 of 64 west of an aisle): the 0.4 m
+// radius on a 0.1 m map turns by 4 bins (22.5 deg), so from that bin the search never reaches
+// the aisle heading and the plan zig-zagged between 174.4 and 196.9 deg down the whole aisle.
+TEST(SmacTest, test_smac_se2_start_off_goal_heading_lattice)
+{
+  nav2::LifecycleNode::SharedPtr node =
+    std::make_shared<nav2::LifecycleNode>("SmacSE2StartLatticeTest");
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros =
+    std::make_shared<nav2_costmap_2d::Costmap2DROS>("global_costmap");
+  costmap_ros->on_configure(rclcpp_lifecycle::State());
+  node->configure();
+  node->activate();
+  costmap_ros->getCostmap()->resizeMap(200, 60, 0.1, 0.0, 0.0);
+
+  node->declare_parameter("test.motion_model_for_search", std::string("REEDS_SHEPP"));
+  node->declare_parameter("test.angle_quantization_bins", 64);
+  node->declare_parameter("test.minimum_turning_radius", 0.4);
+  node->declare_parameter("test.analytic_expansion_max_length", 2.0);
+  node->declare_parameter("test.smooth_path", false);
+  node->declare_parameter("test.start_primitive_interpolation", true);
+
+  auto planner = std::make_unique<HybridWrap>();
+  planner->configure(node, "test", nullptr, costmap_ros);
+  planner->activate();
+
+  geometry_msgs::msg::PoseStamped start, goal;
+  start.header.frame_id = goal.header.frame_id = "map";
+  start.pose.position.x = 1.0;
+  start.pose.position.y = 3.0;
+  // 16.9 deg: bin 3, off the lattice {0, 4, 8, ...} of the goal heading (bin 0)
+  start.pose.orientation.z = std::sin(3 * M_PI / 64);
+  start.pose.orientation.w = std::cos(3 * M_PI / 64);
+  goal.pose.position.x = 18.0;
+  goal.pose.position.y = 3.0;
+  goal.pose.orientation.w = 1.0;
+  const auto plan = planner->createPlan(start, goal, []() {return false;});
+
+  ASSERT_GT(plan.poses.size(), 100u);
+  // past the turn onto the aisle heading and before the analytic expansion onto the goal
+  // (2 m), straight along the aisle
+  for (const auto & pose : plan.poses) {
+    if (pose.pose.position.x > 3.0 && pose.pose.position.x < 15.0) {
+      EXPECT_NEAR(tf2::getYaw(pose.pose.orientation), 0.0, 1e-3) <<
+        "at x " << pose.pose.position.x;
+    }
+  }
+
+  planner->deactivate();
+  planner->cleanup();
+  planner.reset();
+  costmap_ros->on_cleanup(rclcpp_lifecycle::State());
+  node->deactivate();
+  node->cleanup();
+  costmap_ros.reset();
+  node.reset();
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <queue>
 #include <limits>
+#include <numeric>
 #include <utility>
 
 #include "ompl/base/ScopedState.h"
@@ -71,6 +72,7 @@ void HybridMotionTable::initDubin(
     min_turning_radius_left == radius_left &&
     min_turning_radius_right == radius_right &&
     allow_primitive_interpolation == search_info.allow_primitive_interpolation &&
+    start_primitive_interpolation == search_info.start_primitive_interpolation &&
     motion_model == MotionModel::DUBIN)
   {
     return;
@@ -82,6 +84,7 @@ void HybridMotionTable::initDubin(
   min_turning_radius_right = radius_right;
   min_turning_radius = conservative_radius;
   allow_primitive_interpolation = search_info.allow_primitive_interpolation;
+  start_primitive_interpolation = search_info.start_primitive_interpolation;
   motion_model = MotionModel::DUBIN;
 
   // angle must meet 3 requirements:
@@ -130,7 +133,10 @@ void HybridMotionTable::initDubin(
   projections.emplace_back(
     delta_x_right, -delta_y_right, -increments_right, TurnDirection::RIGHT);  // Right
 
-  if (search_info.allow_primitive_interpolation &&
+  num_base_projections = projections.size();
+  heading_lattice_step = std::gcd(
+    static_cast<unsigned int>(increments_left), static_cast<unsigned int>(increments_right));
+  if ((search_info.allow_primitive_interpolation || search_info.start_primitive_interpolation) &&
     (increments_left > 1.0f || increments_right > 1.0f))
   {
     // Create primitives at intermediate angle bins so the search can expand into any
@@ -226,6 +232,7 @@ void HybridMotionTable::initReedsShepp(
     min_turning_radius_left == radius_left &&
     min_turning_radius_right == radius_right &&
     allow_primitive_interpolation == search_info.allow_primitive_interpolation &&
+    start_primitive_interpolation == search_info.start_primitive_interpolation &&
     motion_model == MotionModel::REEDS_SHEPP)
   {
     return;
@@ -237,6 +244,7 @@ void HybridMotionTable::initReedsShepp(
   min_turning_radius_right = radius_right;
   min_turning_radius = conservative_radius;
   allow_primitive_interpolation = search_info.allow_primitive_interpolation;
+  start_primitive_interpolation = search_info.start_primitive_interpolation;
   motion_model = MotionModel::REEDS_SHEPP;
 
   bin_size =
@@ -285,7 +293,10 @@ void HybridMotionTable::initReedsShepp(
     -delta_x_right, -delta_y_right, increments_right,
     TurnDirection::REV_RIGHT);  // Backward + Right
 
-  if (search_info.allow_primitive_interpolation &&
+  num_base_projections = projections.size();
+  heading_lattice_step = std::gcd(
+    static_cast<unsigned int>(increments_left), static_cast<unsigned int>(increments_right));
+  if ((search_info.allow_primitive_interpolation || search_info.start_primitive_interpolation) &&
     (increments_left > 1.0f || increments_right > 1.0f))
   {
     // Create primitives at intermediate angle bins so the search can expand into any
@@ -358,10 +369,15 @@ void HybridMotionTable::initReedsShepp(
 
 MotionPoses HybridMotionTable::getProjections(const NodeHybrid * node)
 {
+  // the interpolation primitives only for the start node (no parent) with
+  // start_primitive_interpolation; they follow the base ones, so indices stay aligned
+  const unsigned int num_projections =
+    (allow_primitive_interpolation || (start_primitive_interpolation && !node->parent)) ?
+    projections.size() : num_base_projections;
   MotionPoses projection_list;
-  projection_list.reserve(projections.size());
+  projection_list.reserve(num_projections);
 
-  for (unsigned int i = 0; i != projections.size(); i++) {
+  for (unsigned int i = 0; i != num_projections; i++) {
     const MotionPose & proj_motion_model = projections[i];
 
     // normalize theta, I know its overkill, but I've been burned before...
@@ -383,6 +399,17 @@ MotionPoses HybridMotionTable::getProjections(const NodeHybrid * node)
   }
 
   return projection_list;
+}
+
+bool HybridMotionTable::isOnGoalHeadingLattice(const float & heading) const
+{
+  if (goal_heading_bin < 0 || heading_lattice_step <= 1 ||
+    num_angle_quantization % heading_lattice_step != 0)
+  {
+    return true;
+  }
+  return (static_cast<unsigned int>(heading) + num_angle_quantization -
+         static_cast<unsigned int>(goal_heading_bin)) % heading_lattice_step == 0;
 }
 
 unsigned int HybridMotionTable::getClosestAngularBin(const double & theta)
@@ -587,29 +614,49 @@ void NodeHybrid::getNeighbors(
   Coordinates initial_node_coords;
   const MotionPoses motion_projections = _ctx->motion_table.getProjections(this);
 
-  for (unsigned int i = 0; i != motion_projections.size(); i++) {
-    index = NodeHybrid::getIndex(
-      static_cast<unsigned int>(motion_projections[i]._x),
-      static_cast<unsigned int>(motion_projections[i]._y),
-      static_cast<unsigned int>(motion_projections[i]._theta),
-      _ctx->motion_table.size_x, _ctx->motion_table.num_angle_quantization);
+  auto add_neighbors = [&](const bool on_goal_heading_lattice_only) {
+      for (unsigned int i = 0; i != motion_projections.size(); i++) {
+        if (on_goal_heading_lattice_only &&
+          !_ctx->motion_table.isOnGoalHeadingLattice(motion_projections[i]._theta))
+        {
+          continue;
+        }
 
-    if (NeighborGetter(index, neighbor) && !neighbor->wasVisited()) {
-      // Cache the initial pose in case it was visited but valid
-      // don't want to disrupt continuous coordinate expansion
-      initial_node_coords = neighbor->pose;
-      neighbor->setPose(
-        Coordinates(
-          motion_projections[i]._x,
-          motion_projections[i]._y,
-          motion_projections[i]._theta));
-      if (neighbor->isNodeValid(traverse_unknown, collision_checker)) {
-        neighbor->setMotionPrimitiveIndex(i, motion_projections[i]._turn_dir);
-        neighbors.push_back(neighbor);
-      } else {
-        neighbor->setPose(initial_node_coords);
+        index = NodeHybrid::getIndex(
+          static_cast<unsigned int>(motion_projections[i]._x),
+          static_cast<unsigned int>(motion_projections[i]._y),
+          static_cast<unsigned int>(motion_projections[i]._theta),
+          _ctx->motion_table.size_x, _ctx->motion_table.num_angle_quantization);
+
+        if (NeighborGetter(index, neighbor) && !neighbor->wasVisited()) {
+          // Cache the initial pose in case it was visited but valid
+          // don't want to disrupt continuous coordinate expansion
+          initial_node_coords = neighbor->pose;
+          neighbor->setPose(
+            Coordinates(
+              motion_projections[i]._x,
+              motion_projections[i]._y,
+              motion_projections[i]._theta));
+          if (neighbor->isNodeValid(traverse_unknown, collision_checker)) {
+            neighbor->setMotionPrimitiveIndex(i, motion_projections[i]._turn_dir);
+            neighbors.push_back(neighbor);
+          } else {
+            neighbor->setPose(initial_node_coords);
+          }
+        }
       }
-    }
+    };
+
+  // start_primitive_interpolation: the start node turns into the goal's heading lattice, so
+  // the search can drive straight in the goal's direction (along the aisle) and reach the goal
+  // heading. If no such turn is free there, the start keeps its own lattice.
+  const bool start_into_goal_lattice = !parent &&
+    _ctx->motion_table.start_primitive_interpolation &&
+    !_ctx->motion_table.allow_primitive_interpolation;
+  const size_t num_neighbors = neighbors.size();
+  add_neighbors(start_into_goal_lattice);
+  if (start_into_goal_lattice && neighbors.size() == num_neighbors) {
+    add_neighbors(false);
   }
 }
 

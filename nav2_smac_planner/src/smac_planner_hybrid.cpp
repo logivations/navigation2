@@ -95,6 +95,8 @@ void SmacPlannerHybrid::configure(
     node->declare_or_get_parameter(name + ".minimum_turning_radius_right", 0.0);
   _search_info.allow_primitive_interpolation =
     node->declare_or_get_parameter(name + ".allow_primitive_interpolation", false);
+  _search_info.start_primitive_interpolation =
+    node->declare_or_get_parameter(name + ".start_primitive_interpolation", false);
   _search_info.cache_obstacle_heuristic =
     node->declare_or_get_parameter(name + ".cache_obstacle_heuristic", false);
   _search_info.reverse_penalty =
@@ -531,6 +533,10 @@ nav_msgs::msg::Path SmacPlannerHybrid::createPlan(
       mx_goal, my_goal, static_cast<unsigned int>(goal_orientation_bin_int),
       _goal_heading_mode, _coarse_search_resolution);
   }
+  // start_primitive_interpolation turns the start into this goal heading's lattice
+  _a_star->getContext()->motion_table.goal_heading_bin =
+    (_find_free_space_mode || _goal_heading_mode == GoalHeadingMode::ALL_DIRECTION) ?
+    -1 : static_cast<int>(goal_orientation_bin_int);
 
   // Setup message
   nav_msgs::msg::Path plan;
@@ -1348,6 +1354,9 @@ SmacPlannerHybrid::updateParametersCallback(const std::vector<rclcpp::Parameter>
         _search_info.cache_obstacle_heuristic = parameter.as_bool();
       } else if (param_name == _name + ".allow_primitive_interpolation") {
         _search_info.allow_primitive_interpolation = parameter.as_bool();
+        reinit_a_star = true;
+      } else if (param_name == _name + ".start_primitive_interpolation") {
+        _search_info.start_primitive_interpolation = parameter.as_bool();
         reinit_a_star = true;
       } else if (param_name == _name + ".smooth_path") {
         if (parameter.as_bool()) {
