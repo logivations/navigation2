@@ -126,6 +126,17 @@ protected:
   void smootherTimer(const bool force_execution);
 
   /**
+   * @brief BOUNDED_OPEN_LOOP: the last smoothed output bounded to the odometry, the start of
+   * this cycle's ramp. With wheelbase > 0 the planar motion (v_x, v_y, wheelbase * w) stays
+   * within max_delta[0] of the odometry as one vector, else each axis within its own max_delta.
+   * @param last The last smoothed output
+   * @param odom The current odometry twist
+   * @return The bounded twist
+   */
+  geometry_msgs::msg::Twist boundToOdometry(
+    const geometry_msgs::msg::Twist & last, const geometry_msgs::msg::Twist & odom) const;
+
+  /**
    * @brief Validate incoming parameter updates before applying them.
    * This callback is triggered when one or more parameters are about to be updated.
    * It checks the validity of parameter values and rejects updates that would lead
@@ -148,6 +159,13 @@ protected:
    * @brief Dynamic smoothing frequency calculation
    */
   double calculate_smoothing_frequency();
+
+  /**
+   * @brief Start, keep or end the soft stop for this cycle
+   * @param current Current velocity (per feedback type)
+   * @return Deceleration limits to apply this cycle
+   */
+  std::vector<double> updateSoftStop(const geometry_msgs::msg::Twist & current);
 
   // Network interfaces
   std::unique_ptr<nav2_util::OdomSmoother> odom_smoother_;
@@ -175,7 +193,18 @@ protected:
   std::vector<double> max_accels_;
   std::vector<double> max_decels_;
   std::vector<double> max_deltas_;
+  // BOUNDED_OPEN_LOOP: > 0 bounds (v, wheelbase * w) as one vector (m), 0 each axis on its own
+  double wheelbase_{0.0};
   std::vector<double> deadband_velocities_;
+  // Soft stop: a zero command received while moving is a stop request (goal reached, hand-over
+  // to the next controller). It ramps down with soft_stop_decel instead of max_decel, raised so
+  // that the linear roll-out stays within soft_stop_max_distance, never harder than max_decel.
+  // 0 (default) on an axis keeps max_decel for it.
+  std::vector<double> soft_stop_decels_;
+  double soft_stop_max_distance_;
+  bool command_is_stop_request_{false};
+  bool soft_stop_active_{false};
+  std::vector<double> soft_stop_latched_decels_;
   rclcpp::Duration velocity_timeout_{0, 0};
   rclcpp::Time last_command_time_;
   rclcpp::Time last_smoothed_time_;

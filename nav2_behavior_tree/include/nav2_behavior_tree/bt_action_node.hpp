@@ -24,6 +24,7 @@
 #include "nav2_ros_common/node_utils.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "nav2_behavior_tree/bt_utils.hpp"
+#include "nav2_behavior_tree/bt_shared_interfaces.hpp"
 #include "nav2_behavior_tree/json_utils.hpp"
 
 namespace nav2_behavior_tree
@@ -53,10 +54,6 @@ public:
   : BT::ActionNodeBase(xml_tag_name, conf), action_name_(action_name), should_send_goal_(true), should_abort_with_failure_(true)
   {
     node_ = config().blackboard->template get<nav2::LifecycleNode::SharedPtr>("node");
-    callback_group_ = node_->create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive,
-      false);
-    callback_group_executor_.add_callback_group(callback_group_, node_->get_node_base_interface());
 
     // Get the required items from the blackboard
     auto bt_loop_duration =
@@ -90,13 +87,26 @@ public:
   }
 
   /**
-   * @brief Create instance of an action client
+   * @brief Get the action client for this BT action, shared with the other BT nodes of this
+   * ROS node that use the same action (see getSharedInterface())
    * @param action_name Action name to create client for
    */
   void createActionClient(const std::string & action_name)
   {
-    // Now that we have the ROS node to use, create the action client for this BT action
-    action_client_ = node_->create_action_client<ActionT>(action_name, callback_group_);
+    shared_client_ = getSharedInterface<SharedClient>(
+      node_->get_node_base_interface(), action_name, [&]() {
+        auto shared = std::make_shared<SharedClient>();
+        shared->callback_group = node_->create_callback_group(
+          rclcpp::CallbackGroupType::MutuallyExclusive, false);
+        shared->executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+        shared->executor->add_callback_group(
+          shared->callback_group, node_->get_node_base_interface());
+        shared->client = node_->create_action_client<ActionT>(action_name, shared->callback_group);
+        return shared;
+      });
+    action_client_ = shared_client_->client;
+    callback_group_ = shared_client_->callback_group;
+    callback_group_executor_ = shared_client_->executor;
   }
 
   /**
@@ -292,7 +302,7 @@ public:
           }
         }
 
-        callback_group_executor_.spin_some();
+        callback_group_executor_->spin_some();
 
         // check if, after invoking spin_some(), we finally received the result
         if (!goal_result_available_) {
@@ -347,7 +357,7 @@ public:
         action_name_.c_str(), name().c_str());
       auto future_result = action_client_->async_get_result(goal_handle_);
       auto future_cancel = action_client_->async_cancel_goal(goal_handle_);
-      if (callback_group_executor_.spin_until_future_complete(future_cancel, server_timeout_) !=
+      if (callback_group_executor_->spin_until_future_complete(future_cancel, server_timeout_) !=
         rclcpp::FutureReturnCode::SUCCESS)
       {
         RCLCPP_ERROR(
@@ -355,7 +365,7 @@ public:
           "Failed to cancel action server for %s", action_name_.c_str());
       }
 
-      if (callback_group_executor_.spin_until_future_complete(future_result, cancel_timeout_) !=
+      if (callback_group_executor_->spin_until_future_complete(future_result, cancel_timeout_) !=
         rclcpp::FutureReturnCode::SUCCESS)
       {
         RCLCPP_ERROR(
@@ -388,7 +398,7 @@ protected:
       return false;
     }
 
-    callback_group_executor_.spin_some();
+    callback_group_executor_->spin_some();
     auto status = goal_handle_->get_status();
 
     // Check if the goal is still executing
@@ -403,8 +413,15 @@ protected:
   {
     goal_result_available_ = false;
     auto send_goal_options = typename nav2::ActionClient<ActionT>::SendGoalOptions();
+    // The shared executor runs these callbacks whenever any BT node using this action spins it,
+    // also after this node gave up on the goal or was destroyed with its tree
+    std::weak_ptr<void> alive = alive_;
     send_goal_options.result_callback =
-      [this](const typename rclcpp_action::ClientGoalHandle<ActionT>::WrappedResult & result) {
+      [this, alive](
+      const typename rclcpp_action::ClientGoalHandle<ActionT>::WrappedResult & result) {
+        if (alive.expired()) {
+          return;
+        }
         if (future_goal_handle_) {
           RCLCPP_DEBUG(
             node_->get_logger(),
@@ -416,15 +433,19 @@ protected:
         // TODO(#1652): a work around until rcl_action interface is updated
         // if goal ids are not matched, the older goal call this callback so ignore the result
         // if matched, it must be processed (including aborted)
-        if (this->goal_handle_->get_goal_id() == result.goal_id) {
+        // goal_handle_ is null when the goal response timed out and the server accepted it later
+        if (this->goal_handle_ && this->goal_handle_->get_goal_id() == result.goal_id) {
           goal_result_available_ = true;
           result_ = result;
           emitWakeUpSignal();
         }
       };
     send_goal_options.feedback_callback =
-      [this](typename rclcpp_action::ClientGoalHandle<ActionT>::SharedPtr,
+      [this, alive](typename rclcpp_action::ClientGoalHandle<ActionT>::SharedPtr,
       const std::shared_ptr<const typename ActionT::Feedback> feedback) {
+        if (alive.expired()) {
+          return;
+        }
         feedback_ = feedback;
         emitWakeUpSignal();
       };
@@ -453,7 +474,7 @@ protected:
 
     auto timeout = remaining > max_timeout_ ? max_timeout_ : remaining;
     auto result =
-      callback_group_executor_.spin_until_future_complete(*future_goal_handle_, timeout);
+      callback_group_executor_->spin_until_future_complete(*future_goal_handle_, timeout);
     elapsed += timeout;
 
     if (result == rclcpp::FutureReturnCode::INTERRUPTED) {
@@ -499,8 +520,20 @@ protected:
 
   // The node that will be used for any ROS operations
   nav2::LifecycleNode::SharedPtr node_;
+
+  // Client, callback group and executor shared by the BT nodes of node_ that use this action
+  struct SharedClient
+  {
+    rclcpp::CallbackGroup::SharedPtr callback_group;
+    rclcpp::executors::SingleThreadedExecutor::SharedPtr executor;
+    typename nav2::ActionClient<ActionT>::SharedPtr client;
+  };
+  std::shared_ptr<SharedClient> shared_client_;
   rclcpp::CallbackGroup::SharedPtr callback_group_;
-  rclcpp::executors::SingleThreadedExecutor callback_group_executor_;
+  rclcpp::executors::SingleThreadedExecutor::SharedPtr callback_group_executor_;
+
+  // Expires with this node, so goal callbacks run by the shared executor skip a destroyed node
+  std::shared_ptr<int> alive_{std::make_shared<int>(0)};
 
   // The timeout value while waiting for response from a server when a
   // new action goal is sent or canceled

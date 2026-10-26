@@ -17,6 +17,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <thread>
 
 #include "behaviortree_cpp/bt_factory.h"
 
@@ -110,6 +111,28 @@ TEST_F(ClearEntireCostmapServiceTestFixture, test_tick)
   EXPECT_EQ(config_->blackboard->get<int>("number_recoveries"), 0);
   EXPECT_EQ(tree_->rootNode()->executeTick(), BT::NodeStatus::SUCCESS);
   EXPECT_EQ(config_->blackboard->get<int>("number_recoveries"), 1);
+}
+
+TEST_F(ClearEntireCostmapServiceTestFixture, test_nodes_share_one_service_client)
+{
+  // One client per BT node made trees with many service calls slow to build on a robot
+  std::string xml_txt =
+    R"(
+      <root BTCPP_format="4">
+        <BehaviorTree ID="MainTree">
+          <Sequence>
+            <ClearEntireCostmap service_name="clear_entire_costmap"/>
+            <ClearEntireCostmap service_name="clear_entire_costmap"/>
+          </Sequence>
+        </BehaviorTree>
+      </root>)";
+
+  tree_ = std::make_shared<BT::Tree>(factory_->createTreeFromText(xml_txt, config_->blackboard));
+  EXPECT_EQ(tree_->tickWhileRunning(std::chrono::milliseconds(10)), BT::NodeStatus::SUCCESS);
+  EXPECT_EQ(config_->blackboard->get<int>("number_recoveries"), 2);
+  // let the graph settle in case more clients show up
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  EXPECT_EQ(node_->count_clients("clear_entire_costmap"), 1u);
 }
 
 class ClearCostmapExceptRegionService : public TestService<nav2_msgs::srv::ClearCostmapExceptRegion>

@@ -267,7 +267,8 @@ TEST_F(BTActionNodeTestFixture, test_server_timeout_success)
   BT::NodeStatus result = BT::NodeStatus::RUNNING;
 
   // BT loop execution rate
-  nav2_behavior_tree::LoopRate loopRate(10ms, tree_.get());
+  nav2_behavior_tree::LoopRate loopRate(
+    10ms, tree_.get(), std::make_shared<rclcpp::Clock>(RCL_STEADY_TIME));
 
   // main BT execution loop
   while (rclcpp::ok() && result == BT::NodeStatus::RUNNING) {
@@ -487,6 +488,70 @@ TEST_F(BTActionNodeTestFixture, test_server_cancel)
   // ticks variable must be 7 because execution time of the action server
   // is at least 1000000 x 50 ms
   EXPECT_EQ(ticks, 7);
+}
+
+TEST_F(BTActionNodeTestFixture, test_nodes_share_one_action_client)
+{
+  // One client per BT node made a pick tree with ~30 nodes per action server take 2-3 s to
+  // build on a robot. Nodes are only constructed here, so no server is needed.
+  std::string xml_txt =
+    R"(
+      <root BTCPP_format="4">
+        <BehaviorTree ID="MainTree">
+          <Sequence>
+            <Fibonacci server_name="fibonacci_shared" order="1" />
+            <Fibonacci server_name="fibonacci_shared" order="1" />
+            <Fibonacci server_name="fibonacci_shared" order="1" />
+          </Sequence>
+        </BehaviorTree>
+      </root>)";
+  tree_ = std::make_shared<BT::Tree>(factory_->createTreeFromText(xml_txt, config_->blackboard));
+
+  // Each action client subscribes to the feedback topic once
+  const std::string feedback_topic = "/fibonacci_shared/_action/feedback";
+  auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (node_->count_subscribers(feedback_topic) == 0 &&
+    std::chrono::steady_clock::now() < deadline)
+  {
+    std::this_thread::sleep_for(10ms);
+  }
+  // let the graph settle in case more clients show up
+  std::this_thread::sleep_for(300ms);
+  EXPECT_EQ(node_->count_subscribers(feedback_topic), 1u);
+}
+
+TEST_F(BTActionNodeTestFixture, test_late_result_of_timed_out_goal_while_other_node_spins)
+{
+  // The first node gives up waiting for the goal response; the server accepts and finishes
+  // that goal later, while the second node spins the shared executor. The first node's result
+  // callback then runs without a goal handle and must ignore the result.
+  std::string xml_txt =
+    R"(
+      <root BTCPP_format="4">
+        <BehaviorTree ID="MainTree">
+          <Fallback>
+            <Fibonacci order="1" />
+            <Fibonacci order="1" />
+          </Fallback>
+        </BehaviorTree>
+      </root>)";
+  config_->blackboard->set<std::chrono::milliseconds>("server_timeout", 80ms);
+  config_->blackboard->set<std::chrono::milliseconds>("bt_loop_duration", 10ms);
+  tree_ = std::make_shared<BT::Tree>(factory_->createTreeFromText(xml_txt, config_->blackboard));
+
+  // the server accepts the first goal after 100 ms, the second one after 2 ms more
+  action_server_->setHandleGoalSleepDuration(100ms);
+  action_server_->setServerLoopRate(10ns);
+
+  BT::NodeStatus result = tree_->tickOnce();
+  action_server_->setHandleGoalSleepDuration(2ms);
+  rclcpp::WallRate loopRate(10ms);
+  while (rclcpp::ok() && result == BT::NodeStatus::RUNNING) {
+    loopRate.sleep();
+    result = tree_->tickOnce();
+  }
+
+  EXPECT_EQ(result, BT::NodeStatus::SUCCESS);
 }
 
 int main(int argc, char ** argv)

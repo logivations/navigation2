@@ -236,6 +236,7 @@ protected:
   double _minimum_turning_radius_global_coords;
   // Optional asymmetric right-turn radius. 0.0 = symmetric (use _minimum_turning_radius_global_coords).
   double _minimum_turning_radius_right_global_coords;
+  double _cusp_penalty_m{0.0};
   bool _debug_visualizations;
   bool _publish_failed_search;
   double _partial_path_backoff;

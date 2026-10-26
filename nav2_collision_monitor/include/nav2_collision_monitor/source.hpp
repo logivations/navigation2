@@ -152,6 +152,12 @@ protected:
     const std_msgs::msg::Header & data_header,
     tf2::Transform & tf_transform) const;
 
+  /**
+   * @brief Warns once per source that no data has been received yet
+   * @param data_type Kind of data the source expects (scan, pointcloud, ...)
+   */
+  void warnNoDataYet(const char * data_type);
+
   // ----- Variables -----
 
   /// @brief Collision Monitor node
@@ -185,6 +191,8 @@ protected:
   bool base_shift_correction_;
   /// @brief Whether source is enabled
   bool enabled_;
+  /// @brief Whether the "no data received yet" warning was already logged
+  bool no_data_warned_{false};
 };  // class Source
 
 }  // namespace nav2_collision_monitor
