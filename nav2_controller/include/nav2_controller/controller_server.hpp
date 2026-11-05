@@ -205,6 +205,14 @@ protected:
    */
   bool isGoalReached();
   /**
+   * @brief Checks a new goal before its first control step: true if it is reached
+   * already (e.g. a path that is only the robot's own pose), so that it gets no command.
+   * Fills transformed_global_plan_ and transformed_end_pose_ the same way the control
+   * step does.
+   * @throw nav2_core::ControllerTFError if the robot pose or end pose is unavailable
+   */
+  bool isGoalReachedBeforeFirstControl();
+  /**
    * @brief Obtain current pose of the robot in costmap's frame
    * @param pose To store current pose of the robot
    * @return true if able to obtain current pose of the robot, else false
