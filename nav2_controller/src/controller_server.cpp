@@ -509,6 +509,7 @@ void ControllerServer::computeControl()
 
     last_valid_cmd_time_ = now();
     nav2::Rate loop_rate(this, params_->controller_frequency);
+    bool first_cycle = true;
     while (rclcpp::ok()) {
       auto start_time = this->now();
 
@@ -535,6 +536,18 @@ void ControllerServer::computeControl()
       double costmap_wait = waitForCostmap();
 
       updateGlobalPath();
+
+      // A goal that is reached already when it arrives (e.g. a path that is only the robot's
+      // own pose) gets no control step: that step went out together with the stop, and a
+      // caller re-sending such a goal every BT tick turned it into a 20 Hz stream of tiny
+      // commands whose v flipped sign. On a tricycle a tiny v with a turn means +-80 deg of
+      // steering, flipping with v (miele-amr2 2026-11-05 08:48-08:53 UTC: 4.5 min of steering
+      // churn behind a parked AMR, 11 deg of yaw the wheel odometry missed).
+      if (first_cycle && isGoalReachedBeforeFirstControl()) {
+        RCLCPP_INFO(get_logger(), "Reached the goal!");
+        break;
+      }
+      first_cycle = false;
 
       computeAndPublishVelocity();
 
@@ -934,6 +947,30 @@ bool ControllerServer::isGoalReached()
   return goal_checkers_[current_goal_checker_]->isGoalReached(
     pose.pose, transformed_end_pose_.pose,
     velocity, transformed_global_plan_);
+}
+
+bool ControllerServer::isGoalReachedBeforeFirstControl()
+{
+  geometry_msgs::msg::PoseStamped pose;
+  if (!getRobotPose(pose)) {
+    throw nav2_core::ControllerTFError("Failed to obtain robot pose");
+  }
+
+  // The goal checker gets the same inputs as after a control step
+  auto [closest_point, pruned_plan_end] =
+    path_handlers_[current_path_handler_]->findPlanSegment(pose);
+  transformed_global_plan_ =
+    path_handlers_[current_path_handler_]->transformLocalPlan(closest_point, pruned_plan_end);
+
+  end_pose_.header.stamp = pose.header.stamp;
+  if (!nav2_util::transformPoseInTargetFrame(
+      end_pose_, transformed_end_pose_, *costmap_ros_->getTfBuffer(),
+      costmap_ros_->getGlobalFrameID(), transform_tolerance_))
+  {
+    throw nav2_core::ControllerTFError("Failed to transform end pose to global frame");
+  }
+
+  return isGoalReached();
 }
 
 bool ControllerServer::getRobotPose(geometry_msgs::msg::PoseStamped & pose)
