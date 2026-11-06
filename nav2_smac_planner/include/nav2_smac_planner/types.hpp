@@ -54,6 +54,11 @@ struct SearchInfo
   bool cache_obstacle_heuristic{false};
   bool allow_reverse_expansion{false};
   bool allow_primitive_interpolation{false};
+  // Hybrid-A*: the turning primitives change the heading by whole increments of several bins,
+  // so a search reaches only the bins of one lattice (start bin modulo the increment) and
+  // cannot drive straight in a direction off it. With this, the start node alone also gets
+  // the interpolation primitives and turns into the lattice of the goal heading.
+  bool start_primitive_interpolation{false};
   bool downsample_obstacle_heuristic{true};
   bool use_quadratic_cost_penalty{false};
   // Soft footprint padding (SE2 footprints only): a pose whose footprint, grown by these
